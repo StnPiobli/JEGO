@@ -104,5 +104,26 @@ async function connexion(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+async function monProfil(req, res) {
+  try {
+    const voyageurId = req.utilisateur.id;
 
-module.exports = { inscription, connexion };
+    const resultat = await pool.query(
+      `SELECT id, nom, prenom, date_naissance, lieu_naissance,
+              telephone, email, contact_urgence, points_fidelite,
+              langue, mode_sombre, cree_le
+       FROM voyageurs WHERE id = $1`,
+      [voyageurId]
+    );
+
+    if (resultat.rows.length === 0) {
+      return res.status(404).json({ error: 'Voyageur introuvable' });
+    }
+
+    res.json({ voyageur: resultat.rows[0] });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+module.exports = { inscription, connexion, monProfil };

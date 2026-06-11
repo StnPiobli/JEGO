@@ -1,0 +1,19 @@
+{
+  "terminal.integrated.profiles.windows": {
+    "SERVEUR": {
+      "path": "powershell.exe",
+      "args": ["-NoExit", "-Command", "cd C:/Users/steph/JEGO/backend"],
+      "overrideName": true
+    },
+    "BASE DE DONNEES": {
+      "path": "powershell.exe",
+      "args": ["-NoExit", "-Command", "$env:Path += ';C:\\Program Files\\PostgreSQL\\18\\bin'; psql -U postgres -d jego"],
+      "overrideName": true
+    },
+    "COMMANDES": {
+      "path": "powershell.exe",
+      "args": ["-NoExit", "-Command", "cd C:/Users/steph/JEGO/backend"],
+      "overrideName": true
+    }
+  }
+}

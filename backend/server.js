@@ -9,6 +9,7 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/api/voyageurs', require('./routes/voyageurRoutes'));
 
 // Route de test
 app.get('/', (req, res) => {

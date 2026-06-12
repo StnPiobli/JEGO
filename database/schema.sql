@@ -247,7 +247,7 @@ CREATE TABLE trajets (
                         )),
   statut                VARCHAR(30) DEFAULT 'programme' CHECK (statut IN (
                           'programme', 'en_cours', 'termine',
-                          'annule', 'retard'
+                          'annule', 'retard', 'incident'
                         )),
   retard_minutes        INTEGER DEFAULT 0,
   heure_depart_reelle   TIMESTAMP,
@@ -850,3 +850,61 @@ CREATE INDEX idx_absences_membre ON absences(membre_id);
 CREATE INDEX idx_dossiers_rh_membre ON dossiers_rh(membre_id);
 CREATE INDEX idx_historique_permissions_role ON historique_permissions(role_id);
 CREATE INDEX idx_historique_permissions_permission ON historique_permissions(permission_id);
+
+-- ═══════════════════════════════════════════════════
+-- TABLE 41 — PARAMÈTRES SYSTÈME
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE parametres_systeme (
+  id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  cle             VARCHAR(100) NOT NULL UNIQUE,
+  valeur          TEXT NOT NULL,
+  type_valeur     VARCHAR(20) CHECK (type_valeur IN (
+                    'nombre', 'texte', 'booleen', 'json'
+                  )),
+  categorie       VARCHAR(50),
+  description     VARCHAR(255),
+  modifie_par     UUID REFERENCES membres_admin(id),
+  mis_a_jour_le   TIMESTAMP DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════════════
+-- TABLE 42 — CONFIGURATION DES FRAIS
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE configuration_frais (
+  id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  tranche_min     INTEGER NOT NULL,
+  tranche_max     INTEGER,
+  pourcentage     DECIMAL(4,2) NOT NULL,
+  type_frais      VARCHAR(50) NOT NULL,
+  actif           BOOLEAN DEFAULT TRUE,
+  modifie_par     UUID REFERENCES membres_admin(id),
+  cree_le         TIMESTAMP DEFAULT NOW(),
+  mis_a_jour_le   TIMESTAMP DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════════════
+-- TABLE 43 — INCIDENTS
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE incidents (
+  id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  trajet_id       UUID NOT NULL REFERENCES trajets(id),
+  type_incident   VARCHAR(50) NOT NULL CHECK (type_incident IN (
+                    'accident', 'panne_mecanique',
+                    'transfert_bus', 'autre'
+                  )),
+  declare_par     VARCHAR(20) NOT NULL CHECK (declare_par IN (
+                    'chauffeur', 'voyageur', 'agence', 'admin'
+                  )),
+  declarant_id    UUID,
+  description     TEXT NOT NULL,
+  bus_secours_id  UUID REFERENCES bus(id),
+  statut          VARCHAR(30) DEFAULT 'ouvert' CHECK (statut IN (
+                    'ouvert', 'en_traitement', 'resolu'
+                  )),
+  versements_geles BOOLEAN DEFAULT TRUE,
+  cree_le         TIMESTAMP DEFAULT NOW(),
+  resolu_le       TIMESTAMP
+);

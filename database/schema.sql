@@ -451,6 +451,7 @@ CREATE TABLE signalements (
                     'comportement_inapproprie',
                     'panne_technique',
                     'arret_prolonge',
+                    'fausse_arrivee',
                     'autre'
                   )),
   commentaire     TEXT,
@@ -824,34 +825,6 @@ CREATE TABLE historique_permissions (
 );
 
 -- ═══════════════════════════════════════════════════
--- INDEX
--- ═══════════════════════════════════════════════════
-
--- ═══════════════════════════════════════════════════
--- INDEX
--- ═══════════════════════════════════════════════════
-
-CREATE INDEX idx_billets_voyageur ON billets(voyageur_id);
-CREATE INDEX idx_billets_trajet ON billets(trajet_id);
-CREATE INDEX idx_trajets_date ON trajets(date_depart);
-CREATE INDEX idx_trajets_ligne ON trajets(ligne_id);
-CREATE INDEX idx_trajets_statut ON trajets(statut);
-CREATE INDEX idx_soft_locks_expiry ON soft_locks(expire_le);
-CREATE INDEX idx_notifications_destinataire ON notifications(destinataire_id);
-CREATE INDEX idx_signalements_trajet ON signalements(trajet_id);
-CREATE INDEX idx_logs_acteur ON logs_systeme(acteur_id);
-CREATE INDEX idx_taches_statut ON taches(statut);
-CREATE INDEX idx_taches_assigne ON taches(assigne_a);
-CREATE INDEX idx_sessions_token ON sessions(token);
-CREATE INDEX idx_sessions_utilisateur ON sessions(utilisateur_id);
-CREATE INDEX idx_membres_nom ON membres_admin(nom, prenom);
-CREATE INDEX idx_membres_branche ON membres_admin(branche);
-CREATE INDEX idx_absences_membre ON absences(membre_id);
-CREATE INDEX idx_dossiers_rh_membre ON dossiers_rh(membre_id);
-CREATE INDEX idx_historique_permissions_role ON historique_permissions(role_id);
-CREATE INDEX idx_historique_permissions_permission ON historique_permissions(permission_id);
-
--- ═══════════════════════════════════════════════════
 -- TABLE 41 — PARAMÈTRES SYSTÈME
 -- ═══════════════════════════════════════════════════
 
@@ -874,6 +847,7 @@ CREATE TABLE parametres_systeme (
 
 CREATE TABLE configuration_frais (
   id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  agence_id       UUID REFERENCES agences(id),
   tranche_min     INTEGER NOT NULL,
   tranche_max     INTEGER,
   pourcentage     DECIMAL(4,2) NOT NULL,
@@ -908,3 +882,51 @@ CREATE TABLE incidents (
   cree_le         TIMESTAMP DEFAULT NOW(),
   resolu_le       TIMESTAMP
 );
+
+-- ═══════════════════════════════════════════════════
+-- TABLE 44 — DOCUMENTS LÉGAUX
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE documents_legaux (
+  id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  type          VARCHAR(50) NOT NULL CHECK (type IN (
+                  'conditions_utilisation',
+                  'politique_confidentialite',
+                  'mentions_legales'
+                )),
+  version       VARCHAR(20) NOT NULL,
+  langue        VARCHAR(5) NOT NULL DEFAULT 'fr',
+  contenu       TEXT NOT NULL,
+  actif         BOOLEAN DEFAULT TRUE,
+  modifie_par   UUID REFERENCES membres_admin(id),
+  publie_le     TIMESTAMP DEFAULT NOW(),
+  cree_le       TIMESTAMP DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════════════
+-- INDEX
+-- ═══════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════
+-- INDEX
+-- ═══════════════════════════════════════════════════
+
+CREATE INDEX idx_billets_voyageur ON billets(voyageur_id);
+CREATE INDEX idx_billets_trajet ON billets(trajet_id);
+CREATE INDEX idx_trajets_date ON trajets(date_depart);
+CREATE INDEX idx_trajets_ligne ON trajets(ligne_id);
+CREATE INDEX idx_trajets_statut ON trajets(statut);
+CREATE INDEX idx_soft_locks_expiry ON soft_locks(expire_le);
+CREATE INDEX idx_notifications_destinataire ON notifications(destinataire_id);
+CREATE INDEX idx_signalements_trajet ON signalements(trajet_id);
+CREATE INDEX idx_logs_acteur ON logs_systeme(acteur_id);
+CREATE INDEX idx_taches_statut ON taches(statut);
+CREATE INDEX idx_taches_assigne ON taches(assigne_a);
+CREATE INDEX idx_sessions_token ON sessions(token);
+CREATE INDEX idx_sessions_utilisateur ON sessions(utilisateur_id);
+CREATE INDEX idx_membres_nom ON membres_admin(nom, prenom);
+CREATE INDEX idx_membres_branche ON membres_admin(branche);
+CREATE INDEX idx_absences_membre ON absences(membre_id);
+CREATE INDEX idx_dossiers_rh_membre ON dossiers_rh(membre_id);
+CREATE INDEX idx_historique_permissions_role ON historique_permissions(role_id);
+CREATE INDEX idx_historique_permissions_permission ON historique_permissions(permission_id);

@@ -10,6 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/api/voyageurs', require('./routes/voyageurRoutes'));
+app.use('/api/agences', require('./routes/agenceRoutes'));
 
 // Route de test
 app.get('/', (req, res) => {

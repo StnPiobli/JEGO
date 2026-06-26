@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { inscription, connexion } = require('../controllers/voyageurController');
+const { inscription, connexion, monProfil } = require('../controllers/voyageurController');
+const { authentifier } = require('../middleware/auth');
 
-// Inscription d'un voyageur
+// Routes publiques
 router.post('/inscription', inscription);
-
-// Connexion d'un voyageur
 router.post('/connexion', connexion);
+
+// Routes protégées (nécessitent un token)
+router.get('/profil', authentifier, monProfil);
 
 module.exports = router;

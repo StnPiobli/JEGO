@@ -104,6 +104,10 @@ async function connexion(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+// ═══════════════════════════════════════════════════
+// VOIR SON PROFIL (route protégée)
+// ═══════════════════════════════════════════════════
 async function monProfil(req, res) {
   try {
     const voyageurId = req.utilisateur.id;
@@ -111,7 +115,7 @@ async function monProfil(req, res) {
     const resultat = await pool.query(
       `SELECT id, nom, prenom, date_naissance, lieu_naissance,
               telephone, email, contact_urgence, points_fidelite,
-              langue, mode_sombre, cree_le
+              langue, mode_sombre, mode_eco_donnees, cree_le
        FROM voyageurs WHERE id = $1`,
       [voyageurId]
     );
@@ -126,4 +130,74 @@ async function monProfil(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
-module.exports = { inscription, connexion, monProfil };
+
+// ═══════════════════════════════════════════════════
+// MODIFIER SON PROFIL (route protégée)
+// ═══════════════════════════════════════════════════
+async function modifierProfil(req, res) {
+  try {
+    const voyageurId = req.utilisateur.id;
+    const { nom, prenom, email, contact_urgence, langue, mode_sombre, mode_eco_donnees } = req.body;
+
+    // Récupérer le voyageur actuel
+    const actuel = await pool.query('SELECT * FROM voyageurs WHERE id = $1', [voyageurId]);
+    if (actuel.rows.length === 0) {
+      return res.status(404).json({ error: 'Voyageur introuvable' });
+    }
+    const voyageur = actuel.rows[0];
+
+    // Vérifier la règle du changement de nom (1 fois / 6 mois)
+    const nomChange = (nom && nom !== voyageur.nom) || (prenom && prenom !== voyageur.prenom);
+    if (nomChange && voyageur.dernier_changement_nom) {
+      const dernierChangement = new Date(voyageur.dernier_changement_nom);
+      const sixMois = new Date();
+      sixMois.setMonth(sixMois.getMonth() - 6);
+      if (dernierChangement > sixMois) {
+        return res.status(403).json({
+          error: 'Le nom ne peut être modifié qu\'une fois tous les 6 mois.'
+        });
+      }
+    }
+
+    // Si l'email change, vérifier qu'il n'est pas déjà pris
+    if (email && email !== voyageur.email) {
+      const emailExiste = await pool.query(
+        'SELECT id FROM voyageurs WHERE email = $1 AND id != $2',
+        [email, voyageurId]
+      );
+      if (emailExiste.rows.length > 0) {
+        return res.status(409).json({ error: 'Cet email est déjà utilisé' });
+      }
+    }
+
+    // Construire les nouvelles valeurs (garder l'ancienne si non envoyée)
+    const nouveauNom = nom || voyageur.nom;
+    const nouveauPrenom = prenom || voyageur.prenom;
+    const nouvelEmail = email || voyageur.email;
+    const nouveauContact = contact_urgence !== undefined ? contact_urgence : voyageur.contact_urgence;
+    const nouvelleLangue = langue || voyageur.langue;
+    const nouveauModeSombre = mode_sombre !== undefined ? mode_sombre : voyageur.mode_sombre;
+    const nouveauModeEco = mode_eco_donnees !== undefined ? mode_eco_donnees : voyageur.mode_eco_donnees;
+
+    const resultat = await pool.query(
+      `UPDATE voyageurs SET
+        nom = $1, prenom = $2, email = $3, contact_urgence = $4,
+        langue = $5, mode_sombre = $6, mode_eco_donnees = $7,
+        dernier_changement_nom = ${nomChange ? 'NOW()' : 'dernier_changement_nom'},
+        mis_a_jour_le = NOW()
+       WHERE id = $8
+       RETURNING id, nom, prenom, email, contact_urgence, langue, mode_sombre, mode_eco_donnees, points_fidelite`,
+      [nouveauNom, nouveauPrenom, nouvelEmail, nouveauContact, nouvelleLangue, nouveauModeSombre, nouveauModeEco, voyageurId]
+    );
+
+    res.json({
+      message: 'Profil mis à jour',
+      voyageur: resultat.rows[0]
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { inscription, connexion, monProfil, modifierProfil };

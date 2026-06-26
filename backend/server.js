@@ -11,6 +11,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/voyageurs', require('./routes/voyageurRoutes'));
 app.use('/api/agences', require('./routes/agenceRoutes'));
+app.use('/api/bus', require('./routes/busRoutes'));
 
 // Route de test
 app.get('/', (req, res) => {

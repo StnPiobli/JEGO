@@ -1,8 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { planTrajet } = require('../controllers/reservationController');
+const { planTrajet, verrouillerSiege, prolongerVerrou } = require('../controllers/reservationController');
+const { authentifier } = require('../middleware/auth');
 
-// Route PUBLIQUE - le voyageur consulte le plan avant de réserver
+// Route PUBLIQUE - consulter le plan
 router.get('/trajets/:id/plan', planTrajet);
+
+// Routes PROTÉGÉES - verrouiller et prolonger (connexion obligatoire)
+router.post('/verrou', authentifier, verrouillerSiege);
+router.put('/verrou/:id/prolonger', authentifier, prolongerVerrou);
 
 module.exports = router;

@@ -17,6 +17,7 @@ app.use('/api/trajets', require('./routes/trajetRoutes'));
 app.use('/api/recherche', require('./routes/rechercheRoutes'));
 app.use('/api/villes', require('./routes/villeRoutes'));
 app.use('/api/reservations', require('./routes/reservationRoutes'));
+app.use('/api/annulations', require('./routes/annulationRoutes'));
 
 // Route de test
 app.get('/', (req, res) => {

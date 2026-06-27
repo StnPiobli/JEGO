@@ -2,7 +2,7 @@ const pool = require('../config/database');
 
 // ═══════════════════════════════════════════════════
 // RECHERCHER DES TRAJETS (route publique)
-// Le voyageur cherche : départ + arrivée + date
+// Le voyageur cherche par CODES de villes + date
 // On ne montre QUE les agences validées (statut actif)
 // ═══════════════════════════════════════════════════
 async function rechercherTrajets(req, res) {
@@ -17,11 +17,16 @@ async function rechercherTrajets(req, res) {
     }
 
     // Rechercher les trajets correspondants
+    // On joint la table villes deux fois : une pour le départ, une pour l'arrivée
+    // afin de récupérer les noms d'affichage (jolis noms avec accents)
     const resultat = await pool.query(
       `SELECT
           t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
           t.prix_base, t.categorie, t.statut,
-          l.ville_depart, l.ville_arrivee, l.est_direct, l.distance_km,
+          l.ville_depart AS code_depart, l.ville_arrivee AS code_arrivee,
+          vd.nom_affiche AS depart_affiche,
+          va.nom_affiche AS arrivee_affiche,
+          l.est_direct, l.distance_km,
           b.nom AS nom_bus, b.disposition, b.type_bus,
           b.climatisation, b.prises_usb, b.wifi, b.toilettes, b.sieges_inclinables,
           a.id AS agence_id, a.nom AS nom_agence, a.badge_certifie,
@@ -29,10 +34,12 @@ async function rechercherTrajets(req, res) {
            WHERE s.bus_id = b.id AND s.statut = 'disponible') AS places_disponibles
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
        JOIN bus b ON b.id = t.bus_id
        JOIN agences a ON a.id = t.agence_id
-       WHERE LOWER(l.ville_depart) = LOWER($1)
-         AND LOWER(l.ville_arrivee) = LOWER($2)
+       WHERE l.ville_depart = LOWER($1)
+         AND l.ville_arrivee = LOWER($2)
          AND t.date_depart = $3
          AND a.statut = 'actif'
          AND t.statut = 'programme'

@@ -240,4 +240,171 @@ async function prolongerVerrou(req, res) {
   }
 }
 
-module.exports = { planTrajet, verrouillerSiege, prolongerVerrou };
+// ═══════════════════════════════════════════════════
+// PAYER ET CRÉER LE BILLET (route protégée)
+// [SIMULATION Mobile Money — à remplacer par la vraie API plus tard]
+// ═══════════════════════════════════════════════════
+async function payer(req, res) {
+  const client = await pool.connect();
+  try {
+    const voyageurId = req.utilisateur.id;
+    const {
+      trajet_id, siege_id, operateur,
+      est_premium_choisi, supplement_bagage, est_flexible
+    } = req.body;
+
+    // Vérifs de base
+    if (!trajet_id || !siege_id || !operateur) {
+      return res.status(400).json({ error: 'Trajet, siège et opérateur sont obligatoires' });
+    }
+    if (!['mtn_momo', 'orange_money'].includes(operateur)) {
+      return res.status(400).json({ error: 'Opérateur invalide : mtn_momo ou orange_money' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Vérifier que le voyageur possède un verrou valide sur ce siège
+    const verrou = await client.query(
+      `SELECT id FROM soft_locks
+       WHERE siege_id = $1 AND trajet_id = $2 AND voyageur_id = $3 AND expire_le > NOW()`,
+      [siege_id, trajet_id, voyageurId]
+    );
+    if (verrou.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Aucun verrou valide. Sélectionnez à nouveau le siège.' });
+    }
+
+    // 2. Vérifier que le siège n'a pas été vendu entre-temps
+    const dejaVendu = await client.query(
+      `SELECT id FROM billets WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'`,
+      [siege_id, trajet_id]
+    );
+    if (dejaVendu.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ce siège vient d\'être vendu' });
+    }
+
+    // 3. Récupérer le trajet, le bus, le siège et l'agence
+    const infos = await client.query(
+      `SELECT t.prix_base, t.agence_id, t.date_depart,
+              b.supplement_premium,
+              s.numero AS siege_numero, s.est_premium
+       FROM trajets t
+       JOIN bus b ON b.id = t.bus_id
+       JOIN sieges s ON s.id = $1
+       WHERE t.id = $2`,
+      [siege_id, trajet_id]
+    );
+    const info = infos.rows[0];
+
+    // 4. Calculer le PRIX AGENCE (ce que l'agence reçoit)
+    let prixAgence = info.prix_base;
+    // Supplément premium : si le siège est premium, on l'ajoute (revient à l'agence)
+    if (info.est_premium) {
+      prixAgence += info.supplement_premium;
+    }
+
+    // 5. Calculer les SUPPLÉMENTS JEGO (reviennent à JEGO, pas à l'agence)
+    const suppSiege = est_premium_choisi ? 500 : 0;  // frais "choix du siège" (exemple)
+    const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
+    const suppFlexible = est_flexible ? Math.round(prixAgence * 0.10) : 0; // +10% si flexible
+
+    // 6. Calculer la COMMISSION JEGO via la grille (configuration_frais)
+    const grille = await client.query(
+      `SELECT pourcentage FROM configuration_frais
+       WHERE type_frais = 'commission'
+         AND actif = true
+         AND tranche_min <= $1
+         AND (tranche_max IS NULL OR tranche_max >= $1)
+         AND (agence_id = $2 OR agence_id IS NULL)
+       ORDER BY agence_id NULLS LAST
+       LIMIT 1`,
+      [prixAgence, info.agence_id]
+    );
+    const pourcentage = grille.rows.length > 0 ? parseFloat(grille.rows[0].pourcentage) : 7;
+    const commission = Math.round(prixAgence * pourcentage / 100);
+
+    // 7. Calculer le PRIX TOTAL CLIENT
+    const margeJego = commission + suppSiege + suppBagage + suppFlexible;
+    const prixTotalClient = prixAgence + margeJego;
+
+    // 8. Frais Mobile Money (1,5%, absorbés par JEGO)
+    const fraisMomo = Math.round(prixTotalClient * 0.015);
+
+    // 9. [SIMULATION] Appel Mobile Money — ici on simule un succès
+    const referenceMomo = `SIM-${operateur.toUpperCase()}-${Date.now()}`;
+
+    // 10. Générer le numéro de billet et le QR
+    const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
+    const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
+    const numeroBillet = `JG-${dateStr}-${suffixe}`;
+    const qrCode = `JEGO|${numeroBillet}|${trajet_id}|${siege_id}|${info.siege_numero}`;
+
+    // 11. Créer le BILLET
+    const billet = await client.query(
+      `INSERT INTO billets
+        (numero, trajet_id, voyageur_id, siege_id, agence_id,
+         type_billet, statut, est_flexible, supplement_flexible,
+         supplement_bagage, supplement_siege,
+         prix_total_client, prix_agence, marge_jego, frais_momo,
+         qr_code, source_vente)
+       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne')
+       RETURNING id, numero, qr_code, prix_total_client`,
+      [numeroBillet, trajet_id, voyageurId, siege_id, info.agence_id,
+       est_flexible ? 'flexible' : 'standard', est_flexible || false, suppFlexible,
+       suppBagage, suppSiege, prixTotalClient, prixAgence, margeJego, fraisMomo,
+       qrCode]
+    );
+    const billetId = billet.rows[0].id;
+
+    // 12. Créer le PAIEMENT (confirmé)
+    await client.query(
+      `INSERT INTO paiements
+        (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
+       VALUES ($1,$2,$3,$4,$5,'confirme','paiement',NOW())`,
+      [billetId, voyageurId, prixTotalClient, operateur, referenceMomo]
+    );
+
+    // 13. Créer l'ESCROW (argent retenu, pas versé)
+    await client.query(
+      `INSERT INTO escrow
+        (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
+       VALUES ($1,$2,$3,$4,$5,'retenu')`,
+      [billetId, prixTotalClient, prixAgence, margeJego - fraisMomo, fraisMomo]
+    );
+
+    // 14. Supprimer le verrou (le siège est maintenant vendu)
+    await client.query(
+      `DELETE FROM soft_locks WHERE siege_id = $1 AND trajet_id = $2`,
+      [siege_id, trajet_id]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Paiement réussi, billet confirmé',
+      billet: {
+        id: billetId,
+        numero: billet.rows[0].numero,
+        qr_code: billet.rows[0].qr_code,
+        siege: info.siege_numero,
+        prix_paye: prixTotalClient
+      },
+      detail_prix: {
+        prix_agence: prixAgence,
+        commission_jego: commission,
+        supplements: suppSiege + suppBagage + suppFlexible,
+        frais_momo: fraisMomo,
+        total_client: prixTotalClient
+      }
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { planTrajet, verrouillerSiege, prolongerVerrou, payer };

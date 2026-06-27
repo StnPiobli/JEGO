@@ -2,6 +2,7 @@ const pool = require('../config/database');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UNE LIGNE
+// L'agence envoie les CODES de villes (ex: "douala", "yaounde")
 // ═══════════════════════════════════════════════════
 async function creerLigne(req, res) {
   try {
@@ -18,7 +19,18 @@ async function creerLigne(req, res) {
       return res.status(400).json({ error: 'La ville de départ et d\'arrivée ne peuvent pas être identiques' });
     }
 
-    // Créer la ligne
+    // Vérifier que les deux villes existent dans la table villes
+    const villesCheck = await pool.query(
+      'SELECT code FROM villes WHERE code = ANY($1) AND actif = true',
+      [[ville_depart, ville_arrivee]]
+    );
+    if (villesCheck.rows.length !== 2) {
+      return res.status(400).json({
+        error: 'Ville de départ ou d\'arrivée inconnue. Utilisez un code de ville valide.'
+      });
+    }
+
+    // Créer la ligne (on stocke les codes)
     const resultat = await pool.query(
       `INSERT INTO lignes
         (agence_id, ville_depart, ville_arrivee, est_direct, arrets, distance_km)

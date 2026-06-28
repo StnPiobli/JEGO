@@ -108,7 +108,6 @@ async function verrouillerSiege(req, res) {
 
     const siege = siegeCheck.rows[0];
 
-    // Refuser les sièges non vendables
     if (siege.statut === 'supprime_toilettes') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce siège n\'est pas disponible (emplacement toilettes)' });
@@ -116,6 +115,22 @@ async function verrouillerSiege(req, res) {
     if (siege.statut === 'desactive') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce siège est indisponible (hors service)' });
+    }
+
+    // 1bis. Vérifier que le trajet n'est pas déjà parti (marge de 30 min)
+    const trajetInfo = await client.query(
+      `SELECT date_depart, heure_depart FROM trajets WHERE id = $1`,
+      [trajet_id]
+    );
+    const dateDepart = new Date(trajetInfo.rows[0].date_depart);
+    const [hh, mm] = trajetInfo.rows[0].heure_depart.split(':');
+    dateDepart.setHours(parseInt(hh), parseInt(mm), 0, 0);
+    const minutesAvantDepart = (dateDepart - new Date()) / (1000 * 60);
+    if (minutesAvantDepart < 30) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Réservation impossible : ce trajet part dans moins de 30 minutes ou est déjà parti.'
+      });
     }
 
     // 2. Vérifier qu'aucun billet confirmé n'existe pour ce siège+trajet
@@ -143,7 +158,6 @@ async function verrouillerSiege(req, res) {
       [siege_id, trajet_id]
     );
     if (verrouExistant.rows.length > 0) {
-      // Si c'est le même voyageur, on le laisse (il re-sélectionne son siège)
       if (verrouExistant.rows[0].voyageur_id === voyageurId) {
         await client.query('ROLLBACK');
         return res.status(200).json({ message: 'Vous avez déjà ce siège verrouillé' });
@@ -171,7 +185,6 @@ async function verrouillerSiege(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    // Si la contrainte unique a bloqué (race condition), message clair
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Ce siège vient d\'être pris par un autre voyageur' });
     }

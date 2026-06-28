@@ -43,6 +43,7 @@ async function rechercherTrajets(req, res) {
          AND t.date_depart = $3
          AND a.statut = 'actif'
          AND t.statut = 'programme'
+         AND (t.date_depart > CURRENT_DATE OR (t.date_depart = CURRENT_DATE AND t.heure_depart > CURRENT_TIME))
        ORDER BY t.heure_depart`,
       [ville_depart, ville_arrivee, date_depart]
     );

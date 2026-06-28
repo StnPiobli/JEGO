@@ -274,4 +274,79 @@ async function declarerDepart(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart };
+// ═══════════════════════════════════════════════════
+// DÉCLARER L'ARRIVÉE (chauffeur)
+// Le trajet doit être assigné à ce chauffeur et "en_cours".
+// Passe en "termine", programme le versement escrow à +6h.
+// ═══════════════════════════════════════════════════
+async function declarerArriveeChauffeur(req, res) {
+  const client = await pool.connect();
+  try {
+    const chauffeurId = req.utilisateur.id;
+    const trajetId = req.params.id;
+
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Vérifier que le trajet est assigné à ce chauffeur
+    const trajetCheck = await client.query(
+      `SELECT id, statut FROM trajets WHERE id = $1 AND chauffeur_id = $2`,
+      [trajetId, chauffeurId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable ou non assigné à vous' });
+    }
+
+    const trajet = trajetCheck.rows[0];
+
+    // 2. Vérifier qu'il est bien en cours (parti mais pas encore arrivé)
+    if (trajet.statut === 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà déclaré arrivé' });
+    }
+    if (trajet.statut !== 'en_cours') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Vous devez d\'abord déclarer le départ' });
+    }
+
+    // 3. Passer en "termine", enregistrer l'arrivée, programmer le versement à +6h
+    await client.query(
+      `UPDATE trajets
+       SET statut = 'termine',
+           heure_arrivee_reelle = NOW(),
+           versement_escrow_le = NOW() + INTERVAL '6 hours',
+           mis_a_jour_le = NOW()
+       WHERE id = $1`,
+      [trajetId]
+    );
+
+    // 4. Marquer les billets confirmés comme "utilise"
+    const billets = await client.query(
+      `UPDATE billets SET statut = 'utilise', mis_a_jour_le = NOW()
+       WHERE trajet_id = $1 AND statut = 'confirme'
+       RETURNING id`,
+      [trajetId]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Arrivée déclarée. Merci, bon repos !',
+      trajet_id: trajetId,
+      billets_concernes: billets.rows.length,
+      versement_prevu: 'dans 6 heures (sauf signalement de fraude)'
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur };

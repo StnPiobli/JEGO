@@ -90,4 +90,186 @@ async function listerTrajets(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets };
+// ═══════════════════════════════════════════════════
+// DÉCLARER L'ARRIVÉE D'UN TRAJET (agence)
+// Passe le trajet en "termine", programme le versement
+// de l'escrow 6h plus tard (délai anti-fraude)
+// ═══════════════════════════════════════════════════
+async function declarerArrivee(req, res) {
+  const client = await pool.connect();
+  try {
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+
+    await client.query('BEGIN');
+
+    // 1. Vérifier que le trajet appartient à l'agence
+    const trajetCheck = await client.query(
+      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      [trajetId, agenceId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+
+    const trajet = trajetCheck.rows[0];
+
+    // 2. Vérifier qu'il n'est pas déjà terminé ou annulé
+    if (trajet.statut === 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà déclaré arrivé' });
+    }
+    if (trajet.statut === 'annule') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet a été annulé' });
+    }
+
+    // 3. Passer le trajet en "termine", enregistrer l'heure d'arrivée
+    //    et programmer le versement de l'escrow dans 6h
+    await client.query(
+      `UPDATE trajets
+       SET statut = 'termine',
+           heure_arrivee_reelle = NOW(),
+           versement_escrow_le = NOW() + INTERVAL '6 hours',
+           mis_a_jour_le = NOW()
+       WHERE id = $1`,
+      [trajetId]
+    );
+
+    // 4. Marquer les billets confirmés comme "utilise"
+    const billetsResult = await client.query(
+      `UPDATE billets SET statut = 'utilise', mis_a_jour_le = NOW()
+       WHERE trajet_id = $1 AND statut = 'confirme'
+       RETURNING id`,
+      [trajetId]
+    );
+
+    // 5. Notifier les passagers (simulation pour l'instant)
+    //    Plus tard : push "Arrivée déclarée, c'était comment ?"
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Arrivée déclarée. Le versement à l\'agence interviendra dans 6h sauf signalement.',
+      trajet_id: trajetId,
+      billets_concernes: billetsResult.rows.length,
+      versement_prevu: 'dans 6 heures (sous réserve d\'absence de signalement de fraude)'
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// VERSER L'ESCROW À L'AGENCE (après délai 6h, si pas de fraude)
+// Sera appelée par un job automatique. Vérifie le seuil
+// de signalements "fausse_arrivee" avant de verser.
+// ═══════════════════════════════════════════════════
+async function verserEscrow(req, res) {
+  const client = await pool.connect();
+  try {
+    const trajetId = req.params.id;
+
+    await client.query('BEGIN');
+
+    // 1. Récupérer le trajet et vérifier qu'il est terminé
+    const trajetResult = await client.query(
+      `SELECT id, statut, versement_escrow_le FROM trajets WHERE id = $1`,
+      [trajetId]
+    );
+    if (trajetResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const trajet = trajetResult.rows[0];
+
+    if (trajet.statut !== 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Le trajet n\'est pas terminé' });
+    }
+
+    // 2. Vérifier que le délai de 6h est passé
+    if (new Date(trajet.versement_escrow_le) > new Date()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Le délai de sécurité de 6h n\'est pas encore écoulé',
+        versement_possible_a: trajet.versement_escrow_le
+      });
+    }
+
+    // 3. Compter les passagers (billets utilisés) pour ce trajet
+    const passagersResult = await client.query(
+      `SELECT COUNT(*) AS nb FROM billets WHERE trajet_id = $1 AND statut = 'utilise'`,
+      [trajetId]
+    );
+    const nbPassagers = parseInt(passagersResult.rows[0].nb);
+
+    // 4. Déterminer le seuil collectif selon le nombre de passagers
+    let seuil;
+    if (nbPassagers <= 20) seuil = 3;
+    else if (nbPassagers <= 40) seuil = 4;
+    else seuil = 5;
+
+    // 5. Compter les signalements "fausse_arrivee" pour ce trajet
+    const signalementsResult = await client.query(
+      `SELECT COUNT(*) AS nb FROM signalements
+       WHERE trajet_id = $1 AND categorie = 'fausse_arrivee'`,
+      [trajetId]
+    );
+    const nbSignalements = parseInt(signalementsResult.rows[0].nb);
+
+    // 6. Décision : verser ou suspendre
+    if (nbSignalements >= seuil) {
+      // Seuil atteint → suspendre le versement, créer un litige
+      await client.query(
+        `UPDATE trajets SET statut = 'incident', mis_a_jour_le = NOW() WHERE id = $1`,
+        [trajetId]
+      );
+      await client.query('COMMIT');
+      return res.status(200).json({
+        message: 'Versement SUSPENDU : seuil de signalements de fausse arrivée atteint. Investigation requise.',
+        nb_passagers: nbPassagers,
+        seuil: seuil,
+        nb_signalements: nbSignalements
+      });
+    }
+
+    // 7. Pas de fraude → verser tous les escrows "retenu" de ce trajet
+    const escrowResult = await client.query(
+      `UPDATE escrow
+       SET statut = 'verse', verse_le = NOW()
+       FROM billets
+       WHERE escrow.billet_id = billets.id
+         AND billets.trajet_id = $1
+         AND escrow.statut = 'retenu'
+       RETURNING escrow.montant_agence`,
+      [trajetId]
+    );
+
+    const totalVerse = escrowResult.rows.reduce((somme, e) => somme + e.montant_agence, 0);
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Escrow versé à l\'agence',
+      nb_passagers: nbPassagers,
+      seuil: seuil,
+      nb_signalements: nbSignalements,
+      billets_verses: escrowResult.rows.length,
+      total_verse_agence: totalVerse
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow };

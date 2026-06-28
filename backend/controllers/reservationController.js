@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { genererQR, verifierQR } = require('../utils/qr');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -351,7 +352,7 @@ async function payer(req, res) {
     const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
     const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
     const numeroBillet = `JG-${dateStr}-${suffixe}`;
-    const qrCode = `JEGO|${numeroBillet}|${trajet_id}|${siege_id}|${info.siege_numero}`;
+    const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
 
     // 11. Créer le BILLET
     const billet = await client.query(
@@ -420,4 +421,91 @@ async function payer(req, res) {
   }
 }
 
-module.exports = { planTrajet, verrouillerSiege, prolongerVerrou, payer };
+// ═══════════════════════════════════════════════════
+// SCANNER UN BILLET (chauffeur, à l'embarquement)
+// 1. Vérifie la signature du QR (authenticité)
+// 2. Vérifie le statut du billet côté serveur
+// 3. Marque le billet comme scanné
+// ═══════════════════════════════════════════════════
+async function scannerBillet(req, res) {
+  try {
+    const { contenu_qr } = req.body;
+
+    if (!contenu_qr) {
+      return res.status(400).json({ error: 'Contenu du QR manquant' });
+    }
+
+    // 1. Vérifier la signature du QR (cette étape marche hors-ligne)
+    const verification = verifierQR(contenu_qr);
+    if (!verification.valide) {
+      return res.status(400).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: verification.raison
+      });
+    }
+
+    // 2. Vérifier le statut réel du billet en base (nécessite réseau)
+    const billet = await pool.query(
+      `SELECT b.id, b.numero, b.statut, b.qr_scanne, b.qr_scanne_le,
+              s.numero AS siege_numero,
+              v.nom, v.prenom,
+              t.date_depart, t.heure_depart
+       FROM billets b
+       JOIN sieges s ON s.id = b.siege_id
+       JOIN voyageurs v ON v.id = b.voyageur_id
+       JOIN trajets t ON t.id = b.trajet_id
+       WHERE b.numero = $1`,
+      [verification.numero]
+    );
+
+    if (billet.rows.length === 0) {
+      return res.status(404).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Billet introuvable'
+      });
+    }
+
+    const b = billet.rows[0];
+
+    // Vérifier que le billet est valide (confirmé)
+    if (b.statut === 'annule') {
+      return res.status(400).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Ce billet a été annulé'
+      });
+    }
+
+    // Vérifier s'il a déjà été scanné
+    if (b.qr_scanne) {
+      return res.status(409).json({
+        valide: false,
+        message: 'Billet DÉJÀ UTILISÉ',
+        raison: `Ce passager est déjà monté (scanné à ${new Date(b.qr_scanne_le).toLocaleTimeString('fr-FR')})`,
+        passager: `${b.prenom} ${b.nom}`,
+        siege: b.siege_numero
+      });
+    }
+
+    // 3. Marquer le billet comme scanné
+    await pool.query(
+      `UPDATE billets SET qr_scanne = true, qr_scanne_le = NOW() WHERE id = $1`,
+      [b.id]
+    );
+
+    res.json({
+      valide: true,
+      message: 'Billet VALIDE — embarquement autorisé',
+      passager: `${b.prenom} ${b.nom}`,
+      siege: b.siege_numero,
+      numero: b.numero
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { planTrajet, verrouillerSiege, prolongerVerrou, payer, scannerBillet };

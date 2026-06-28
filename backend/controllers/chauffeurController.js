@@ -117,14 +117,16 @@ async function connexionChauffeur(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// VOIR SON TRAJET DU JOUR (chauffeur connecté)
-// Renvoie les trajets assignés au chauffeur, à venir
+// VOIR SES TRAJETS (chauffeur connecté)
+// 3 états pour le nombre de passagers :
+//   - avant H-30          → rien (vente en cours)
+//   - à H-30              → provisoire (guichet peut vendre)
+//   - départ déclaré      → définitif (liste figée)
 // ═══════════════════════════════════════════════════
 async function mesTrajets(req, res) {
   try {
     const chauffeurId = req.utilisateur.id;
 
-    // Vérifier que c'est bien un chauffeur
     if (req.utilisateur.type !== 'chauffeur') {
       return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
     }
@@ -136,7 +138,8 @@ async function mesTrajets(req, res) {
           vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
           b.nom AS nom_bus, b.disposition,
           (SELECT COUNT(*) FROM billets bil
-           WHERE bil.trajet_id = t.id AND bil.statut IN ('confirme','utilise')) AS nombre_passagers
+           WHERE bil.trajet_id = t.id AND bil.statut IN ('confirme','utilise')) AS nb_passagers,
+          ((t.date_depart + t.heure_depart) <= (NOW() + INTERVAL '30 minutes')) AS vente_fermee_ligne
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
@@ -148,9 +151,49 @@ async function mesTrajets(req, res) {
       [chauffeurId]
     );
 
+    const trajets = resultat.rows.map(t => {
+      const base = {
+        id: t.id,
+        date_depart: t.date_depart,
+        heure_depart: t.heure_depart,
+        heure_arrivee_estimee: t.heure_arrivee_estimee,
+        statut: t.statut,
+        depart: t.depart,
+        arrivee: t.arrivee,
+        nom_bus: t.nom_bus,
+        disposition: t.disposition
+      };
+
+      // État 1 : départ déclaré → nombre DÉFINITIF
+      if (t.statut === 'en_cours') {
+        return {
+          ...base,
+          etat_liste: 'definitive',
+          nombre_passagers: t.nb_passagers
+        };
+      }
+
+      // État 2 : vente en ligne fermée (H-30) mais pas encore parti → PROVISOIRE
+      if (t.vente_fermee_ligne) {
+        return {
+          ...base,
+          etat_liste: 'provisoire',
+          nombre_passagers: t.nb_passagers,
+          info: 'Nombre provisoire — la vente au guichet peut encore se faire jusqu\'au départ'
+        };
+      }
+
+      // État 3 : trop tôt → on ne montre pas le nombre
+      return {
+        ...base,
+        etat_liste: 'vente_ouverte',
+        info: 'Vente en cours — nombre de passagers non communiqué'
+      };
+    });
+
     res.json({
-      nombre_trajets: resultat.rows.length,
-      trajets: resultat.rows
+      nombre_trajets: trajets.length,
+      trajets: trajets
     });
 
   } catch (err) {
@@ -158,4 +201,77 @@ async function mesTrajets(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets };
+// ═══════════════════════════════════════════════════
+// DÉCLARER LE DÉPART (chauffeur)
+// Passe le trajet en "en_cours", fige la liste passagers,
+// bloque toute vente. Impossible avant l'heure prévue.
+// ═══════════════════════════════════════════════════
+async function declarerDepart(req, res) {
+  try {
+    const chauffeurId = req.utilisateur.id;
+    const trajetId = req.params.id;
+
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+
+    // 1. Récupérer le trajet et vérifier qu'il est assigné à ce chauffeur
+    const trajetResult = await pool.query(
+      `SELECT id, statut, date_depart, heure_depart
+       FROM trajets WHERE id = $1 AND chauffeur_id = $2`,
+      [trajetId, chauffeurId]
+    );
+    if (trajetResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable ou non assigné à vous' });
+    }
+    const trajet = trajetResult.rows[0];
+
+    // 2. Vérifier le statut
+    if (trajet.statut === 'en_cours') {
+      return res.status(400).json({ error: 'Le départ a déjà été déclaré' });
+    }
+    if (trajet.statut === 'termine') {
+      return res.status(400).json({ error: 'Ce trajet est déjà terminé' });
+    }
+    if (trajet.statut === 'annule') {
+      return res.status(400).json({ error: 'Ce trajet a été annulé' });
+    }
+
+    // 3. Vérifier qu'on n'est pas avant l'heure prévue
+    const dateDepart = new Date(trajet.date_depart);
+    const [h, m] = trajet.heure_depart.split(':');
+    dateDepart.setHours(parseInt(h), parseInt(m), 0, 0);
+    if (new Date() < dateDepart) {
+      return res.status(400).json({
+        error: `Le départ ne peut être déclaré avant l'heure prévue (${trajet.heure_depart.slice(0,5)})`
+      });
+    }
+
+    // 4. Passer le trajet en "en_cours" et enregistrer l'heure réelle
+    //    À partir de là, le statut "en_cours" bloque toute nouvelle vente.
+    await pool.query(
+      `UPDATE trajets
+       SET statut = 'en_cours', heure_depart_reelle = NOW(), mis_a_jour_le = NOW()
+       WHERE id = $1`,
+      [trajetId]
+    );
+
+    // 5. Compter les passagers définitifs (la liste est maintenant figée)
+    const passagers = await pool.query(
+      `SELECT COUNT(*) AS nb FROM billets
+       WHERE trajet_id = $1 AND statut IN ('confirme','utilise')`,
+      [trajetId]
+    );
+
+    res.json({
+      message: 'Départ déclaré. Bon voyage !',
+      trajet_id: trajetId,
+      nombre_passagers_definitif: parseInt(passagers.rows[0].nb)
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart };

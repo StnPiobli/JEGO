@@ -417,20 +417,26 @@ async function payer(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// SCANNER UN BILLET (chauffeur, à l'embarquement)
-// 1. Vérifie la signature du QR (authenticité)
-// 2. Vérifie le statut du billet côté serveur
-// 3. Marque le billet comme scanné
+// SCANNER UN BILLET (chauffeur connecté)
+// 1. Vérifie que c'est bien un chauffeur
+// 2. Vérifie la signature du QR (authenticité, hors-ligne)
+// 3. Vérifie que le billet appartient à un trajet du chauffeur
+// 4. Vérifie le statut + marque comme scanné
 // ═══════════════════════════════════════════════════
 async function scannerBillet(req, res) {
   try {
-    const { contenu_qr } = req.body;
+    // 1. Vérifier que c'est un chauffeur
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Seul un chauffeur peut scanner les billets' });
+    }
+    const chauffeurId = req.utilisateur.id;
 
+    const { contenu_qr } = req.body;
     if (!contenu_qr) {
       return res.status(400).json({ error: 'Contenu du QR manquant' });
     }
 
-    // 1. Vérifier la signature du QR (cette étape marche hors-ligne)
+    // 2. Vérifier la signature du QR (authenticité)
     const verification = verifierQR(contenu_qr);
     if (!verification.valide) {
       return res.status(400).json({
@@ -440,12 +446,12 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // 2. Vérifier le statut réel du billet en base (nécessite réseau)
+    // 3. Récupérer le billet + vérifier qu'il est sur un trajet de CE chauffeur
     const billet = await pool.query(
       `SELECT b.id, b.numero, b.statut, b.qr_scanne, b.qr_scanne_le,
               s.numero AS siege_numero,
               v.nom, v.prenom,
-              t.date_depart, t.heure_depart
+              t.chauffeur_id
        FROM billets b
        JOIN sieges s ON s.id = b.siege_id
        JOIN voyageurs v ON v.id = b.voyageur_id
@@ -464,7 +470,16 @@ async function scannerBillet(req, res) {
 
     const b = billet.rows[0];
 
-    // Vérifier que le billet est valide (confirmé)
+    // Le billet doit appartenir à un trajet assigné à ce chauffeur
+    if (b.chauffeur_id !== chauffeurId) {
+      return res.status(403).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Ce billet n\'est pas pour votre trajet'
+      });
+    }
+
+    // 4. Vérifier le statut
     if (b.statut === 'annule') {
       return res.status(400).json({
         valide: false,
@@ -473,7 +488,7 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // Vérifier s'il a déjà été scanné
+    // Déjà scanné ?
     if (b.qr_scanne) {
       return res.status(409).json({
         valide: false,
@@ -484,7 +499,7 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // 3. Marquer le billet comme scanné
+    // Marquer comme scanné
     await pool.query(
       `UPDATE billets SET qr_scanne = true, qr_scanne_le = NOW() WHERE id = $1`,
       [b.id]

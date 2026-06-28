@@ -12,6 +12,6 @@ router.put('/verrou/:id/prolonger', authentifier, prolongerVerrou);
 router.post('/payer', authentifier, payer);
 
 // Scan de billet (sera utilisé par le chauffeur)
-router.post('/scanner', scannerBillet);
+router.post('/scanner', authentifier, scannerBillet);
 
 module.exports = router;

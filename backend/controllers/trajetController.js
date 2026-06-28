@@ -272,4 +272,56 @@ async function verserEscrow(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow };
+// ═══════════════════════════════════════════════════
+// ASSIGNER UN CHAUFFEUR À UN TRAJET (agence)
+// ═══════════════════════════════════════════════════
+async function assignerChauffeur(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+    const { chauffeur_id } = req.body;
+
+    if (!chauffeur_id) {
+      return res.status(400).json({ error: 'L\'identifiant du chauffeur est obligatoire' });
+    }
+
+    // 1. Vérifier que le trajet appartient à l'agence
+    const trajetCheck = await pool.query(
+      'SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2',
+      [trajetId, agenceId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+
+    // 2. Vérifier que le chauffeur appartient à la même agence et est actif
+    const chauffeurCheck = await pool.query(
+      'SELECT id, nom, prenom, desactive_urgence FROM chauffeurs WHERE id = $1 AND agence_id = $2',
+      [chauffeur_id, agenceId]
+    );
+    if (chauffeurCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
+    }
+    if (chauffeurCheck.rows[0].desactive_urgence) {
+      return res.status(400).json({ error: 'Ce chauffeur est désactivé, impossible de l\'assigner' });
+    }
+
+    // 3. Assigner le chauffeur au trajet
+    await pool.query(
+      'UPDATE trajets SET chauffeur_id = $1, mis_a_jour_le = NOW() WHERE id = $2',
+      [chauffeur_id, trajetId]
+    );
+
+    const ch = chauffeurCheck.rows[0];
+    res.json({
+      message: `Chauffeur ${ch.prenom} ${ch.nom} assigné au trajet`,
+      trajet_id: trajetId,
+      chauffeur_id: chauffeur_id
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur };

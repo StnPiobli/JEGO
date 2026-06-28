@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { verserEscrowTrajet } = require('../services/escrowService');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -166,109 +167,29 @@ async function declarerArrivee(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// VERSER L'ESCROW À L'AGENCE (après délai 6h, si pas de fraude)
-// Sera appelée par un job automatique. Vérifie le seuil
-// de signalements "fausse_arrivee" avant de verser.
+// VERSER L'ESCROW (route) — délègue au service
 // ═══════════════════════════════════════════════════
 async function verserEscrow(req, res) {
-  const client = await pool.connect();
   try {
     const trajetId = req.params.id;
+    const resultat = await verserEscrowTrajet(trajetId);
 
-    await client.query('BEGIN');
-
-    // 1. Récupérer le trajet et vérifier qu'il est terminé
-    const trajetResult = await client.query(
-      `SELECT id, statut, versement_escrow_le FROM trajets WHERE id = $1`,
-      [trajetId]
-    );
-    if (trajetResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Trajet introuvable' });
-    }
-    const trajet = trajetResult.rows[0];
-
-    if (trajet.statut !== 'termine') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Le trajet n\'est pas terminé' });
-    }
-
-    // 2. Vérifier que le délai de 6h est passé
-    if (new Date(trajet.versement_escrow_le) > new Date()) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Le délai de sécurité de 6h n\'est pas encore écoulé',
-        versement_possible_a: trajet.versement_escrow_le
-      });
-    }
-
-    // 3. Compter les passagers (billets utilisés) pour ce trajet
-    const passagersResult = await client.query(
-      `SELECT COUNT(*) AS nb FROM billets WHERE trajet_id = $1 AND statut = 'utilise'`,
-      [trajetId]
-    );
-    const nbPassagers = parseInt(passagersResult.rows[0].nb);
-
-    // 4. Déterminer le seuil collectif selon le nombre de passagers
-    let seuil;
-    if (nbPassagers <= 20) seuil = 3;
-    else if (nbPassagers <= 40) seuil = 4;
-    else seuil = 5;
-
-    // 5. Compter les signalements "fausse_arrivee" pour ce trajet
-    const signalementsResult = await client.query(
-      `SELECT COUNT(*) AS nb FROM signalements
-       WHERE trajet_id = $1 AND categorie = 'fausse_arrivee'`,
-      [trajetId]
-    );
-    const nbSignalements = parseInt(signalementsResult.rows[0].nb);
-
-    // 6. Décision : verser ou suspendre
-    if (nbSignalements >= seuil) {
-      // Seuil atteint → suspendre le versement, créer un litige
-      await client.query(
-        `UPDATE trajets SET statut = 'incident', mis_a_jour_le = NOW() WHERE id = $1`,
-        [trajetId]
-      );
-      await client.query('COMMIT');
+    if (resultat.suspendu) {
       return res.status(200).json({
-        message: 'Versement SUSPENDU : seuil de signalements de fausse arrivée atteint. Investigation requise.',
-        nb_passagers: nbPassagers,
-        seuil: seuil,
-        nb_signalements: nbSignalements
+        message: 'Versement SUSPENDU : seuil de signalements de fausse arrivée atteint.',
+        ...resultat
       });
     }
-
-    // 7. Pas de fraude → verser tous les escrows "retenu" de ce trajet
-    const escrowResult = await client.query(
-      `UPDATE escrow
-       SET statut = 'verse', verse_le = NOW()
-       FROM billets
-       WHERE escrow.billet_id = billets.id
-         AND billets.trajet_id = $1
-         AND escrow.statut = 'retenu'
-       RETURNING escrow.montant_agence`,
-      [trajetId]
-    );
-
-    const totalVerse = escrowResult.rows.reduce((somme, e) => somme + e.montant_agence, 0);
-
-    await client.query('COMMIT');
+    if (!resultat.ok) {
+      return res.status(400).json({ error: resultat.raison });
+    }
 
     res.json({
       message: 'Escrow versé à l\'agence',
-      nb_passagers: nbPassagers,
-      seuil: seuil,
-      nb_signalements: nbSignalements,
-      billets_verses: escrowResult.rows.length,
-      total_verse_agence: totalVerse
+      ...resultat
     });
-
   } catch (err) {
-    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
   }
 }
 

@@ -3,6 +3,8 @@ const cors = require('cors');
 require('dotenv').config();
 
 const pool = require('./config/database');
+const { demarrerNettoyageVerrous } = require('./jobs/nettoyageVerrous');
+const { demarrerVersementEscrow } = require('./jobs/versementEscrow');
 
 const app = express();
 
@@ -43,4 +45,6 @@ app.get('/test-db', async (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Serveur JEGO démarré sur le port ${PORT}`);
+  demarrerNettoyageVerrous();
+  demarrerVersementEscrow();
 });

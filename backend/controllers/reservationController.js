@@ -118,20 +118,15 @@ async function verrouillerSiege(req, res) {
       return res.status(400).json({ error: 'Ce siège est indisponible (hors service)' });
     }
 
-    // 1bis. Vérifier que le trajet n'est pas déjà parti (marge de 30 min)
+    // 1bis. Vérifier le statut du trajet et la marge de 30 min
     const trajetInfo = await client.query(
-      `SELECT date_depart, heure_depart FROM trajets WHERE id = $1`,
+      `SELECT date_depart, heure_depart, statut FROM trajets WHERE id = $1`,
       [trajet_id]
     );
-    const dateDepart = new Date(trajetInfo.rows[0].date_depart);
-    const [hh, mm] = trajetInfo.rows[0].heure_depart.split(':');
-    dateDepart.setHours(parseInt(hh), parseInt(mm), 0, 0);
-    const minutesAvantDepart = (dateDepart - new Date()) / (1000 * 60);
-    if (minutesAvantDepart < 30) {
+    // Si le trajet est déjà parti, terminé ou annulé → vente bloquée
+    if (['en_cours', 'termine', 'annule'].includes(trajetInfo.rows[0].statut)) {
       await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Réservation impossible : ce trajet part dans moins de 30 minutes ou est déjà parti.'
-      });
+      return res.status(400).json({ error: 'La vente est fermée pour ce trajet (déjà parti, terminé ou annulé)' });
     }
 
     // 2. Vérifier qu'aucun billet confirmé n'existe pour ce siège+trajet

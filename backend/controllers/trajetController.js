@@ -245,4 +245,104 @@ async function assignerChauffeur(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur };
+// ═══════════════════════════════════════════════════
+// ANNULER UN TRAJET (agence) — rembourse 100% tous les billets
+// ═══════════════════════════════════════════════════
+async function annulerTrajet(req, res) {
+  const client = await pool.connect();
+  try {
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+    const { motif } = req.body;
+
+    // Motif obligatoire
+    if (!motif || motif.trim().length === 0) {
+      return res.status(400).json({ error: 'Le motif d\'annulation est obligatoire' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Vérifier que le trajet appartient à l'agence
+    const trajetCheck = await client.query(
+      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      [trajetId, agenceId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+
+    const trajet = trajetCheck.rows[0];
+
+    // 2. Interdire l'annulation d'un trajet déjà terminé ou déjà annulé
+    if (trajet.statut === 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Impossible d\'annuler un trajet déjà terminé' });
+    }
+    if (trajet.statut === 'annule') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà annulé' });
+    }
+
+    // 3. Récupérer tous les billets confirmés du trajet
+    const billets = await client.query(
+      `SELECT id, voyageur_id, prix_total_client FROM billets
+       WHERE trajet_id = $1 AND statut = 'confirme'`,
+      [trajetId]
+    );
+
+    // 4. Pour chaque billet : rembourser 100%, escrow remboursé, ligne de remboursement
+    let totalRembourse = 0;
+    for (const billet of billets.rows) {
+      // Passer le billet en annulé
+      await client.query(
+        `UPDATE billets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
+        [billet.id]
+      );
+
+      // Escrow → remboursé (l'agence ne touche rien, JEGO rembourse le client)
+      await client.query(
+        `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1`,
+        [billet.id]
+      );
+
+      // Créer la ligne de remboursement (100%)
+      const reference = `REMB-${Date.now()}-${billet.id.slice(0,4)}`;
+      await client.query(
+        `INSERT INTO remboursements
+          (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
+         VALUES ($1, $2, $3, 'annulation_agence', 100, 'traite', $4, NOW())`,
+        [billet.id, billet.voyageur_id, billet.prix_total_client, reference]
+      );
+
+      totalRembourse += billet.prix_total_client;
+      // [SIMULATION] Remboursement Mobile Money + notification voyageur
+    }
+
+    // 5. Passer le trajet en "annule"
+    await client.query(
+      `UPDATE trajets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
+      [trajetId]
+    );
+
+    // 6. Nettoyer les verrous éventuels sur ce trajet
+    await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Trajet annulé. Tous les voyageurs seront remboursés à 100%.',
+      motif: motif,
+      billets_rembourses: billets.rows.length,
+      total_rembourse: totalRembourse
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet };

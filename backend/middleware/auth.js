@@ -1,3 +1,4 @@
+const pool = require('../config/database');
 const { verifierToken } = require('../utils/jwt');
 
 // ═══════════════════════════════════════════════════
@@ -29,4 +30,34 @@ function authentifier(req, res, next) {
   next();
 }
 
-module.exports = { authentifier };
+// ═══════════════════════════════════════════════════
+// VÉRIFIER QU'UN CHAUFFEUR N'EST PAS DÉSACTIVÉ
+// À utiliser après `authentifier` sur les actions chauffeur sensibles.
+// Coupe l'accès immédiatement même si le token est encore valide.
+// ═══════════════════════════════════════════════════
+async function verifierChauffeurActif(req, res, next) {
+  try {
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+
+    const resultat = await pool.query(
+      'SELECT desactive_urgence FROM chauffeurs WHERE id = $1',
+      [req.utilisateur.id]
+    );
+
+    if (resultat.rows.length === 0) {
+      return res.status(404).json({ error: 'Compte chauffeur introuvable' });
+    }
+
+    if (resultat.rows[0].desactive_urgence) {
+      return res.status(403).json({ error: 'Votre compte a été désactivé. Contactez votre agence.' });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { authentifier, verifierChauffeurActif };

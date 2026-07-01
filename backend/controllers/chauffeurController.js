@@ -349,4 +349,73 @@ async function declarerArriveeChauffeur(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur };
+// ═══════════════════════════════════════════════════
+// DÉSACTIVER UN CHAUFFEUR EN URGENCE (agence)
+// Téléphone volé/perdu : coupe l'accès immédiatement.
+// ═══════════════════════════════════════════════════
+async function desactiverUrgence(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const chauffeurId = req.params.id;
+
+    // Vérifier que le chauffeur appartient à l'agence
+    const check = await pool.query(
+      'SELECT id, nom, prenom FROM chauffeurs WHERE id = $1 AND agence_id = $2',
+      [chauffeurId, agenceId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
+    }
+
+    // Désactiver + couper la session active
+    await pool.query(
+      `UPDATE chauffeurs
+       SET desactive_urgence = true, session_active = false, mis_a_jour_le = NOW()
+       WHERE id = $1`,
+      [chauffeurId]
+    );
+
+    const ch = check.rows[0];
+    res.json({
+      message: `Chauffeur ${ch.prenom} ${ch.nom} désactivé en urgence. Son accès est immédiatement coupé.`,
+      chauffeur_id: chauffeurId
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// RÉACTIVER UN CHAUFFEUR (agence) — après récupération du téléphone
+// ═══════════════════════════════════════════════════
+async function reactiverChauffeur(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const chauffeurId = req.params.id;
+
+    const check = await pool.query(
+      'SELECT id, nom, prenom FROM chauffeurs WHERE id = $1 AND agence_id = $2',
+      [chauffeurId, agenceId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
+    }
+
+    await pool.query(
+      `UPDATE chauffeurs SET desactive_urgence = false, mis_a_jour_le = NOW() WHERE id = $1`,
+      [chauffeurId]
+    );
+
+    const ch = check.rows[0];
+    res.json({
+      message: `Chauffeur ${ch.prenom} ${ch.nom} réactivé. Il peut de nouveau se connecter.`,
+      chauffeur_id: chauffeurId
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur };

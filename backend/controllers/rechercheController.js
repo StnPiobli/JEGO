@@ -30,6 +30,7 @@ async function rechercherTrajets(req, res) {
           b.nom AS nom_bus, b.disposition, b.type_bus,
           b.climatisation, b.prises_usb, b.wifi, b.toilettes, b.sieges_inclinables,
           a.id AS agence_id, a.nom AS nom_agence, a.badge_certifie,
+          a.note_moyenne, a.nombre_avis,
           (SELECT COUNT(*) FROM sieges s
            WHERE s.bus_id = b.id AND s.statut = 'disponible') AS places_disponibles
        FROM trajets t

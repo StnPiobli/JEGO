@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { verserEscrowTrajet } = require('../services/escrowService');
 const { appliquerBaremeRetard } = require('../services/retardService');
+const { creerNotification } = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -353,7 +354,8 @@ async function annulerTrajet(req, res) {
 // Met à jour les horaires ANNONCÉS, mais la référence
 // du barème (heure_arrivee_initiale) reste intouchable.
 // ═══════════════════════════════════════════════════
-async function declarerRetard(req, res) {
+
+   async function declarerRetard(req, res) {
   try {
     const agenceId = req.utilisateur.id;
     const trajetId = req.params.id;
@@ -363,7 +365,6 @@ async function declarerRetard(req, res) {
       return res.status(400).json({ error: 'Le retard en minutes est obligatoire et doit être positif' });
     }
 
-    // Vérifier que le trajet appartient à l'agence
     const check = await pool.query(
       `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
       [trajetId, agenceId]
@@ -377,7 +378,6 @@ async function declarerRetard(req, res) {
       return res.status(400).json({ error: 'Impossible de déclarer un retard sur un trajet terminé ou annulé' });
     }
 
-    // Mettre à jour : statut retard + minutes + nouveaux horaires annoncés (si fournis)
     await pool.query(
       `UPDATE trajets SET
         statut = CASE WHEN statut = 'en_cours' THEN 'en_cours' ELSE 'retard' END,
@@ -389,7 +389,20 @@ async function declarerRetard(req, res) {
       [retard_minutes, nouvelle_heure_depart || null, nouvelle_heure_arrivee || null, trajetId]
     );
 
-    // [SIMULATION] Notification à tous les passagers (app + email)
+    const passagers = await pool.query(
+      `SELECT voyageur_id FROM billets WHERE trajet_id = $1 AND statut = 'confirme'`,
+      [trajetId]
+    );
+    for (const p of passagers.rows) {
+      await creerNotification({
+        destinataire_type: 'voyageur',
+        destinataire_id: p.voyageur_id,
+        type: 'retard',
+        titre: 'Retard sur votre trajet',
+        contenu: `Votre trajet a ${retard_minutes} min de retard. Nouveau départ : ${nouvelle_heure_depart || 'inchangé'}, nouvelle arrivée estimée : ${nouvelle_heure_arrivee || 'inchangée'}.`,
+        canal: 'push'
+      });
+    }
 
     res.json({
       message: `Retard de ${retard_minutes} min déclaré. Les passagers seront notifiés.`,

@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { genererQR, verifierQR } = require('../utils/qr');
+const { creerNotification } = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -389,6 +390,16 @@ async function payer(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Notification de confirmation (hors transaction, ne bloque jamais le paiement)
+    await creerNotification({
+      destinataire_type: 'voyageur',
+      destinataire_id: voyageurId,
+      type: 'confirmation_billet',
+      titre: 'Billet confirmé',
+      contenu: `Votre billet ${numeroBillet} pour le siège ${info.siege_numero} est confirmé.`,
+      canal: 'push'
+    });
 
     res.status(201).json({
       message: 'Paiement réussi, billet confirmé',

@@ -24,6 +24,8 @@ app.use('/api/chauffeurs', require('./routes/chauffeurRoutes'));
 app.use('/api/signalements', require('./routes/signalementRoutes'));
 app.use('/api/avis', require('./routes/avisRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/programmation', require('./routes/programmationRoutes'));
+const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
 
 // Route de test
 app.get('/', (req, res) => {
@@ -49,4 +51,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Serveur JEGO démarré sur le port ${PORT}`);
   demarrerNettoyageVerrous();
   demarrerVersementEscrow();
+  demarrerAlerteProgrammation();
 });

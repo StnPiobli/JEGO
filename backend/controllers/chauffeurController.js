@@ -398,6 +398,17 @@ async function desactiverUrgence(req, res) {
     );
 
     const ch = check.rows[0];
+
+    await creerNotification({
+      destinataire_type: 'chauffeur',
+      destinataire_id: chauffeurId,
+      type: 'compte_desactive',
+      titre: 'Compte désactivé',
+      contenu: 'Votre compte a été désactivé en urgence par votre agence. Contactez-la pour plus d\'informations.',
+      canal: 'sms'
+    });
+
+
     res.json({
       message: `Chauffeur ${ch.prenom} ${ch.nom} désactivé en urgence. Son accès est immédiatement coupé.`,
       chauffeur_id: chauffeurId

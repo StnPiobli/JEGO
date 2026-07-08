@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { creerNotification } = require('./notificationService');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : VERSER L'ESCROW D'UN TRAJET
@@ -83,6 +84,17 @@ async function verserEscrowTrajet(trajetId) {
     const totalVerse = escrowResult.rows.reduce((s, e) => s + e.montant_agence, 0);
 
     await client.query('COMMIT');
+
+const agenceInfo = await client.query(`SELECT agence_id FROM trajets WHERE id = $1`, [trajetId]);
+    await creerNotification({
+      destinataire_type: 'agence',
+      destinataire_id: agenceInfo.rows[0].agence_id,
+      type: 'versement_escrow',
+      titre: 'Versement effectué',
+      contenu: `Un versement de ${totalVerse} FCFA a été effectué pour votre trajet.`,
+      canal: 'email'
+    });
+
     return {
       ok: true,
       billets_verses: escrowResult.rows.length,

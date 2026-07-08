@@ -323,6 +323,15 @@ async function annulerTrajet(req, res) {
       // [SIMULATION] Remboursement Mobile Money + notification voyageur
     }
 
+    await creerNotification({
+        destinataire_type: 'voyageur',
+        destinataire_id: billet.voyageur_id,
+        type: 'remboursement',
+        titre: 'Trajet annulé — remboursement intégral',
+        contenu: `Votre trajet a été annulé par l'agence. Vous êtes remboursé à 100% (${billet.prix_total_client} FCFA).`,
+        canal: 'push'
+      });
+
     // 5. Passer le trajet en "annule"
     await client.query(
       `UPDATE trajets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,

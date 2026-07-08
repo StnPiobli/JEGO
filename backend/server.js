@@ -23,6 +23,7 @@ app.use('/api/annulations', require('./routes/annulationRoutes'));
 app.use('/api/chauffeurs', require('./routes/chauffeurRoutes'));
 app.use('/api/signalements', require('./routes/signalementRoutes'));
 app.use('/api/avis', require('./routes/avisRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 
 // Route de test
 app.get('/', (req, res) => {

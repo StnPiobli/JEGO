@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
+const { appliquerBaremeRetard } = require('../services/retardService');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN COMPTE CHAUFFEUR (par l'agence uniquement)
@@ -332,12 +333,16 @@ async function declarerArriveeChauffeur(req, res) {
       [trajetId]
     );
 
+    // 5. Appliquer le barème de retard (calcul automatique vs heure promise)
+    const retard = await appliquerBaremeRetard(client, trajetId);
+
     await client.query('COMMIT');
 
     res.json({
       message: 'Arrivée déclarée. Merci, bon repos !',
       trajet_id: trajetId,
       billets_concernes: billets.rows.length,
+      retard: retard,
       versement_prevu: 'dans 6 heures (sauf signalement de fraude)'
     });
 

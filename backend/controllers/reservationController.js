@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { genererQR, verifierQR } = require('../utils/qr');
 const { creerNotification } = require('../services/notificationService');
+const { crediterPoints, calculerPointsGagnes } = require('../services/pointsService');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -388,6 +389,12 @@ async function payer(req, res) {
       `DELETE FROM soft_locks WHERE siege_id = $1 AND trajet_id = $2`,
       [siege_id, trajet_id]
     );
+
+    // Créditer les JEGO Points gagnés sur ce paiement (dans la même transaction)
+    const pointsGagnes = calculerPointsGagnes(prixTotalClient);
+    if (pointsGagnes > 0) {
+      await crediterPoints(voyageurId, pointsGagnes, 'Achat de billet', billetId, client);
+    }
 
     await client.query('COMMIT');
 

@@ -25,6 +25,7 @@ app.use('/api/signalements', require('./routes/signalementRoutes'));
 app.use('/api/avis', require('./routes/avisRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/programmation', require('./routes/programmationRoutes'));
+app.use('/api/litiges', require('./routes/litigeRoutes'));
 const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
 
 // Route de test

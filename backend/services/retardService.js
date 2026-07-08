@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { creerNotification } = require('./notificationService');
+const { crediterPoints } = require('./pointsService');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : CALCUL DU RETARD À L'ARRIVÉE + BARÈME
@@ -40,6 +41,17 @@ async function appliquerBaremeRetard(client, trajetId) {
     pourcentage = 10;
   } else {
     pourcentage = 20;
+  }
+
+  // Si retard 1-2h : créditer des points JEGO à tous les passagers concernés
+  if (pointsJego) {
+    const passagersRetard = await client.query(
+      `SELECT voyageur_id FROM billets WHERE trajet_id = $1 AND statut = 'utilise'`,
+      [trajetId]
+    );
+    for (const p of passagersRetard.rows) {
+      await crediterPoints(p.voyageur_id, 100, 'Compensation retard 1-2h', null, client);
+    }
   }
 
   // Enregistrer le retard constaté sur le trajet

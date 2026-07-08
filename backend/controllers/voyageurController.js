@@ -12,27 +12,22 @@ async function inscription(req, res) {
       telephone, email, mot_de_passe, contact_urgence
     } = req.body;
 
-    // Vérifier que les champs obligatoires sont présents
     if (!nom || !prenom || !date_naissance || !lieu_naissance || !telephone || !email || !mot_de_passe) {
       return res.status(400).json({ error: 'Tous les champs obligatoires doivent être remplis' });
     }
 
-    // Vérifier si le téléphone existe déjà
     const telExiste = await pool.query('SELECT id FROM voyageurs WHERE telephone = $1', [telephone]);
     if (telExiste.rows.length > 0) {
       return res.status(409).json({ error: 'Ce numéro de téléphone est déjà utilisé' });
     }
 
-    // Vérifier si l'email existe déjà
     const emailExiste = await pool.query('SELECT id FROM voyageurs WHERE email = $1', [email]);
     if (emailExiste.rows.length > 0) {
       return res.status(409).json({ error: 'Cet email est déjà utilisé' });
     }
 
-    // Chiffrer le mot de passe
     const motDePasseChiffre = await bcrypt.hash(mot_de_passe, 10);
 
-    // Créer le voyageur
     const resultat = await pool.query(
       `INSERT INTO voyageurs
         (nom, prenom, date_naissance, lieu_naissance, telephone, email, mot_de_passe, contact_urgence)
@@ -42,8 +37,6 @@ async function inscription(req, res) {
     );
 
     const voyageur = resultat.rows[0];
-
-    // Générer un token
     const token = genererToken({ id: voyageur.id, type: 'voyageur' });
 
     res.status(201).json({
@@ -68,7 +61,6 @@ async function connexion(req, res) {
       return res.status(400).json({ error: 'Téléphone et mot de passe requis' });
     }
 
-    // Chercher le voyageur
     const resultat = await pool.query('SELECT * FROM voyageurs WHERE telephone = $1', [telephone]);
 
     if (resultat.rows.length === 0) {
@@ -76,15 +68,12 @@ async function connexion(req, res) {
     }
 
     const voyageur = resultat.rows[0];
-
-    // Vérifier le mot de passe
     const motDePasseValide = await bcrypt.compare(mot_de_passe, voyageur.mot_de_passe);
 
     if (!motDePasseValide) {
       return res.status(401).json({ error: 'Téléphone ou mot de passe incorrect' });
     }
 
-    // Générer un token
     const token = genererToken({ id: voyageur.id, type: 'voyageur' });
 
     res.json({
@@ -139,14 +128,12 @@ async function modifierProfil(req, res) {
     const voyageurId = req.utilisateur.id;
     const { nom, prenom, email, contact_urgence, langue, mode_sombre, mode_eco_donnees } = req.body;
 
-    // Récupérer le voyageur actuel
     const actuel = await pool.query('SELECT * FROM voyageurs WHERE id = $1', [voyageurId]);
     if (actuel.rows.length === 0) {
       return res.status(404).json({ error: 'Voyageur introuvable' });
     }
     const voyageur = actuel.rows[0];
 
-    // Vérifier la règle du changement de nom (1 fois / 6 mois)
     const nomChange = (nom && nom !== voyageur.nom) || (prenom && prenom !== voyageur.prenom);
     if (nomChange && voyageur.dernier_changement_nom) {
       const dernierChangement = new Date(voyageur.dernier_changement_nom);
@@ -159,7 +146,6 @@ async function modifierProfil(req, res) {
       }
     }
 
-    // Si l'email change, vérifier qu'il n'est pas déjà pris
     if (email && email !== voyageur.email) {
       const emailExiste = await pool.query(
         'SELECT id FROM voyageurs WHERE email = $1 AND id != $2',
@@ -170,7 +156,6 @@ async function modifierProfil(req, res) {
       }
     }
 
-    // Construire les nouvelles valeurs (garder l'ancienne si non envoyée)
     const nouveauNom = nom || voyageur.nom;
     const nouveauPrenom = prenom || voyageur.prenom;
     const nouvelEmail = email || voyageur.email;
@@ -200,4 +185,41 @@ async function modifierProfil(req, res) {
   }
 }
 
-module.exports = { inscription, connexion, monProfil, modifierProfil };
+// ═══════════════════════════════════════════════════
+// HISTORIQUE DES VOYAGES (voyageur connecté)
+// ═══════════════════════════════════════════════════
+async function historiqueVoyages(req, res) {
+  try {
+    const voyageurId = req.utilisateur.id;
+
+    const resultat = await pool.query(
+      `SELECT
+          b.id AS billet_id, b.numero, b.statut, b.prix_total_client,
+          t.date_depart, t.heure_depart, t.heure_arrivee_reelle,
+          vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
+          a.nom AS nom_agence,
+          s.numero AS siege,
+          (SELECT COUNT(*) FROM avis WHERE trajet_id = b.trajet_id AND voyageur_id = b.voyageur_id) > 0 AS deja_note
+       FROM billets b
+       JOIN trajets t ON t.id = b.trajet_id
+       JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
+       JOIN agences a ON a.id = b.agence_id
+       JOIN sieges s ON s.id = b.siege_id
+       WHERE b.voyageur_id = $1
+       ORDER BY t.date_depart DESC, t.heure_depart DESC`,
+      [voyageurId]
+    );
+
+    res.json({
+      nombre_voyages: resultat.rows.length,
+      voyages: resultat.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { inscription, connexion, monProfil, modifierProfil, historiqueVoyages };

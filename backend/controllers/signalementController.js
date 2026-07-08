@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { creerNotification } = require('../services/notificationService');
 
 // Catégories de signalement autorisées (doivent correspondre à la contrainte BDD)
 const CATEGORIES = [
@@ -87,6 +88,31 @@ async function signaler(req, res) {
       alerteDeclenchee = true;
       // [SIMULATION] Alerte à l'agence + chauffeur (notifications plus tard)
     }
+
+    await client.query(
+        `SELECT chauffeur_id, agence_id FROM trajets WHERE id = $1`,
+        [trajet_id]
+      ).then(async r => {
+        const { chauffeur_id, agence_id } = r.rows[0];
+        await creerNotification({
+          destinataire_type: 'agence',
+          destinataire_id: agence_id,
+          type: 'alerte_signalement',
+          titre: 'Alerte signalement collectif',
+          contenu: `Le seuil de signalements "${categorie}" a été atteint sur un de vos trajets (${nbSignalements} signalements).`,
+          canal: 'push'
+        });
+        if (chauffeur_id) {
+          await creerNotification({
+            destinataire_type: 'chauffeur',
+            destinataire_id: chauffeur_id,
+            type: 'alerte_signalement',
+            titre: 'Signalement collectif',
+            contenu: `Plusieurs passagers ont signalé : ${categorie}. Merci de rester vigilant.`,
+            canal: 'push'
+          });
+        }
+      });
 
     await client.query('COMMIT');
 

@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { verserEscrowTrajet } = require('../services/escrowService');
+const { appliquerBaremeRetard } = require('../services/retardService');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -47,8 +48,8 @@ async function creerTrajet(req, res) {
     const resultat = await pool.query(
       `INSERT INTO trajets
         (agence_id, ligne_id, bus_id, date_depart, heure_depart,
-         heure_arrivee_estimee, prix_base, categorie, statut)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'programme')
+         heure_arrivee_estimee, heure_arrivee_initiale, prix_base, categorie, statut)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, 'programme')
        RETURNING id, date_depart, heure_depart, heure_arrivee_estimee, prix_base, categorie, statut`,
       [agenceId, ligne_id, bus_id, date_depart, heure_depart,
        heure_arrivee_estimee || null, prix_base, categorieValide]
@@ -145,6 +146,8 @@ async function declarerArrivee(req, res) {
        RETURNING id`,
       [trajetId]
     );
+
+    const retard = await appliquerBaremeRetard(client, trajetId);
 
     // 5. Notifier les passagers (simulation pour l'instant)
     //    Plus tard : push "Arrivée déclarée, c'était comment ?"
@@ -345,4 +348,61 @@ async function annulerTrajet(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet };
+// ═══════════════════════════════════════════════════
+// DÉCLARER UN RETARD (agence)
+// Met à jour les horaires ANNONCÉS, mais la référence
+// du barème (heure_arrivee_initiale) reste intouchable.
+// ═══════════════════════════════════════════════════
+async function declarerRetard(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+    const { retard_minutes, nouvelle_heure_depart, nouvelle_heure_arrivee } = req.body;
+
+    if (!retard_minutes || retard_minutes <= 0) {
+      return res.status(400).json({ error: 'Le retard en minutes est obligatoire et doit être positif' });
+    }
+
+    // Vérifier que le trajet appartient à l'agence
+    const check = await pool.query(
+      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      [trajetId, agenceId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const statut = check.rows[0].statut;
+
+    if (['termine', 'annule'].includes(statut)) {
+      return res.status(400).json({ error: 'Impossible de déclarer un retard sur un trajet terminé ou annulé' });
+    }
+
+    // Mettre à jour : statut retard + minutes + nouveaux horaires annoncés (si fournis)
+    await pool.query(
+      `UPDATE trajets SET
+        statut = CASE WHEN statut = 'en_cours' THEN 'en_cours' ELSE 'retard' END,
+        retard_minutes = $1,
+        heure_depart = COALESCE($2, heure_depart),
+        heure_arrivee_estimee = COALESCE($3, heure_arrivee_estimee),
+        mis_a_jour_le = NOW()
+       WHERE id = $4`,
+      [retard_minutes, nouvelle_heure_depart || null, nouvelle_heure_arrivee || null, trajetId]
+    );
+
+    // [SIMULATION] Notification à tous les passagers (app + email)
+
+    res.json({
+      message: `Retard de ${retard_minutes} min déclaré. Les passagers seront notifiés.`,
+      trajet_id: trajetId,
+      nouveaux_horaires: {
+        depart: nouvelle_heure_depart || 'inchangé',
+        arrivee_estimee: nouvelle_heure_arrivee || 'inchangée'
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet, declarerRetard };

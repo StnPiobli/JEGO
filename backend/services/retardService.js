@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { creerNotification } = require('./notificationService');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : CALCUL DU RETARD À L'ARRIVÉE + BARÈME
@@ -68,6 +69,16 @@ async function appliquerBaremeRetard(client, trajetId) {
       billetsRembourses++;
       // [SIMULATION] Remboursement Mobile Money + notification
     }
+
+    await creerNotification({
+      destinataire_type: 'voyageur',
+      destinataire_id: b.voyageur_id,
+      type: 'remboursement',
+      titre: 'Remboursement pour retard',
+      contenu: `Votre trajet a eu ${retardMinutes} min de retard. Vous êtes remboursé à hauteur de ${pourcentage}% (${montant} FCFA).`,
+      canal: 'push'
+    });
+
   }
 
   return { retard_minutes: retardMinutes, pourcentage, points_jego: pointsJego, billets_rembourses: billetsRembourses };

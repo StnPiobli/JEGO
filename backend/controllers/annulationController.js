@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { creerNotification } = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // ANNULER SON BILLET (route protégée — voyageur)
@@ -99,6 +100,17 @@ async function annulerBillet(req, res) {
         [billetId]
       );
       // Aucun remboursement créé (montant = 0)
+    }
+
+    if (montantRembourse > 0) {
+      await creerNotification({
+        destinataire_type: 'voyageur',
+        destinataire_id: voyageurId,
+        type: 'remboursement',
+        titre: 'Remboursement confirmé',
+        contenu: `Votre remboursement de ${montantRembourse} FCFA (${pourcentage}%) a été traité.`,
+        canal: 'push'
+      });
     }
 
     await client.query('COMMIT');

@@ -140,4 +140,63 @@ async function refuserAgence(req, res) {
   }
 }
 
-module.exports = { connexion, agencesEnAttente, validerAgence, refuserAgence };
+// ═══════════════════════════════════════════════════
+// LISTER TOUS LES PARAMÈTRES SYSTÈME (admin)
+// ═══════════════════════════════════════════════════
+async function listerParametres(req, res) {
+  try {
+    if (req.utilisateur.type !== 'admin') {
+      return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
+    }
+    const { categorie } = req.query;
+
+    let requete = `SELECT cle, valeur, type_valeur, categorie, description, mis_a_jour_le FROM parametres_systeme`;
+    const params = [];
+    if (categorie) {
+      requete += ` WHERE categorie = $1`;
+      params.push(categorie);
+    }
+    requete += ` ORDER BY categorie, cle`;
+
+    const resultat = await pool.query(requete, params);
+    res.json({ parametres: resultat.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MODIFIER UN PARAMÈTRE SYSTÈME (admin) — traçabilité incluse
+// ═══════════════════════════════════════════════════
+async function modifierParametre(req, res) {
+  try {
+    if (req.utilisateur.type !== 'admin') {
+      return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
+    }
+    const adminId = req.utilisateur.id;
+    const { cle } = req.params;
+    const { valeur } = req.body;
+
+    if (valeur === undefined || valeur === null || valeur === '') {
+      return res.status(400).json({ error: 'La nouvelle valeur est obligatoire' });
+    }
+
+    const check = await pool.query(`SELECT cle FROM parametres_systeme WHERE cle = $1`, [cle]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Paramètre introuvable' });
+    }
+
+    await pool.query(
+      `UPDATE parametres_systeme SET valeur = $1, modifie_par = $2, mis_a_jour_le = NOW() WHERE cle = $3`,
+      [String(valeur), adminId, cle]
+    );
+
+    res.json({ message: `Paramètre ${cle} mis à jour`, cle, nouvelle_valeur: valeur });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { connexion, agencesEnAttente, validerAgence, refuserAgence, listerParametres, modifierParametre };

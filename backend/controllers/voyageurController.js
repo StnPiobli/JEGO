@@ -193,12 +193,14 @@ async function historiqueVoyages(req, res) {
     const voyageurId = req.utilisateur.id;
 
     const resultat = await pool.query(
-      `SELECT
+      `SELECT DISTINCT
           b.id AS billet_id, b.numero, b.statut, b.prix_total_client,
+          b.est_cadeau,
           t.date_depart, t.heure_depart, t.heure_arrivee_reelle,
           vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
           a.nom AS nom_agence,
           s.numero AS siege,
+          (b.est_cadeau = true AND p.voyageur_id != $1) AS recu_en_cadeau,
           (SELECT COUNT(*) FROM avis WHERE trajet_id = b.trajet_id AND voyageur_id = b.voyageur_id) > 0 AS deja_note
        FROM billets b
        JOIN trajets t ON t.id = b.trajet_id
@@ -207,7 +209,8 @@ async function historiqueVoyages(req, res) {
        JOIN villes va ON va.code = l.ville_arrivee
        JOIN agences a ON a.id = b.agence_id
        JOIN sieges s ON s.id = b.siege_id
-       WHERE b.voyageur_id = $1
+       LEFT JOIN paiements p ON p.billet_id = b.id
+       WHERE b.voyageur_id = $1 OR p.voyageur_id = $1
        ORDER BY t.date_depart DESC, t.heure_depart DESC`,
       [voyageurId]
     );

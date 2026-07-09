@@ -2,6 +2,7 @@ const pool = require('../config/database');
 const { genererQR, verifierQR } = require('../utils/qr');
 const { creerNotification } = require('../services/notificationService');
 const { crediterPoints, calculerPointsGagnes } = require('../services/pointsService');
+const { normaliserTelephone } = require('../utils/telephone');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -346,9 +347,10 @@ async function payer(req, res) {
     // Si billet cadeau : on cherche si le destinataire a déjà un compte
     let voyageurProprietaire = voyageurId;
     if (est_cadeau) {
+      const telNormalise = normaliserTelephone(destinataire_tel);
       const destinataireCompte = await client.query(
         `SELECT id FROM voyageurs WHERE telephone = $1`,
-        [destinataire_tel]
+        [telNormalise]
       );
       if (destinataireCompte.rows.length > 0) {
         voyageurProprietaire = destinataireCompte.rows[0].id;

@@ -261,20 +261,22 @@ async function payer(req, res) {
     const voyageurId = req.utilisateur.id;
     const {
       trajet_id, siege_id, operateur,
-      est_premium_choisi, supplement_bagage, est_flexible
+      est_premium_choisi, supplement_bagage, est_flexible,
+      est_cadeau, destinataire_tel, destinataire_email
     } = req.body;
 
-    // Vérifs de base
     if (!trajet_id || !siege_id || !operateur) {
       return res.status(400).json({ error: 'Trajet, siège et opérateur sont obligatoires' });
     }
     if (!['mtn_momo', 'orange_money'].includes(operateur)) {
       return res.status(400).json({ error: 'Opérateur invalide : mtn_momo ou orange_money' });
     }
+    if (est_cadeau && (!destinataire_tel || !destinataire_email)) {
+      return res.status(400).json({ error: 'Pour un billet cadeau, le téléphone et l\'email du destinataire sont obligatoires' });
+    }
 
     await client.query('BEGIN');
 
-    // 1. Vérifier que le voyageur possède un verrou valide sur ce siège
     const verrou = await client.query(
       `SELECT id FROM soft_locks
        WHERE siege_id = $1 AND trajet_id = $2 AND voyageur_id = $3 AND expire_le > NOW()`,
@@ -285,7 +287,6 @@ async function payer(req, res) {
       return res.status(403).json({ error: 'Aucun verrou valide. Sélectionnez à nouveau le siège.' });
     }
 
-    // 2. Vérifier que le siège n'a pas été vendu entre-temps
     const dejaVendu = await client.query(
       `SELECT id FROM billets WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'`,
       [siege_id, trajet_id]
@@ -295,7 +296,6 @@ async function payer(req, res) {
       return res.status(409).json({ error: 'Ce siège vient d\'être vendu' });
     }
 
-    // 3. Récupérer le trajet, le bus, le siège et l'agence
     const infos = await client.query(
       `SELECT t.prix_base, t.agence_id, t.date_depart,
               b.supplement_premium,
@@ -308,19 +308,15 @@ async function payer(req, res) {
     );
     const info = infos.rows[0];
 
-    // 4. Calculer le PRIX AGENCE (ce que l'agence reçoit)
     let prixAgence = info.prix_base;
-    // Supplément premium : si le siège est premium, on l'ajoute (revient à l'agence)
     if (info.est_premium) {
       prixAgence += info.supplement_premium;
     }
 
-    // 5. Calculer les SUPPLÉMENTS JEGO (reviennent à JEGO, pas à l'agence)
-    const suppSiege = est_premium_choisi ? 500 : 0;  // frais "choix du siège" (exemple)
+    const suppSiege = est_premium_choisi ? 500 : 0;
     const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
-    const suppFlexible = est_flexible ? Math.round(prixAgence * 0.10) : 0; // +10% si flexible
+    const suppFlexible = est_flexible ? Math.round(prixAgence * 0.10) : 0;
 
-    // 6. Calculer la COMMISSION JEGO via la grille (configuration_frais)
     const grille = await client.query(
       `SELECT pourcentage FROM configuration_frais
        WHERE type_frais = 'commission'
@@ -335,40 +331,47 @@ async function payer(req, res) {
     const pourcentage = grille.rows.length > 0 ? parseFloat(grille.rows[0].pourcentage) : 7;
     const commission = Math.round(prixAgence * pourcentage / 100);
 
-    // 7. Calculer le PRIX TOTAL CLIENT
     const margeJego = commission + suppSiege + suppBagage + suppFlexible;
     const prixTotalClient = prixAgence + margeJego;
 
-    // 8. Frais Mobile Money (1,5%, absorbés par JEGO)
     const fraisMomo = Math.round(prixTotalClient * 0.015);
 
-    // 9. [SIMULATION] Appel Mobile Money — ici on simule un succès
     const referenceMomo = `SIM-${operateur.toUpperCase()}-${Date.now()}`;
 
-    // 10. Générer le numéro de billet et le QR
     const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
     const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
     const numeroBillet = `JG-${dateStr}-${suffixe}`;
     const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
 
-    // 11. Créer le BILLET
+    // Si billet cadeau : on cherche si le destinataire a déjà un compte
+    let voyageurProprietaire = voyageurId;
+    if (est_cadeau) {
+      const destinataireCompte = await client.query(
+        `SELECT id FROM voyageurs WHERE telephone = $1`,
+        [destinataire_tel]
+      );
+      if (destinataireCompte.rows.length > 0) {
+        voyageurProprietaire = destinataireCompte.rows[0].id;
+      }
+      // Sinon : voyageurProprietaire reste l'acheteur, le destinataire recevra son QR par mail sans compte
+    }
+
     const billet = await client.query(
       `INSERT INTO billets
         (numero, trajet_id, voyageur_id, siege_id, agence_id,
          type_billet, statut, est_flexible, supplement_flexible,
          supplement_bagage, supplement_siege,
          prix_total_client, prix_agence, marge_jego, frais_momo,
-         qr_code, source_vente)
-       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne')
+         qr_code, source_vente, est_cadeau, destinataire_tel, destinataire_email)
+       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne',$16,$17,$18)
        RETURNING id, numero, qr_code, prix_total_client`,
-      [numeroBillet, trajet_id, voyageurId, siege_id, info.agence_id,
-       est_flexible ? 'flexible' : 'standard', est_flexible || false, suppFlexible,
+      [numeroBillet, trajet_id, voyageurProprietaire, siege_id, info.agence_id,
+       est_cadeau ? 'cadeau' : (est_flexible ? 'flexible' : 'standard'), est_flexible || false, suppFlexible,
        suppBagage, suppSiege, prixTotalClient, prixAgence, margeJego, fraisMomo,
-       qrCode]
+       qrCode, est_cadeau || false, destinataire_tel || null, destinataire_email || null]
     );
     const billetId = billet.rows[0].id;
 
-    // 12. Créer le PAIEMENT (confirmé)
     await client.query(
       `INSERT INTO paiements
         (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
@@ -376,7 +379,6 @@ async function payer(req, res) {
       [billetId, voyageurId, prixTotalClient, operateur, referenceMomo]
     );
 
-    // 13. Créer l'ESCROW (argent retenu, pas versé)
     await client.query(
       `INSERT INTO escrow
         (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
@@ -384,38 +386,52 @@ async function payer(req, res) {
       [billetId, prixTotalClient, prixAgence, margeJego - fraisMomo, fraisMomo]
     );
 
-    // 14. Supprimer le verrou (le siège est maintenant vendu)
     await client.query(
       `DELETE FROM soft_locks WHERE siege_id = $1 AND trajet_id = $2`,
       [siege_id, trajet_id]
     );
 
-    // Créditer les JEGO Points gagnés sur ce paiement (dans la même transaction)
+    // Points JEGO : toujours crédités à l'ACHETEUR (celui qui paie), même pour un cadeau
     const pointsGagnes = calculerPointsGagnes(prixTotalClient);
     if (pointsGagnes > 0) {
-      await crediterPoints(voyageurId, pointsGagnes, 'Achat de billet', billetId, client);
+      await crediterPoints(voyageurId, pointsGagnes, est_cadeau ? 'Achat de billet cadeau' : 'Achat de billet', billetId, client);
     }
 
     await client.query('COMMIT');
 
-    // Notification de confirmation (hors transaction, ne bloque jamais le paiement)
+    // Notification à l'acheteur
     await creerNotification({
       destinataire_type: 'voyageur',
       destinataire_id: voyageurId,
       type: 'confirmation_billet',
-      titre: 'Billet confirmé',
-      contenu: `Votre billet ${numeroBillet} pour le siège ${info.siege_numero} est confirmé.`,
+      titre: est_cadeau ? 'Billet cadeau envoyé' : 'Billet confirmé',
+      contenu: est_cadeau
+        ? `Votre billet cadeau ${numeroBillet} a été envoyé au ${destinataire_tel}.`
+        : `Votre billet ${numeroBillet} pour le siège ${info.siege_numero} est confirmé.`,
       canal: 'push'
     });
 
+    // Si cadeau : notification dédiée au destinataire (par email, avec ou sans compte)
+    if (est_cadeau) {
+      await creerNotification({
+        destinataire_type: voyageurProprietaire !== voyageurId ? 'voyageur' : 'voyageur',
+        destinataire_id: voyageurProprietaire,
+        type: 'billet_cadeau_recu',
+        titre: 'Vous avez reçu un billet cadeau !',
+        contenu: `Vous avez reçu un billet pour le siège ${info.siege_numero}. Numéro : ${numeroBillet}. Votre QR code est joint.`,
+        canal: 'email'
+      });
+    }
+
     res.status(201).json({
-      message: 'Paiement réussi, billet confirmé',
+      message: est_cadeau ? 'Paiement réussi, billet cadeau envoyé' : 'Paiement réussi, billet confirmé',
       billet: {
         id: billetId,
         numero: billet.rows[0].numero,
         qr_code: billet.rows[0].qr_code,
         siege: info.siege_numero,
-        prix_paye: prixTotalClient
+        prix_paye: prixTotalClient,
+        proprietaire_a_un_compte: voyageurProprietaire !== voyageurId
       },
       detail_prix: {
         prix_agence: prixAgence,

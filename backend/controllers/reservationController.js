@@ -1,7 +1,7 @@
 const pool = require('../config/database');
 const { genererQR, verifierQR } = require('../utils/qr');
 const { creerNotification } = require('../services/notificationService');
-const { crediterPoints, calculerPointsGagnes } = require('../services/pointsService');
+const { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers } = require('../services/pointsService');
 const { normaliserTelephone } = require('../utils/telephone');
 
 // ═══════════════════════════════════════════════════
@@ -263,7 +263,8 @@ async function payer(req, res) {
     const {
       trajet_id, siege_id, operateur,
       est_premium_choisi, supplement_bagage, est_flexible,
-      est_cadeau, destinataire_tel, destinataire_email
+      est_cadeau, destinataire_tel, destinataire_email,
+      utiliser_reduction, utiliser_gratuit
     } = req.body;
 
     if (!trajet_id || !siege_id || !operateur) {
@@ -274,6 +275,12 @@ async function payer(req, res) {
     }
     if (est_cadeau && (!destinataire_tel || !destinataire_email)) {
       return res.status(400).json({ error: 'Pour un billet cadeau, le téléphone et l\'email du destinataire sont obligatoires' });
+    }
+    if (utiliser_reduction && utiliser_gratuit) {
+      return res.status(400).json({ error: 'Choisissez soit la réduction, soit la gratuité, pas les deux' });
+    }
+    if (utiliser_gratuit && (est_premium_choisi || est_flexible)) {
+      return res.status(400).json({ error: 'La gratuité par points ne s\'applique qu\'aux billets standard' });
     }
 
     await client.query('BEGIN');
@@ -309,6 +316,11 @@ async function payer(req, res) {
     );
     const info = infos.rows[0];
 
+    if (info.est_premium && utiliser_gratuit) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'La gratuité par points ne s\'applique pas aux sièges premium' });
+    }
+
     let prixAgence = info.prix_base;
     if (info.est_premium) {
       prixAgence += info.supplement_premium;
@@ -333,18 +345,44 @@ async function payer(req, res) {
     const commission = Math.round(prixAgence * pourcentage / 100);
 
     const margeJego = commission + suppSiege + suppBagage + suppFlexible;
-    const prixTotalClient = prixAgence + margeJego;
+    let prixTotalClient = prixAgence + margeJego;
 
-    const fraisMomo = Math.round(prixTotalClient * 0.015);
+    // Application de la reconversion de points (Lecture A)
+    const paliers = await recupererPaliers();
+    let pointsUtilises = 0;
+    let reductionAppliquee = 0;
 
-    const referenceMomo = `SIM-${operateur.toUpperCase()}-${Date.now()}`;
+    if (utiliser_gratuit) {
+      // Vérifie le solde AVANT (debiterPoints le revérifiera aussi, double sécurité)
+      const soldeCheck = await client.query(`SELECT points_fidelite FROM voyageurs WHERE id = $1`, [voyageurId]);
+      if (soldeCheck.rows[0].points_fidelite < paliers.gratuitPoints) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Solde insuffisant : ${paliers.gratuitPoints} points requis pour un billet gratuit` });
+      }
+      pointsUtilises = paliers.gratuitPoints;
+      reductionAppliquee = prixTotalClient; // le client ne paie plus rien
+      prixTotalClient = 0;
+    } else if (utiliser_reduction) {
+      const soldeCheck = await client.query(`SELECT points_fidelite FROM voyageurs WHERE id = $1`, [voyageurId]);
+      if (soldeCheck.rows[0].points_fidelite < paliers.reductionPoints) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Solde insuffisant : ${paliers.reductionPoints} points requis pour cette réduction` });
+      }
+      pointsUtilises = paliers.reductionPoints;
+      reductionAppliquee = Math.min(paliers.reductionFcfa, prixTotalClient);
+      prixTotalClient -= reductionAppliquee;
+    }
+
+    // Frais MoMo calculés sur ce que le client paie RÉELLEMENT (0 si gratuit)
+    const fraisMomo = prixTotalClient > 0 ? Math.round(prixTotalClient * 0.015) : 0;
+
+    const referenceMomo = prixTotalClient > 0 ? `SIM-${operateur.toUpperCase()}-${Date.now()}` : 'GRATUIT-POINTS';
 
     const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
     const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
     const numeroBillet = `JG-${dateStr}-${suffixe}`;
     const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
 
-    // Si billet cadeau : on cherche si le destinataire a déjà un compte
     let voyageurProprietaire = voyageurId;
     if (est_cadeau) {
       const telNormalise = normaliserTelephone(destinataire_tel);
@@ -355,7 +393,6 @@ async function payer(req, res) {
       if (destinataireCompte.rows.length > 0) {
         voyageurProprietaire = destinataireCompte.rows[0].id;
       }
-      // Sinon : voyageurProprietaire reste l'acheteur, le destinataire recevra son QR par mail sans compte
     }
 
     const billet = await client.query(
@@ -374,6 +411,7 @@ async function payer(req, res) {
     );
     const billetId = billet.rows[0].id;
 
+    // Paiement : si prixTotalClient = 0 (gratuit), on trace quand même un paiement à 0, statut confirmé
     await client.query(
       `INSERT INTO paiements
         (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
@@ -381,11 +419,14 @@ async function payer(req, res) {
       [billetId, voyageurId, prixTotalClient, operateur, referenceMomo]
     );
 
+    // Escrow : l'agence reçoit TOUJOURS son prix normal, même si le client n'a rien payé
+    // JEGO absorbe la différence (montant_jego peut devenir négatif si la réduction dépasse sa marge)
+    const montantJegoNet = margeJego - fraisMomo - reductionAppliquee;
     await client.query(
       `INSERT INTO escrow
         (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
        VALUES ($1,$2,$3,$4,$5,'retenu')`,
-      [billetId, prixTotalClient, prixAgence, margeJego - fraisMomo, fraisMomo]
+      [billetId, prixAgence + margeJego, prixAgence, montantJegoNet, fraisMomo]
     );
 
     await client.query(
@@ -393,7 +434,12 @@ async function payer(req, res) {
       [siege_id, trajet_id]
     );
 
-    // Points JEGO : toujours crédités à l'ACHETEUR (celui qui paie), même pour un cadeau
+    // Débiter les points utilisés pour la reconversion
+    if (pointsUtilises > 0) {
+      await debiterPoints(voyageurId, pointsUtilises, utiliser_gratuit ? 'Billet gratuit (points)' : 'Réduction (points)', billetId, client);
+    }
+
+    // Créditer les points gagnés sur ce qui a été RÉELLEMENT payé (0 si gratuit)
     const pointsGagnes = calculerPointsGagnes(prixTotalClient);
     if (pointsGagnes > 0) {
       await crediterPoints(voyageurId, pointsGagnes, est_cadeau ? 'Achat de billet cadeau' : 'Achat de billet', billetId, client);
@@ -401,7 +447,6 @@ async function payer(req, res) {
 
     await client.query('COMMIT');
 
-    // Notification à l'acheteur
     await creerNotification({
       destinataire_type: 'voyageur',
       destinataire_id: voyageurId,
@@ -413,10 +458,9 @@ async function payer(req, res) {
       canal: 'push'
     });
 
-    // Si cadeau : notification dédiée au destinataire (par email, avec ou sans compte)
     if (est_cadeau) {
       await creerNotification({
-        destinataire_type: voyageurProprietaire !== voyageurId ? 'voyageur' : 'voyageur',
+        destinataire_type: 'voyageur',
         destinataire_id: voyageurProprietaire,
         type: 'billet_cadeau_recu',
         titre: 'Vous avez reçu un billet cadeau !',
@@ -433,6 +477,8 @@ async function payer(req, res) {
         qr_code: billet.rows[0].qr_code,
         siege: info.siege_numero,
         prix_paye: prixTotalClient,
+        points_utilises: pointsUtilises,
+        reduction_appliquee: reductionAppliquee,
         proprietaire_a_un_compte: voyageurProprietaire !== voyageurId
       },
       detail_prix: {

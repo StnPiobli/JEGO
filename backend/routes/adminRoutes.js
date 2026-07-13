@@ -4,13 +4,13 @@ const {
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre
 } = require('../controllers/adminController');
-const { authentifier } = require('../middleware/auth');
+const { authentifier, verifierPermission } = require('../middleware/auth');
 
 router.post('/connexion', connexion);
-router.get('/agences-en-attente', authentifier, agencesEnAttente);
-router.put('/agences/:id/valider', authentifier, validerAgence);
-router.put('/agences/:id/refuser', authentifier, refuserAgence);
-router.get('/parametres', authentifier, listerParametres);
-router.put('/parametres/:cle', authentifier, modifierParametre);
+router.get('/agences-en-attente', authentifier, verifierPermission('valider_agence'), agencesEnAttente);
+router.put('/agences/:id/valider', authentifier, verifierPermission('valider_agence'), validerAgence);
+router.put('/agences/:id/refuser', authentifier, verifierPermission('refuser_agence'), refuserAgence);
+router.get('/parametres', authentifier, verifierPermission('modifier_parametres'), listerParametres);
+router.put('/parametres/:cle', authentifier, verifierPermission('modifier_parametres'), modifierParametre);
 
 module.exports = router;

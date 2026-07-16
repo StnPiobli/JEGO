@@ -1,45 +1,80 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme.dart';
-import 'ecran_paiement.dart';
+import 'ecran_billet.dart';
 
-enum StatutSiege { libre, premium, pris, indisponible }
+class EcranPaiement extends StatefulWidget {
+  final bool attributionAutomatique;
+  final String? numeroSiege;
+  final bool siegePremium;
+  final int secondesRestantesInitiales;
 
-class _Siege {
-  final String numero;
-  final StatutSiege statut;
-  const _Siege(this.numero, this.statut);
-}
-
-class EcranPlanBus extends StatefulWidget {
-  const EcranPlanBus({super.key});
-
-  @override
-  State<EcranPlanBus> createState() => _EcranPlanBusState();
-}
-
-class _EcranPlanBusState extends State<EcranPlanBus> {
-  final List<List<_Siege?>> _rangees = List.generate(8, (r) {
-    final rangee = r + 1;
-    final premium = rangee <= 2;
-    return [
-      _Siege('${rangee}A', premium ? StatutSiege.premium : StatutSiege.libre),
-      _Siege('${rangee}B', premium ? StatutSiege.premium : StatutSiege.libre),
-      null,
-      _Siege('${rangee}C', premium ? StatutSiege.premium : StatutSiege.libre),
-      _Siege('${rangee}D', premium ? StatutSiege.premium : StatutSiege.libre),
-    ];
+  const EcranPaiement({
+    super.key,
+    required this.attributionAutomatique,
+    this.numeroSiege,
+    this.siegePremium = false,
+    this.secondesRestantesInitiales = 300,
   });
 
-  String? _siegeSelectionne;
-  bool _siegeSelectionneEstPremium = false;
-  bool _attributionAutomatique = false;
+  @override
+  State<EcranPaiement> createState() => _EcranPaiementState();
+}
+
+enum _OptionPoints { aucune, reduction, gratuit }
+
+class _EcranPaiementState extends State<EcranPaiement> {
+  static const int _prixAgence = 6000;
+  static const int _pourcentageCommission = 7;
+  static const int _fraisBagage = 1000;
+  static const int _pointsDisponibles = 1200;
+
+  static const int _palierReduction = 500;
+  static const int _montantReduction = 500;
+  static const int _palierGratuit = 1000;
+
+  bool _bagageSupplementaire = false;
+  bool _billetFlexible = false;
+  _OptionPoints _optionPoints = _OptionPoints.aucune;
+  String? _operateurChoisi;
+
+  bool get _estGratuit => _optionPoints == _OptionPoints.gratuit && _gratuiteDisponible;
+
+  int get _commission => (_prixAgence * _pourcentageCommission / 100).round();
+  int get _supplementFlexible => _billetFlexible ? (_prixAgence * 0.10).round() : 0;
+
+  int get _margeJego {
+    int marge = _commission + _supplementFlexible;
+    if (_bagageSupplementaire) marge += _fraisBagage;
+    return marge;
+  }
+
+  bool get _gratuiteDisponible =>
+      _pointsDisponibles >= _palierGratuit && !widget.siegePremium && !_billetFlexible;
+
+  // Le billet est offert, mais le bagage supplementaire reste toujours payant
+  int get _total {
+    if (_estGratuit) {
+      return _bagageSupplementaire ? _fraisBagage : 0;
+    }
+    int total = _prixAgence + _margeJego;
+    if (_optionPoints == _OptionPoints.reduction) total -= _montantReduction;
+    return total;
+  }
+
+  late int _secondesRestantes;
   Timer? _minuteur;
-  int _secondesRestantes = 5;
   bool _demandeConfirmation = false;
   int _secondesConfirmation = 5;
   Timer? _minuteurConfirmation;
+  bool _tempsEcoule = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _secondesRestantes = widget.secondesRestantesInitiales;
+    _demarrerMinuteur();
+  }
 
   @override
   void dispose() {
@@ -49,10 +84,6 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
   }
 
   void _demarrerMinuteur() {
-    setState(() {
-      _secondesRestantes = 5;
-      _demandeConfirmation = false;
-    });
     _minuteur?.cancel();
     _minuteur = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
@@ -78,9 +109,8 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
           _secondesConfirmation--;
         } else {
           timer.cancel();
-          _siegeSelectionne = null;
-          _attributionAutomatique = false;
           _demandeConfirmation = false;
+          _tempsEcoule = true;
         }
       });
     });
@@ -88,65 +118,11 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
 
   void _confirmerPresence() {
     _minuteurConfirmation?.cancel();
-    setState(() => _demandeConfirmation = false);
-    _demarrerMinuteur();
-  }
-
-  void _selectionnerSiege(String numero, StatutSiege statut) {
-    if (statut == StatutSiege.pris || statut == StatutSiege.indisponible) return;
-
-    if (_siegeSelectionne == numero) {
-      _annulerSelection();
-      return;
-    }
-
     setState(() {
-      _siegeSelectionne = numero;
-      _siegeSelectionneEstPremium = statut == StatutSiege.premium;
-      _attributionAutomatique = false;
-    });
-    _demarrerMinuteur();
-  }
-
-  void _annulerSelection() {
-    _minuteur?.cancel();
-    _minuteurConfirmation?.cancel();
-    setState(() {
-      _siegeSelectionne = null;
-      _attributionAutomatique = false;
       _demandeConfirmation = false;
-    });
-  }
-
-  void _selectionAutomatique() {
-    if (_siegeSelectionne != null) return;
-
-    final siegesStandardLibres = <String>[];
-    for (final rangee in _rangees) {
-      for (final siege in rangee) {
-        if (siege != null && siege.statut == StatutSiege.libre) {
-          siegesStandardLibres.add(siege.numero);
-        }
-      }
-    }
-    if (siegesStandardLibres.isEmpty) return;
-    final choisi = siegesStandardLibres[Random().nextInt(siegesStandardLibres.length)];
-    setState(() {
-      _siegeSelectionne = choisi;
-      _siegeSelectionneEstPremium = false; // choix auto = jamais premium
-      _attributionAutomatique = true;
+      _secondesRestantes = 300;
     });
     _demarrerMinuteur();
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => EcranPaiement(
-          attributionAutomatique: true,
-          siegePremium: false,
-          secondesRestantesInitiales: _secondesRestantes,
-        ),
-      ),
-    );
   }
 
   String get _tempsFormate {
@@ -157,114 +133,204 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
 
   @override
   Widget build(BuildContext context) {
+    if (_tempsEcoule) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.timer_off_rounded, size: 48, color: Colors.black26),
+                  const SizedBox(height: 16),
+                  const Text('Temps écoulé', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Votre siège a été libéré. Recommencez votre réservation.',
+                    style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.55)),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: JegoColors.vertMoyen,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                    child: const Text('Retour à l\'accueil'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: Colors.black87,
-        title: const Text('Choisir un siège', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87)),
+        title: const Text('Paiement', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87)),
       ),
       body: SafeArea(
         child: Stack(
           children: [
             Column(
               children: [
-                SizedBox(
-                  height: 50,
-                  child: _siegeSelectionne == null
-                      ? const SizedBox.shrink()
-                      : Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: JegoColors.vertTresClair,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.timer_outlined, size: 18, color: JegoColors.vertFonce),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Siège réservé — $_tempsFormate restantes',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: JegoColors.vertFonce),
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: _annulerSelection,
-                                child: Text(
-                                  'Annuler',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: JegoColors.vertFonce.withOpacity(0.7)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                ),
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: JegoColors.vertTresClair,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _Legende(couleur: Colors.black12, texte: 'Libre'),
-                      const SizedBox(width: 14),
-                      _Legende(couleur: const Color(0xFFF0997B), texte: 'Premium'),
-                      const SizedBox(width: 14),
-                      _Legende(couleur: Colors.black26, texte: 'Pris'),
+                      Icon(Icons.timer_outlined, size: 18, color: JegoColors.vertFonce),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Siège réservé — $_tempsFormate restantes',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: JegoColors.vertFonce),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
 
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('DEVANT', style: TextStyle(fontSize: 9, color: Colors.black.withOpacity(0.3), letterSpacing: 1.5, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
                         Container(
-                          width: 130,
-                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: Colors.black12),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                          child: Column(
                             children: [
-                              Icon(Icons.block_rounded, size: 13, color: Colors.black26),
-                              const SizedBox(width: 5),
-                              Text('Chauffeur', style: TextStyle(fontSize: 10, color: Colors.black.withOpacity(0.4), fontWeight: FontWeight.w500)),
+                              _LigneRecap(label: 'Douala → Yaoundé', valeur: '15 juil. 2026 · 08h00'),
+                              _LigneRecap(
+                                label: 'Siège',
+                                valeur: widget.attributionAutomatique
+                                    ? 'Attribué après paiement'
+                                    : (widget.numeroSiege ?? '—'),
+                              ),
+                              const Divider(height: 20),
+                              // Cas gratuit : billet offert affiche EN PREMIER,
+                              // puis les supplements ensuite avec la mention (supplement)
+                              if (_estGratuit) ...[
+                                _LigneRecap(label: 'Billet offert (points)', valeur: 'Gratuit'),
+                                if (_bagageSupplementaire)
+                                  _LigneRecap(label: 'Bagage supplémentaire (supplément)', valeur: '$_fraisBagage FCFA'),
+                              ] else ...[
+                                _LigneRecap(label: 'Prix agence', valeur: '$_prixAgence FCFA'),
+                                _LigneRecap(label: 'Commission JEGO', valeur: '$_commission FCFA'),
+                                if (_supplementFlexible > 0)
+                                  _LigneRecap(label: 'Supplément flexible', valeur: '$_supplementFlexible FCFA'),
+                                if (_bagageSupplementaire)
+                                  _LigneRecap(label: 'Bagage supplémentaire', valeur: '$_fraisBagage FCFA'),
+                                if (_optionPoints == _OptionPoints.reduction)
+                                  _LigneRecap(label: 'Réduction points JEGO', valeur: '-$_montantReduction FCFA'),
+                              ],
                             ],
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        ..._rangees.map((rangee) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 5),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: rangee.map((siege) {
-                                if (siege == null) return const SizedBox(width: 24);
-                                final cache = _attributionAutomatique;
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                                  child: _CarreSiege(
-                                    siege: siege,
-                                    selectionne: !cache && _siegeSelectionne == siege.numero,
-                                    onTap: cache ? null : () => _selectionnerSiege(siege.numero, siege.statut),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          );
-                        }),
+                        const SizedBox(height: 16),
+
+                        _OptionBasculable(
+                          icone: Icons.work_outline_rounded,
+                          titre: 'Bagage supplémentaire',
+                          sousTitre: '+$_fraisBagage FCFA',
+                          valeur: _bagageSupplementaire,
+                          onChange: (v) => setState(() => _bagageSupplementaire = v),
+                        ),
+                        const SizedBox(height: 10),
+                        _OptionBasculable(
+                          icone: Icons.refresh_rounded,
+                          titre: 'Billet flexible',
+                          sousTitre: _estGratuit
+                              ? 'Indisponible avec un billet gratuit'
+                              : '+10% du prix agence — annulation remboursée jusqu\'à 80%',
+                          valeur: _billetFlexible,
+                          onChange: _estGratuit
+                              ? null
+                              : (v) => setState(() => _billetFlexible = v),
+                        ),
+                        const SizedBox(height: 16),
+
+                        Text('JEGO Points ($_pointsDisponibles pts disponibles)', style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.6))),
                         const SizedBox(height: 8),
-                        Text('ARRIÈRE', style: TextStyle(fontSize: 9, color: Colors.black.withOpacity(0.3), letterSpacing: 1.5, fontWeight: FontWeight.w600)),
+
+                        _OptionPointsWidget(
+                          titre: 'Réduction de $_montantReduction FCFA',
+                          sousTitre: '$_palierReduction points',
+                          disponible: _pointsDisponibles >= _palierReduction,
+                          selectionne: _optionPoints == _OptionPoints.reduction,
+                          onTap: () => setState(() {
+                            _optionPoints = _optionPoints == _OptionPoints.reduction ? _OptionPoints.aucune : _OptionPoints.reduction;
+                          }),
+                        ),
+                        const SizedBox(height: 8),
+                        _OptionPointsWidget(
+                          titre: 'Billet standard gratuit',
+                          sousTitre: _gratuiteDisponible
+                              ? '$_palierGratuit points'
+                              : (widget.siegePremium
+                                  ? '$_palierGratuit points — indisponible (siège premium)'
+                                  : (_billetFlexible
+                                      ? '$_palierGratuit points — indisponible (billet flexible)'
+                                      : '$_palierGratuit points — solde insuffisant')),
+                          disponible: _pointsDisponibles >= _palierGratuit && !widget.siegePremium,
+                          selectionne: _optionPoints == _OptionPoints.gratuit,
+                          onTap: () => setState(() {
+                            final activation = _optionPoints != _OptionPoints.gratuit;
+                            _optionPoints = activation ? _OptionPoints.gratuit : _OptionPoints.aucune;
+                            // Selectionner "gratuit" ferme "flexible" (et non l'inverse) :
+                            // la gratuite est prioritaire, elle desactive le flexible incompatible
+                            if (activation) _billetFlexible = false;
+                          }),
+                        ),
+
+                        const SizedBox(height: 20),
+                        Text('Moyen de paiement', style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.6))),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _ChoixOperateur(
+                                nom: 'MTN MoMo',
+                                selectionne: _operateurChoisi == 'mtn',
+                                desactive: _total == 0,
+                                onTap: () => setState(() => _operateurChoisi = 'mtn'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _ChoixOperateur(
+                                nom: 'Orange Money',
+                                selectionne: _operateurChoisi == 'orange',
+                                desactive: _total == 0,
+                                onTap: () => setState(() => _operateurChoisi = 'orange'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_total == 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Aucun paiement requis pour un billet gratuit',
+                              style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.45)),
+                            ),
+                          ),
                         const SizedBox(height: 16),
                       ],
                     ),
@@ -278,73 +344,50 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
                   ),
                   child: Column(
                     children: [
-                      if (_siegeSelectionne == null)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: _selectionAutomatique,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.black.withOpacity(0.4),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                            ),
-                            icon: const Icon(Icons.shuffle_rounded, size: 14),
-                            label: const Text('Choix automatique', style: TextStyle(fontSize: 11)),
-                          ),
-                        ),
-                      if (_siegeSelectionne == null) const SizedBox(height: 10),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _siegeSelectionne == null
-                                      ? 'Aucun siège'
-                                      : (_attributionAutomatique ? 'Place attribuée' : 'Siège $_siegeSelectionne'),
-                                  style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.55)),
-                                ),
-                                Text(
-                                  _attributionAutomatique ? '4 000 FCFA' : '6 420 FCFA',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: JegoColors.vertFonce),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: _siegeSelectionne == null
-                                  ? null
-                                  : () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (context) => EcranPaiement(
-                                            attributionAutomatique: _attributionAutomatique,
-                                            numeroSiege: _siegeSelectionne,
-                                            siegePremium: _siegeSelectionneEstPremium,
-                                            secondesRestantesInitiales: _secondesRestantes,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                              borderRadius: BorderRadius.circular(26),
-                              child: Container(
-                                width: 52,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  color: _siegeSelectionne == null ? Colors.black12 : JegoColors.vertMoyen,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.arrow_forward_rounded,
-                                  color: _siegeSelectionne == null ? Colors.black38 : Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
+                          Text('Total', style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.55))),
+                          Text(
+                            _total == 0 ? 'Gratuit' : '$_total FCFA',
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: JegoColors.vertFonce),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: JegoColors.vertMoyen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: (_total > 0 && _operateurChoisi == null)
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => EcranBillet(
+                                        numeroBillet: 'JG-20260715-A${(1000 + (100 * _total) % 8999).toInt()}',
+                                        numeroSiege: widget.numeroSiege,
+                                        attributionAutomatique: widget.attributionAutomatique,
+                                        depart: 'Douala',
+                                        arrivee: 'Yaoundé',
+                                        date: '15 juil. 2026',
+                                        heure: '08h00',
+                                        nomAgence: 'Touristique Express',
+                                        montantPaye: _total,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          child: Text(
+                            _total == 0 ? 'Confirmer (gratuit)' : 'Payer $_total FCFA',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -401,70 +444,160 @@ class _EcranPlanBusState extends State<EcranPlanBus> {
   }
 }
 
-class _Legende extends StatelessWidget {
-  final Color couleur;
-  final String texte;
+class _LigneRecap extends StatelessWidget {
+  final String label;
+  final String valeur;
 
-  const _Legende({required this.couleur, required this.texte});
+  const _LigneRecap({required this.label, required this.valeur});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(color: couleur, borderRadius: BorderRadius.circular(3))),
-        const SizedBox(width: 6),
-        Text(texte, style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.6))),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.55))),
+          Text(valeur, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        ],
+      ),
     );
   }
 }
 
-class _CarreSiege extends StatelessWidget {
-  final _Siege siege;
-  final bool selectionne;
-  final VoidCallback? onTap;
+class _OptionBasculable extends StatelessWidget {
+  final IconData icone;
+  final String titre;
+  final String sousTitre;
+  final bool valeur;
+  final ValueChanged<bool>? onChange;
 
-  const _CarreSiege({required this.siege, required this.selectionne, required this.onTap});
+  const _OptionBasculable({
+    required this.icone,
+    required this.titre,
+    required this.sousTitre,
+    required this.valeur,
+    required this.onChange,
+  });
 
   @override
   Widget build(BuildContext context) {
-    Color fond;
-    Color texte;
-    if (selectionne) {
-      fond = JegoColors.vertMoyen;
-      texte = Colors.white;
-    } else {
-      switch (siege.statut) {
-        case StatutSiege.premium:
-          fond = const Color(0xFFF5C4B3);
-          texte = const Color(0xFF712B13);
-          break;
-        case StatutSiege.pris:
-        case StatutSiege.indisponible:
-          fond = Colors.black12;
-          texte = Colors.black26;
-          break;
-        case StatutSiege.libre:
-          fond = Colors.white;
-          texte = Colors.black87;
-          break;
-      }
-    }
+    final desactive = onChange == null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(12),
+        color: desactive ? Colors.black.withOpacity(0.02) : Colors.white,
+      ),
+      child: Row(
+        children: [
+          Icon(icone, size: 20, color: desactive ? Colors.black26 : JegoColors.vertMoyen),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titre, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: desactive ? Colors.black38 : Colors.black87)),
+                Text(sousTitre, style: TextStyle(fontSize: 11, color: Colors.black.withOpacity(0.5))),
+              ],
+            ),
+          ),
+          Switch(value: valeur && !desactive, onChanged: onChange, activeColor: JegoColors.vertMoyen),
+        ],
+      ),
+    );
+  }
+}
 
+class _OptionPointsWidget extends StatelessWidget {
+  final String titre;
+  final String sousTitre;
+  final bool disponible;
+  final bool selectionne;
+  final VoidCallback onTap;
+
+  const _OptionPointsWidget({
+    required this.titre,
+    required this.sousTitre,
+    required this.disponible,
+    required this.selectionne,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: disponible ? onTap : null,
       child: Container(
-        width: 42,
-        height: 42,
-        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: fond,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: selectionne ? JegoColors.vertFonce : Colors.black12),
+          color: selectionne ? const Color(0xFFFAEEDA) : (disponible ? Colors.white : Colors.black.withOpacity(0.02)),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selectionne ? const Color(0xFFBA7517) : Colors.black12, width: selectionne ? 2 : 1),
         ),
-        child: Text(
-          siege.numero,
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: texte),
+        child: Row(
+          children: [
+            Icon(
+              selectionne ? Icons.check_circle_rounded : Icons.star_outline_rounded,
+              size: 18,
+              color: disponible ? (selectionne ? const Color(0xFFBA7517) : Colors.black45) : Colors.black26,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(titre, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: disponible ? Colors.black87 : Colors.black38)),
+                  Text(sousTitre, style: TextStyle(fontSize: 11, color: disponible ? Colors.black.withOpacity(0.5) : Colors.black26)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChoixOperateur extends StatelessWidget {
+  final String nom;
+  final bool selectionne;
+  final bool desactive;
+  final VoidCallback onTap;
+
+  const _ChoixOperateur({
+    required this.nom,
+    required this.selectionne,
+    required this.onTap,
+    this.desactive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: desactive ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: desactive
+              ? Colors.black.withOpacity(0.02)
+              : (selectionne ? JegoColors.vertTresClair : Colors.white),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: desactive ? Colors.black12 : (selectionne ? JegoColors.vertMoyen : Colors.black12),
+            width: selectionne && !desactive ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            nom,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: desactive ? Colors.black26 : (selectionne ? JegoColors.vertFonce : Colors.black54),
+            ),
+          ),
         ),
       ),
     );

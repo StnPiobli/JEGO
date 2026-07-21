@@ -4,7 +4,7 @@ import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import 'connexion_inscription.dart';
-import 'profil_agence.dart';
+import 'fiche_agence.dart';
 import 'selection_siege.dart';
 
 /// Page Informations du voyage. Mode : 'simple' | 'aller' | 'retour'.
@@ -303,7 +303,7 @@ class EcranDetailTrajet extends StatelessWidget {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => EcranProfilAgence(
+                            builder: (_) => EcranFicheAgence(
                                 agenceId: offre['agence_id'] as int),
                           ),
                         );

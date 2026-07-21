@@ -4,9 +4,9 @@ import '../l10n/strings.dart';
 
 /// Profil de l'agence : note generale, notes par critere,
 /// commentaires moderes, badge Certifiee JEGO.
-class EcranProfilAgence extends StatelessWidget {
+class EcranFicheAgence extends StatelessWidget {
   final int agenceId;
-  const EcranProfilAgence({super.key, required this.agenceId});
+  const EcranFicheAgence({super.key, required this.agenceId});
 
   @override
   Widget build(BuildContext context) {

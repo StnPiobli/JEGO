@@ -36,9 +36,7 @@ class NotifsStore {
       liste.value.where((n) => n['lue'] != true).length;
 
   static void marquerToutesLues() {
-    final maj = liste.value
-        .map((n) => {...n, 'lue': true})
-        .toList();
+    final maj = liste.value.map((n) => {...n, 'lue': true}).toList();
     liste.value = maj;
   }
 
@@ -48,5 +46,22 @@ class NotifsStore {
 
   static void toutSupprimer() {
     liste.value = [];
+  }
+
+  /// Ajoute la notif "arrivee declaree" avec le billet complet en charge
+  /// utile, pour ouvrir directement l'ecran de notation au tap.
+  /// DEMO : declenchee localement depuis pendant_voyage.dart. Le vrai
+  /// declencheur sera l'evenement backend "arrivee declaree par le chauffeur".
+  static void ajouterArriveeDeclaree(Map<String, dynamic> billet) {
+    liste.value = [
+      {
+        'id': DateTime.now().millisecondsSinceEpoch,
+        'type': 'arrivee',
+        'quand': 'À l\'instant',
+        'lue': false,
+        'billet': billet,
+      },
+      ...liste.value,
+    ];
   }
 }

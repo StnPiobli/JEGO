@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 class BilletsStore {
   static final ValueNotifier<List<Map<String, dynamic>>> billets =
       ValueNotifier<List<Map<String, dynamic>>>([
-    // --- Billet PASSE fictif (demo, pour tester la section Passes) ---
     {
       'id': 'passe-demo-1',
       'groupe': 'passe-demo',
@@ -46,6 +45,16 @@ class BilletsStore {
         billets.value.where((b) => b['groupe'] != groupe).toList();
   }
 
+  /// Fusionne des changements dans le billet identifie par [id].
+  /// DEMO : persistance en memoire seulement. Le vrai backend fera
+  /// la meme chose via une vraie API au branchement.
+  static void mettreAJour(String id, Map<String, dynamic> changements) {
+    billets.value = billets.value.map((b) {
+      if (b['id'] == id) return {...b, ...changements};
+      return b;
+    }).toList();
+  }
+
   /// True si la date du billet est passee.
   static bool estPasse(Map<String, dynamic> b) {
     try {
@@ -59,14 +68,11 @@ class BilletsStore {
 }
 
 /// Etat du verrou de siege, visible pendant tout le tunnel.
-/// Etat du verrou de siege, visible pendant tout le tunnel.
 class SoftLock {
   static final ValueNotifier<int> secondes = ValueNotifier<int>(0);
   static final ValueNotifier<bool> actif = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> suspendu = ValueNotifier<bool>(false);
 
-  /// Cle de navigation globale, pour ramener au choix du trajet
-  /// depuis n'importe quel ecran quand le verrou expire.
   static final GlobalKey<NavigatorState> navKey =
       GlobalKey<NavigatorState>();
 

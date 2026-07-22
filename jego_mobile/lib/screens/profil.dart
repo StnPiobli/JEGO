@@ -7,7 +7,7 @@ import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/champ_telephone.dart';
 import 'connexion_inscription.dart';
-import 'conditions_utilisation.dart';
+import 'ecran_a_venir.dart';
 
 /// Ecran Profil voyageur. Reagit a l'etat de connexion et a la langue.
 class EcranProfil extends StatelessWidget {
@@ -307,74 +307,9 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
     if (resultat == true && mounted) setState(() {});
   }
 
-  // -------- Langue --------
-  void _choisirLangue() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: JegoTheme.fondCarte,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: JegoTheme.bordCarte,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _optionLangue(ctx, 'fr', Strings.t('langue_fr')),
-              const SizedBox(height: 8),
-              _optionLangue(ctx, 'en', Strings.t('langue_en')),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _optionLangue(BuildContext ctx, String code, String libelle) {
-    final actif = langueCourante.value == code;
-    return BoutonTactile(
-      onTap: () {
-        langueCourante.value = code;
-        Navigator.of(ctx).pop();
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: actif ? JegoTheme.vert.withOpacity(0.1) : JegoTheme.champ,
-          borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-          border: actif
-              ? Border.all(color: JegoTheme.vert.withOpacity(0.4), width: 1)
-              : null,
-        ),
-        child: Row(
-          children: [
-            Text(
-              libelle,
-              style: TextStyle(
-                color: actif ? JegoTheme.vert : JegoTheme.texte,
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const Spacer(),
-            if (actif)
-              const Icon(Icons.check_circle_rounded,
-                  color: JegoTheme.vert, size: 20),
-          ],
-        ),
-      ),
+  void _ouvrirAVenir(String titre) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => EcranAVenir(titre: titre)),
     );
   }
 
@@ -469,332 +404,401 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
         Session.fondAvatar.clamp(0, EcranProfil.fondsAvatar.length - 1)];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 110),
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 110),
       children: [
-        Text(
-          Strings.t('profil_titre'),
-          style: const TextStyle(
-              color: JegoTheme.texte,
-              fontSize: 24,
-              fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 22),
-
-        // ---- Avatar GRAND + stylo (change la PHOTO) ----
-        Center(
-          child: Stack(
-            clipBehavior: Clip.none,
+        _enTete(nomComplet, fond),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
+          child: Column(
             children: [
-              Container(
-                width: 116,
-                height: 116,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: fond,
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: JegoTheme.ombreDouce,
-                ),
-                child: Text(
-                  _initiales,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 42,
-                      fontWeight: FontWeight.w800),
-                ),
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: BoutonTactile(
-                  onTap: _changerPhoto,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: JegoTheme.fondCarte,
-                      shape: BoxShape.circle,
-                      border:
-                          Border.all(color: JegoTheme.bordCarte, width: 1.5),
-                      boxShadow: JegoTheme.ombreDouce,
-                    ),
-                    child: const Icon(Icons.photo_camera_rounded,
-                        size: 17, color: JegoTheme.vert),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ).animate().fadeIn(duration: 450.ms).scale(
-            begin: const Offset(0.85, 0.85), curve: Curves.easeOutBack),
+              const SizedBox(height: 10),
 
-        const SizedBox(height: 14),
-        Center(
-          child: Text(
-            nomComplet.isEmpty ? 'JEGO' : nomComplet,
-            style: const TextStyle(
-                color: JegoTheme.texte,
-                fontSize: 19,
-                fontWeight: FontWeight.w800),
-          ),
-        ).animate(delay: 100.ms).fadeIn(),
-
-        const SizedBox(height: 8),
-
-        // ---- Points + voyages : ligne discrete ----
-        ValueListenableBuilder<List<Map<String, dynamic>>>(
-          valueListenable: BilletsStore.billets,
-          builder: (context, billets, _) {
-            return Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.stars_rounded,
-                      size: 14, color: JegoTheme.etoile),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${_fmtPoints(EcranProfil.pointsDemo)} ${Strings.t('profil_points')}',
-                    style: const TextStyle(
-                        color: JegoTheme.texteSecondaire,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600),
+              // ---- Mes informations ----
+              _bloc(
+                titre: 'Mes informations',
+                icone: Icons.badge_outlined,
+                enfants: [
+                  _ligneAction(
+                    icone: Icons.person_outline_rounded,
+                    libelle: 'Informations personnelles',
+                    onTap: _modifierInfos,
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 3,
-                    height: 3,
-                    decoration: const BoxDecoration(
-                        color: JegoTheme.texteTernaire,
-                        shape: BoxShape.circle),
+                  _ligneAction(
+                    icone: Icons.credit_card_rounded,
+                    libelle: Strings.t('profil_moyens_paiement'),
+                    onTap: () => _ouvrirAVenir(Strings.t('profil_moyens_paiement')),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${billets.length} ${Strings.t('profil_voyages_court')}',
-                    style: const TextStyle(
-                        color: JegoTheme.texteSecondaire,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600),
+                  _ligneAction(
+                    icone: Icons.location_on_outlined,
+                    libelle: 'Adresses enregistrées',
+                    onTap: () => _ouvrirAVenir('Adresses enregistrées'),
+                  ),
+                  _ligneAction(
+                    icone: Icons.tune_rounded,
+                    libelle: 'Préférences de voyage',
+                    onTap: () => _ouvrirAVenir('Préférences de voyage'),
                   ),
                 ],
-              ),
-            );
-          },
-        ).animate(delay: 150.ms).fadeIn(),
+              ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.1),
 
-        const SizedBox(height: 6),
-        Center(
-          child: Text(
-            '${Strings.t('profil_membre_depuis')} ${FormatDate.moisAnnee(Session.membreDepuis)}',
-            style: const TextStyle(
-                color: JegoTheme.texteTernaire,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600),
-          ),
-        ).animate(delay: 180.ms).fadeIn(),
+              const SizedBox(height: 14),
 
-        const SizedBox(height: 24),
+              // ---- Mes activites ----
+              _bloc(
+                titre: 'Mes activités',
+                icone: Icons.local_activity_outlined,
+                enfants: [
+                  _ligneAction(
+                    icone: Icons.rate_review_outlined,
+                    libelle: 'Mes avis',
+                    onTap: () => _ouvrirAVenir('Mes avis'),
+                  ),
+                ],
+              ).animate(delay: 260.ms).fadeIn().slideY(begin: 0.1),
 
-        // ---- Mes informations (modifiable) ----
-        _bloc(
-          titre: Strings.t('profil_infos'),
-          actionIcone: Icons.edit_rounded,
-          onAction: _modifierInfos,
-          enfants: [
-            _ligneInfo(Icons.phone_rounded, Strings.t('profil_telephone'),
-                Session.telephone ?? '\u2013'),
-            _ligneInfo(Icons.mail_rounded, Strings.t('profil_email'),
-                Session.email ?? '\u2013'),
-            _ligneInfo(Icons.lock_rounded, Strings.t('profil_mot_de_passe'),
-                '\u2022\u2022\u2022\u2022\u2022\u2022'),
-          ],
-        ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.1),
+              const SizedBox(height: 14),
 
-        const SizedBox(height: 14),
+              // ---- Aide et support ----
+              _bloc(
+                titre: Strings.t('profil_aide'),
+                icone: Icons.support_agent_rounded,
+                enfants: [
+                  _ligneAction(
+                    icone: Icons.help_outline_rounded,
+                    libelle: 'Centre d\'aide',
+                    onTap: () => _ouvrirAVenir('Centre d\'aide'),
+                  ),
+                  _ligneAction(
+                    icone: Icons.chat_bubble_outline_rounded,
+                    libelle: 'Nous contacter',
+                    onTap: () => _ouvrirAVenir('Nous contacter'),
+                  ),
+                  _ligneAction(
+                    icone: Icons.info_outline_rounded,
+                    libelle: 'À propos de JEGO',
+                    onTap: () => _ouvrirAVenir('À propos de JEGO'),
+                  ),
+                ],
+              ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.1),
 
-        // ---- Parametres ----
-        _bloc(
-          titre: Strings.t('profil_parametres'),
-          enfants: [
-            _ligneAction(
-              icone: Icons.language_rounded,
-              libelle: Strings.t('profil_langue'),
-              valeur: langueCourante.value == 'en'
-                  ? Strings.t('langue_en')
-                  : Strings.t('langue_fr'),
-              onTap: _choisirLangue,
-            ),
-            _ligneAction(
-              icone: Icons.credit_card_rounded,
-              libelle: Strings.t('profil_moyens_paiement'),
-              onTap: () {},
-            ),
-            _ligneAction(
-              icone: Icons.help_outline_rounded,
-              libelle: Strings.t('profil_aide'),
-              onTap: () {},
-            ),
-            _ligneAction(
-              icone: Icons.description_rounded,
-              libelle: Strings.t('profil_conditions'),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                      builder: (_) => const EcranConditionsUtilisation()),
-                );
-              },
-            ),
-          ],
-        ).animate(delay: 260.ms).fadeIn().slideY(begin: 0.1),
+              const SizedBox(height: 22),
 
-        const SizedBox(height: 14),
-
-        // ---- Deconnexion ----
-        BoutonTactile(
-          onTap: _deconnexion,
-          child: Container(
-            width: double.infinity,
-            height: 52,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: JegoTheme.danger.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-              border: Border.all(
-                  color: JegoTheme.danger.withOpacity(0.25), width: 1),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.logout_rounded,
-                    color: JegoTheme.danger, size: 19),
-                const SizedBox(width: 8),
-                Text(
-                  Strings.t('profil_deconnexion'),
-                  style: const TextStyle(
-                      color: JegoTheme.danger,
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800),
+              // ---- Deconnexion : lien texte, pas un bouton plein ----
+              BoutonTactile(
+                onTap: _deconnexion,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.logout_rounded,
+                        color: JegoTheme.danger, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      Strings.t('profil_deconnexion'),
+                      style: const TextStyle(
+                          color: JegoTheme.danger,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-        ).animate(delay: 320.ms).fadeIn(),
-
-        const SizedBox(height: 16),
-        Center(
-          child: Text(
-            Strings.t('support_tel'),
-            style: const TextStyle(
-                color: JegoTheme.texteTernaire, fontSize: 11.5),
+              ).animate(delay: 380.ms).fadeIn(),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _bloc({
-    required String titre,
-    required List<Widget> enfants,
-    IconData? actionIcone,
-    VoidCallback? onAction,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: JegoTheme.fondCarte,
-        borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-        border: Border.all(color: JegoTheme.bordCarte, width: 1),
-        boxShadow: JegoTheme.ombreDouce,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _enTete(String nomComplet, List<Color> fond) {
+    return SizedBox(
+      height: 344,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 10, 6),
-            child: Row(
-              children: [
-                Text(
-                  titre,
-                  style: const TextStyle(
-                      color: JegoTheme.texteSecondaire,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800),
+         Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: _VagueClipperProfil(),
+              child: Container(
+                height: 126,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [JegoTheme.texte, JegoTheme.vert],
+                  ),
                 ),
-                const Spacer(),
-                if (actionIcone != null && onAction != null)
-                  BoutonTactile(
-                    onTap: onAction,
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(actionIcone,
-                          size: 16, color: JegoTheme.vert),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: -46,
+                      right: -30,
+                      child: _tacheDecorative(
+                          140, Colors.white.withOpacity(0.07)),
+                    ),
+                    Positioned(
+                      bottom: -60,
+                      left: -30,
+                      child: _tacheDecorative(
+                          120, JegoTheme.vertVif.withOpacity(0.35)),
+                    ),
+                    Positioned(
+                      top: 30,
+                      left: 60,
+                      child: _tacheDecorative(
+                          50, Colors.white.withOpacity(0.05)),
+                    ),
+                  ],
+                ),
+              ),
+            ).animate().fadeIn(duration: 300.ms),
+          ),
+          Positioned(
+            top: 66,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 112,
+                    height: 112,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: fond,
+                      ),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: JegoTheme.fond, width: 4),
+                      boxShadow: JegoTheme.ombreDouce,
+                    ),
+                    child: Text(
+                      _initiales,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 40,
+                          fontWeight: FontWeight.w800),
                     ),
                   ),
-              ],
-            ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: BoutonTactile(
+                      onTap: _changerPhoto,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: JegoTheme.fondCarte,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: JegoTheme.bordCarte, width: 1.5),
+                          boxShadow: JegoTheme.ombreDouce,
+                        ),
+                        child: const Icon(Icons.photo_camera_rounded,
+                            size: 17, color: JegoTheme.vert),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ).animate().fadeIn(duration: 450.ms).scale(
+                begin: const Offset(0.85, 0.85), curve: Curves.easeOutBack),
           ),
-          ...enfants,
-          const SizedBox(height: 6),
+          Positioned(
+            top: 188,
+            left: 0,
+            right: 0,
+            child: Text(
+              nomComplet.isEmpty ? 'JEGO' : nomComplet,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: JegoTheme.texte,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800),
+            ).animate(delay: 100.ms).fadeIn(),
+          ),
+          if ((Session.email ?? '').isNotEmpty)
+            Positioned(
+              top: 214,
+              left: 0,
+              right: 0,
+              child: Text(
+                Session.email!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: JegoTheme.texteSecondaire, fontSize: 12.5),
+              ).animate(delay: 130.ms).fadeIn(),
+            ),
+         Positioned(
+            top: 240,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: JegoTheme.vert.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(JegoTheme.rGrand),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_rounded,
+                        size: 14, color: JegoTheme.vert),
+                    const SizedBox(width: 5),
+                    const Text(
+                      'Client vérifié',
+                      style: TextStyle(
+                          color: JegoTheme.vert,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+            ).animate(delay: 160.ms).fadeIn(),
+          ),
+          Positioned(
+            top: 270,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: BilletsStore.billets,
+              builder: (context, billets, _) {
+                return Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.stars_rounded,
+                          size: 14, color: JegoTheme.etoile),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_fmtPoints(EcranProfil.pointsDemo)} ${Strings.t('profil_points')}',
+                        style: const TextStyle(
+                            color: JegoTheme.texteSecondaire,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 3,
+                        height: 3,
+                        decoration: const BoxDecoration(
+                            color: JegoTheme.texteTernaire,
+                            shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${billets.length} ${Strings.t('profil_voyages_court')}',
+                        style: const TextStyle(
+                            color: JegoTheme.texteSecondaire,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ).animate(delay: 190.ms).fadeIn(),
+          ),
+          Positioned(
+            top: 296,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Text(
+                '${Strings.t('profil_membre_depuis')} ${FormatDate.moisAnnee(Session.membreDepuis)}',
+                style: const TextStyle(
+                    color: JegoTheme.texteTernaire,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600),
+              ),
+            ).animate(delay: 220.ms).fadeIn(),
+          ),
         ],
       ),
     );
   }
 
-  Widget _ligneInfo(IconData icone, String libelle, String valeur) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Icon(icone, size: 18, color: JegoTheme.texteSecondaire),
-          const SizedBox(width: 12),
-          Text(libelle,
-              style: const TextStyle(
-                  color: JegoTheme.texteSecondaire, fontSize: 13)),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              valeur,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: JegoTheme.texte,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700),
-            ),
+ Widget _bloc({
+    required String titre,
+    required IconData icone,
+    required List<Widget> enfants,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Row(
+            children: [
+              Icon(icone, size: 14, color: JegoTheme.vert),
+              const SizedBox(width: 6),
+              Text(
+                titre.toUpperCase(),
+                style: const TextStyle(
+                    color: JegoTheme.vert,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: JegoTheme.fondCarte,
+            borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+            border: Border.all(color: JegoTheme.bordCarte, width: 1),
+            boxShadow: JegoTheme.ombreDouce,
+          ),
+          child: Column(
+            children: [
+              for (var i = 0; i < enfants.length; i++) ...[
+                enfants[i],
+                if (i < enfants.length - 1)
+                  const Divider(
+                      height: 1,
+                      indent: 16,
+                      endIndent: 16,
+                      color: JegoTheme.bordCarte),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _ligneAction({
     required IconData icone,
     required String libelle,
-    String? valeur,
     required VoidCallback onTap,
   }) {
     return BoutonTactile(
       onTap: onTap,
       child: Container(
         color: Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Icon(icone, size: 19, color: JegoTheme.vert),
+            Icon(icone, size: 19, color: JegoTheme.texteSecondaire),
             const SizedBox(width: 12),
-            Text(libelle,
-                style: const TextStyle(
-                    color: JegoTheme.texte,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600)),
-            const Spacer(),
-            if (valeur != null)
-              Text(valeur,
+            Expanded(
+              child: Text(libelle,
                   style: const TextStyle(
-                      color: JegoTheme.texteSecondaire, fontSize: 13)),
-            const SizedBox(width: 6),
+                      color: JegoTheme.texte,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600)),
+            ),
             const Icon(Icons.chevron_right_rounded,
-                color: JegoTheme.texteTernaire, size: 22),
+                color: JegoTheme.texteTernaire, size: 20),
           ],
         ),
       ),
@@ -802,6 +806,29 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
   }
 }
 
+Widget _tacheDecorative(double taille, Color couleur) {
+    return Container(
+      width: taille,
+      height: taille,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: couleur),
+    );
+  }
+
+class _VagueClipperProfil extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final chemin = Path();
+    chemin.lineTo(0, size.height - 22);
+    chemin.quadraticBezierTo(
+        size.width / 2, size.height, size.width, size.height - 22);
+    chemin.lineTo(size.width, 0);
+    chemin.close();
+    return chemin;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
 // ---------------------------------------------------------------------------
 // FEUILLE D'EDITION : champs pre-remplis, chacun avec son stylo,
 // telephone avec indicatif, mot de passe (nouveau + confirmation robuste),
@@ -857,14 +884,10 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
         _mdp.text.isNotEmpty ||
         _mdpConfirme.text.isNotEmpty;
     if (veutChangerMdp) {
-      // Ancien mot de passe requis.
       if (_ancienMdp.text.isEmpty) {
         setState(() => _erreurMdp = Strings.t('mdp_ancien_requis'));
         return;
       }
-      // Verifie l'ancien mdp. En demo : si aucun mdp n'a jamais ete defini
-      // (Session.motDePasse vide), on accepte tout ancien non vide.
-      // Au branchement : verification cote backend.
       if (Session.motDePasse.isNotEmpty &&
           _ancienMdp.text != Session.motDePasse) {
         setState(() => _erreurMdp = Strings.t('mdp_ancien_faux'));
@@ -922,8 +945,6 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                   Expanded(
                     child: BoutonTactile(
                       onTap: () {
-                        // MODE DEMO : mise a jour LOCALE. Au branchement :
-                        // appel backend de mise a jour du profil.
                         if (_prenom.text.trim().isNotEmpty) {
                           Session.prenom = _prenom.text.trim();
                         }
@@ -1336,7 +1357,6 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
 
     return Column(
       children: [
-        // Ligne repliee (masquee) ou en-tete d'edition
         Container(
           decoration: BoxDecoration(
             color: JegoTheme.champ,
@@ -1388,18 +1408,14 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
         ),
         if (actif) ...[
           const SizedBox(height: 10),
-          // 1) Mot de passe actuel
           _boiteMdp(_ancienMdp, Strings.t('profil_ancien_mdp'),
               Icons.lock_clock_rounded),
           const SizedBox(height: 10),
-          // 2) Nouveau mot de passe
           _boiteMdp(_mdp, Strings.t('profil_nouveau_mdp'),
               Icons.lock_rounded),
           const SizedBox(height: 10),
-          // 3) Confirmation
           _boiteMdp(_mdpConfirme, Strings.t('mdp_confirmer'),
               Icons.lock_outline_rounded),
-          // Indicateurs de robustesse en temps reel
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,

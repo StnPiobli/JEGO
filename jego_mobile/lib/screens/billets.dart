@@ -5,6 +5,7 @@ import '../config/format_date.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/billet_qr.dart';
+import 'pendant_voyage.dart';
 
 class EcranBillets extends StatefulWidget {
   const EcranBillets({super.key});
@@ -16,7 +17,6 @@ class EcranBillets extends StatefulWidget {
 class _EcranBilletsState extends State<EcranBillets> {
   int _section = 0; // 0 = valides, 1 = passes
 
-  // Regroupe les billets par 'groupe' et trie du plus proche au plus loin.
   List<List<Map<String, dynamic>>> _grouper(
       List<Map<String, dynamic>> billets) {
     final map = <String, List<Map<String, dynamic>>>{};
@@ -93,7 +93,6 @@ class _EcranBilletsState extends State<EcranBillets> {
                     ],
                   ),
                 ),
-                // Onglets Valides / Passes
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
                   child: Container(
@@ -264,7 +263,6 @@ class _EcranBilletsState extends State<EcranBillets> {
                     erreur.value = Strings.t('recup_invalide');
                     return;
                   }
-                  // DEMO : format valide -> on ajoute un billet recupere.
                   BilletsStore.ajouter(_billetRecupere(code));
                   Navigator.of(ctx).pop();
                 },
@@ -327,7 +325,6 @@ class _EcranBilletsState extends State<EcranBillets> {
   }
 }
 
-/// Groupe de billets d'un meme trajet (depliable).
 class _GroupeBillet extends StatefulWidget {
   final List<Map<String, dynamic>> billets;
   final bool estPasse;
@@ -360,7 +357,6 @@ class _GroupeBilletState extends State<_GroupeBillet> {
       ),
       child: Column(
         children: [
-          // En-tete du groupe (cliquable pour deplier)
           BoutonTactile(
             onTap: () => setState(() => _ouvert = !_ouvert),
             child: Padding(
@@ -415,7 +411,6 @@ class _GroupeBilletState extends State<_GroupeBillet> {
               ),
             ),
           ),
-          // Billets deplies
           AnimatedSize(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutCubic,
@@ -428,6 +423,51 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           children: [
+                            if (!widget.estPasse)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: BoutonTactile(
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => EcranPendantVoyage(
+                                            billet: premier),
+                                      ),
+                                    );
+                                  },
+                                  child: Container(
+                                    width: double.infinity,
+                                    height: 48,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [
+                                          JegoTheme.vert,
+                                          JegoTheme.vertVif
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(
+                                          JegoTheme.rPetit),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.location_on_rounded,
+                                            size: 17, color: Colors.white),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Suivre le trajet en direct',
+                                          style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 13.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ...widget.billets.map((b) => Padding(
                                   padding:
                                       const EdgeInsets.only(bottom: 12),

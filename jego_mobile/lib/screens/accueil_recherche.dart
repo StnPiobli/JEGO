@@ -11,8 +11,8 @@ import 'notifications.dart';
 import 'resultats_recherche.dart';
 
 class EcranAccueilRecherche extends StatefulWidget {
-  const EcranAccueilRecherche({super.key});
-
+  final VoidCallback? onOuvrirMenu;
+  const EcranAccueilRecherche({super.key, this.onOuvrirMenu});
   @override
   State<EcranAccueilRecherche> createState() => _EcranAccueilRechercheState();
 }
@@ -203,8 +203,8 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               // En-tete : hamburger a GAUCHE, cloche a DROITE
               Row(
                 children: [
-                  BoutonTactile(
-                    onTap: () {},
+                 BoutonTactile(
+                    onTap: widget.onOuvrirMenu,
                     child: _pastille(Icons.menu_rounded),
                   ),
                   const SizedBox(width: 12),

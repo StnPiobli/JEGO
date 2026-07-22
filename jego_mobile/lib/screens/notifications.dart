@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../config/billets_store.dart';
+import '../config/format_date.dart';
 import '../config/notifs_store.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import 'apres_voyage.dart';
 
 /// Espace Notifications : suppression une par une (glisser) ou tout d'un coup.
 /// A l'ouverture, tout est marque comme lu (le badge cloche disparait).
@@ -109,6 +112,23 @@ class _EcranNotificationsState extends State<EcranNotifications> {
           ),
         ),
       ),
+    );
+  }
+
+  void _ouvrirNotation(Map<String, dynamic> n) {
+    final billetSnapshot = n['billet'];
+    if (billetSnapshot is! Map<String, dynamic>) return;
+    // Relit l'etat actuel du billet (pas la copie figee au moment de la
+    // notif) pour que si la note ou le signalement a deja ete fait
+    // ailleurs entre-temps, EcranApresVoyage affiche le bon etat au lieu
+    // de repermettre l'envoi.
+    final billetActuel = BilletsStore.billets.value.firstWhere(
+      (b) => b['id'] == billetSnapshot['id'],
+      orElse: () => billetSnapshot,
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+          builder: (_) => EcranApresVoyage(billet: billetActuel)),
     );
   }
 
@@ -245,6 +265,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
 
   Widget _carteNotif(Map<String, dynamic> n) {
     final estMeteo = n['type'] == 'meteo';
+    final estArrivee = n['type'] == 'arrivee';
     final IconData icone;
     final String titre;
     final String texte;
@@ -254,6 +275,15 @@ class _EcranNotificationsState extends State<EcranNotifications> {
       icone = _iconeMeteo(temp);
       titre = '${Strings.t('notif_meteo_titre')} ${n['ville']} : $temp°C';
       texte = _conseilVestimentaire(temp);
+    } else if (estArrivee) {
+      final billet = n['billet'];
+      final b = billet is Map<String, dynamic> ? billet : <String, dynamic>{};
+      icone = Icons.flag_rounded;
+      titre = '${b['ville_depart'] ?? '?'} → ${b['ville_arrivee'] ?? '?'}';
+      final date = b['date'] is String ? FormatDate.lisible(b['date']) : '';
+      final heure = b['heure_arrivee'] ?? '';
+      texte =
+          'Arrivée déclarée le $date à $heure. Avez-vous passé un bon voyage ?';
     } else {
       icone = n['type'] == 'rappel'
           ? Icons.alarm_rounded
@@ -262,12 +292,16 @@ class _EcranNotificationsState extends State<EcranNotifications> {
       texte = Strings.t(n['texte_cle'] as String);
     }
 
-    return Container(
+    final carte = Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: JegoTheme.fondCarte,
         borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-        border: Border.all(color: JegoTheme.bordCarte, width: 1),
+        border: Border.all(
+            color: estArrivee
+                ? JegoTheme.vert.withOpacity(0.3)
+                : JegoTheme.bordCarte,
+            width: 1),
         boxShadow: JegoTheme.ombreDouce,
       ),
       child: Row(
@@ -312,11 +346,29 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                     fontSize: 10.5,
                   ),
                 ),
+                if (estArrivee) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Toucher pour noter →',
+                    style: TextStyle(
+                      color: JegoTheme.vert,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+
+    if (!estArrivee) return carte;
+
+    return GestureDetector(
+      onTap: () => _ouvrirNotation(n),
+      child: carte,
     );
   }
 }

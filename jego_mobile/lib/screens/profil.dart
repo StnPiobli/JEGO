@@ -6,8 +6,10 @@ import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/champ_telephone.dart';
+import '../config/wallet_store.dart';
 import 'connexion_inscription.dart';
 import 'ecran_a_venir.dart';
+import 'wallet.dart';
 
 /// Ecran Profil voyageur. Reagit a l'etat de connexion et a la langue.
 class EcranProfil extends StatelessWidget {
@@ -413,6 +415,69 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
             children: [
               const SizedBox(height: 10),
 
+              // ---- Wallet JEGO ----
+              BoutonTactile(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EcranWallet()),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [JegoTheme.vert, JegoTheme.vertVif],
+                    ),
+                    borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+                    boxShadow: JegoTheme.ombreVerte,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.16),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                            Icons.account_balance_wallet_rounded,
+                            color: Colors.white,
+                            size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Portefeuille JEGO',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 2),
+                            ValueListenableBuilder<int>(
+                              valueListenable: WalletStore.solde,
+                              builder: (context, solde, _) => Text(
+                                '$solde FCFA',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded,
+                          color: Colors.white, size: 22),
+                    ],
+                  ),
+                ),
+              ).animate(delay: 180.ms).fadeIn().slideY(begin: 0.1),
+
+              const SizedBox(height: 14),
+
               // ---- Mes informations ----
               _bloc(
                 titre: 'Mes informations',
@@ -515,7 +580,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-         Positioned(
+          Positioned(
             top: 0,
             left: 0,
             right: 0,
@@ -634,7 +699,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                     color: JegoTheme.texteSecondaire, fontSize: 12.5),
               ).animate(delay: 130.ms).fadeIn(),
             ),
-         Positioned(
+          Positioned(
             top: 240,
             left: 0,
             right: 0,
@@ -726,7 +791,15 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
     );
   }
 
- Widget _bloc({
+  Widget _tacheDecorative(double taille, Color couleur) {
+    return Container(
+      width: taille,
+      height: taille,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: couleur),
+    );
+  }
+
+  Widget _bloc({
     required String titre,
     required IconData icone,
     required List<Widget> enfants,
@@ -805,14 +878,6 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
     );
   }
 }
-
-Widget _tacheDecorative(double taille, Color couleur) {
-    return Container(
-      width: taille,
-      height: taille,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: couleur),
-    );
-  }
 
 class _VagueClipperProfil extends CustomClipper<Path> {
   @override

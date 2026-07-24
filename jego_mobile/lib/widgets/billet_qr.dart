@@ -16,6 +16,9 @@ class BilletCarre extends StatelessWidget {
   final List<int> sieges;
   final bool auto;
   final bool detaille; // affiche frais + toutes infos (onglet Billets)
+  final VoidCallback? onTelecharger;
+  final VoidCallback? onPartager;
+  final bool chargementPdf;
 
   const BilletCarre({
     super.key,
@@ -27,6 +30,9 @@ class BilletCarre extends StatelessWidget {
     required this.sieges,
     this.auto = false,
     this.detaille = false,
+    this.onTelecharger,
+    this.onPartager,
+    this.chargementPdf = false,
   });
 
   @override
@@ -82,6 +88,7 @@ class BilletCarre extends StatelessWidget {
                           const Spacer(),
                           if (etiquette != null)
                             Container(
+                              margin: const EdgeInsets.only(right: 6),
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
@@ -96,6 +103,61 @@ class BilletCarre extends StatelessWidget {
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800),
                               ),
+                            ),
+                          if (onTelecharger != null || onPartager != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (onTelecharger != null)
+                                  GestureDetector(
+                                    onTap:
+                                        chargementPdf ? null : onTelecharger,
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      margin: const EdgeInsets.only(left: 6),
+                                      decoration: BoxDecoration(
+                                        color: JegoTheme.vert
+                                            .withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: chargementPdf
+                                          ? const Padding(
+                                              padding: EdgeInsets.all(7),
+                                              child:
+                                                  CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: JegoTheme.vert,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.picture_as_pdf_rounded,
+                                              size: 15,
+                                              color: JegoTheme.vert,
+                                            ),
+                                    ),
+                                  ),
+                                if (onPartager != null)
+                                  GestureDetector(
+                                    onTap: chargementPdf ? null : onPartager,
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      margin: const EdgeInsets.only(left: 6),
+                                      decoration: BoxDecoration(
+                                        color: JegoTheme.champ,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: JegoTheme.bordCarte),
+                                      ),
+                                      child: const Icon(
+                                        Icons.ios_share_rounded,
+                                        size: 14,
+                                        color: JegoTheme.texteSecondaire,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                         ],
                       ),

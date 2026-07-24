@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:printing/printing.dart';
 import '../config/billets_store.dart';
 import '../config/format_date.dart';
+import '../config/pdf_billet.dart';
+import '../config/pdf_telechargement.dart';
+import '../config/remboursement.dart';
 import '../config/theme_jego.dart';
+import '../config/wallet_store.dart';
 import '../l10n/strings.dart';
 import '../widgets/billet_qr.dart';
 import 'pendant_voyage.dart';
@@ -347,6 +352,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
   Widget build(BuildContext context) {
     final premier = widget.billets.first;
     final n = widget.billets.length;
+    final nbAnnules = widget.billets.where((b) => b['annule'] == true).length;
 
     return Container(
       decoration: BoxDecoration(
@@ -383,13 +389,40 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${premier['ville_depart']} → ${premier['ville_arrivee']}',
-                          style: const TextStyle(
-                            color: JegoTheme.texte,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '${premier['ville_depart']} → ${premier['ville_arrivee']}',
+                                style: const TextStyle(
+                                  color: JegoTheme.texte,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            if (nbAnnules > 0) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: JegoTheme.danger.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(
+                                      JegoTheme.rGrand),
+                                ),
+                                child: Text(
+                                  n > 1
+                                      ? '$nbAnnules/$n annulé(s)'
+                                      : 'Annulé',
+                                  style: const TextStyle(
+                                      color: JegoTheme.danger,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -471,14 +504,9 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                             ...widget.billets.map((b) => Padding(
                                   padding:
                                       const EdgeInsets.only(bottom: 12),
-                                  child: BilletCarre(
-                                    villeDepart: b['ville_depart'],
-                                    villeArrivee: b['ville_arrivee'],
-                                    date: b['date'],
-                                    offre: b,
-                                    sieges:
-                                        (b['sieges'] as List).cast<int>(),
-                                    detaille: true,
+                                  child: _CarteBilletAvecAction(
+                                    billet: b,
+                                    estPasse: widget.estPasse,
                                   ),
                                 )),
                             if (widget.estPasse)
@@ -592,6 +620,324 @@ class _GroupeBilletState extends State<_GroupeBillet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Un billet individuel + ses actions propres (annuler, telecharger,
+/// partager), en dessous. Telecharger/Partager restent disponibles meme
+/// pour un billet passe ou annule (c'est un recu, toujours consultable).
+class _CarteBilletAvecAction extends StatefulWidget {
+  final Map<String, dynamic> billet;
+  final bool estPasse;
+
+  const _CarteBilletAvecAction({
+    required this.billet,
+    required this.estPasse,
+  });
+
+  @override
+  State<_CarteBilletAvecAction> createState() =>
+      _CarteBilletAvecActionState();
+}
+
+class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
+  bool _enCoursPdf = false;
+
+  String _fmt(int montant) {
+    final s = montant.toString();
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(' ');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
+  DateTime? _dateDepart() {
+    try {
+      final d = DateTime.parse(widget.billet['date'] as String);
+      final parts = '${widget.billet['heure_depart']}'.split(':');
+      return DateTime(
+          d.year, d.month, d.day, int.parse(parts[0]), int.parse(parts[1]));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _telecharger() async {
+    if (_enCoursPdf) return;
+    setState(() => _enCoursPdf = true);
+    try {
+      final bytes = await genererPdfBillet(widget.billet);
+      await telechargerPdf(bytes, 'Billet_${widget.billet['num_resa'] ?? ''}.pdf');
+    } finally {
+      if (mounted) setState(() => _enCoursPdf = false);
+    }
+  }
+
+  Future<void> _partager() async {
+    if (_enCoursPdf) return;
+    setState(() => _enCoursPdf = true);
+    try {
+      final bytes = await genererPdfBillet(widget.billet);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'Billet_${widget.billet['num_resa'] ?? ''}.pdf',
+      );
+    } finally {
+      if (mounted) setState(() => _enCoursPdf = false);
+    }
+  }
+
+  Future<void> _confirmerAnnulation(BuildContext context) async {
+    final depart = _dateDepart();
+    if (depart == null) return;
+    final flexible = widget.billet['flexible'] == true;
+    final prix = (widget.billet['total'] as num?)?.toInt() ?? 0;
+
+    final rembourse = calculerRemboursement(
+      flexible: flexible,
+      prix: prix,
+      depart: depart,
+    );
+
+    final numeros = (widget.billet['sieges'] as List?)?.join(', ') ?? '';
+
+    final confirme = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: JegoTheme.fondCarte,
+            borderRadius: BorderRadius.circular(JegoTheme.rGrand),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.18),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: JegoTheme.danger.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.event_busy_rounded,
+                    color: JegoTheme.danger, size: 28),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                numeros.isEmpty
+                    ? 'Annuler ce billet ?'
+                    : 'Annuler le siège $numeros ?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 15.5, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      JegoTheme.vert.withOpacity(0.08),
+                      JegoTheme.vertVif.withOpacity(0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+                  border:
+                      Border.all(color: JegoTheme.vert.withOpacity(0.2)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Montant payé',
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                color: JegoTheme.texteSecondaire)),
+                        Text('${_fmt(prix)} FCFA',
+                            style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: JegoTheme.texte)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1, color: JegoTheme.bordCarte),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.account_balance_wallet_rounded,
+                                size: 15, color: JegoTheme.vert),
+                            const SizedBox(width: 5),
+                            Text('Vers votre portefeuille',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: JegoTheme.texteSecondaire)),
+                          ],
+                        ),
+                        Text('${_fmt(rembourse)} FCFA',
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: JegoTheme.vert)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: BoutonTactile(
+                      onTap: () => Navigator.of(ctx).pop(false),
+                      child: Container(
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: JegoTheme.champ,
+                          borderRadius:
+                              BorderRadius.circular(JegoTheme.rPetit),
+                        ),
+                        child: const Text('Garder',
+                            style: TextStyle(
+                                color: JegoTheme.texte,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: BoutonTactile(
+                      onTap: () => Navigator.of(ctx).pop(true),
+                      child: Container(
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [JegoTheme.danger, Color(0xFFB33A3A)],
+                          ),
+                          borderRadius:
+                              BorderRadius.circular(JegoTheme.rPetit),
+                        ),
+                        child: const Text('Annuler',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirme == true) {
+      BilletsStore.mettreAJour('${widget.billet['id']}', {'annule': true});
+      if (rembourse > 0) {
+        WalletStore.crediter(
+          rembourse,
+          'Annulation ${widget.billet['ville_depart']} → ${widget.billet['ville_arrivee']}',
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final annule = widget.billet['annule'] == true;
+
+  return Column(
+      children: [
+        BilletCarre(
+          villeDepart: widget.billet['ville_depart'],
+          villeArrivee: widget.billet['ville_arrivee'],
+          date: widget.billet['date'],
+          offre: widget.billet,
+          sieges: (widget.billet['sieges'] as List).cast<int>(),
+          detaille: true,
+          onTelecharger: _telecharger,
+          onPartager: _partager,
+          chargementPdf: _enCoursPdf,
+        ),
+        const SizedBox(height: 8),
+
+        if (!widget.estPasse && !annule) ...[
+          const SizedBox(height: 8),
+          BoutonTactile(
+            onTap: () => _confirmerAnnulation(context),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                color: JegoTheme.danger.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                border: Border.all(color: JegoTheme.danger.withOpacity(0.25)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.event_busy_rounded,
+                      size: 15, color: JegoTheme.danger),
+                  const SizedBox(width: 7),
+                  Text(
+                    'Annuler ce billet',
+                    style: TextStyle(
+                        color: JegoTheme.danger,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        if (annule) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: JegoTheme.champ,
+              borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_rounded,
+                    size: 14, color: JegoTheme.texteTernaire),
+                const SizedBox(width: 6),
+                Text(
+                  'Billet annulé',
+                  style: TextStyle(
+                      color: JegoTheme.texteTernaire,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

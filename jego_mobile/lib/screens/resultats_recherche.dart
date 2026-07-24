@@ -34,19 +34,76 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
 
   List<Map<String, dynamic>> _filtrer(List<Map<String, dynamic>> source) {
     var liste = source;
+
     final heure = widget.params['heure'];
     if (heure != null) {
       liste = liste
           .where((o) => '${o['heure_depart']}'.compareTo(heure) >= 0)
           .toList();
     }
-    final categorie = widget.params['categorie'];
-    if (categorie != null) {
+
+    // Categorie : multi-selection, logique OU (au moins une correspond).
+    final categorieStr = widget.params['categorie'];
+    if (categorieStr != null && categorieStr.isNotEmpty) {
+      final demandees =
+          categorieStr.split(',').map((c) => c.toLowerCase()).toSet();
       liste = liste
           .where((o) =>
-              '${o['categorie']}'.toLowerCase() == categorie.toLowerCase())
+              demandees.contains('${o['categorie']}'.toLowerCase()))
           .toList();
     }
+
+    // Direct = 0 arret, Avec arrets = au moins 1.
+    final typeTrajet = widget.params['type_trajet'];
+    if (typeTrajet != null) {
+      liste = liste.where((o) {
+        final arrets = (o['nombre_arrets'] as num?)?.toInt() ?? 0;
+        return typeTrajet == 'direct' ? arrets == 0 : arrets > 0;
+      }).toList();
+    }
+
+    final prixMin = int.tryParse(widget.params['prix_min'] ?? '');
+    if (prixMin != null) {
+      liste = liste
+          .where((o) => ((o['prix'] as num?)?.toInt() ?? 0) >= prixMin)
+          .toList();
+    }
+
+    final prixMax = int.tryParse(widget.params['prix_max'] ?? '');
+    if (prixMax != null) {
+      liste = liste
+          .where((o) => ((o['prix'] as num?)?.toInt() ?? 0) <= prixMax)
+          .toList();
+    }
+
+    final noteMin = double.tryParse(widget.params['note_min'] ?? '');
+    if (noteMin != null) {
+      liste = liste
+          .where((o) =>
+              ((o['note_moyenne'] as num?)?.toDouble() ?? 0) >= noteMin)
+          .toList();
+    }
+
+    // Chaque equipement demande doit etre present dans l'offre.
+    final equipementsStr = widget.params['equipements'];
+    if (equipementsStr != null && equipementsStr.isNotEmpty) {
+      final demandes = equipementsStr.split(',');
+      liste = liste.where((o) {
+        final dispo = (o['equipements'] as List?)?.cast<String>() ?? [];
+        return demandes.every((e) => dispo.contains(e));
+      }).toList();
+    }
+
+    // "Premium" exclut les offres Standard (pas de rangee premium sur un
+    // petit car standard). "Standard" ne filtre rien : tout bus a des
+    // sieges standard.
+    final typeSiege = widget.params['type_siege'];
+    if (typeSiege == 'premium') {
+      liste = liste
+          .where((o) => '${o['categorie']}'.toLowerCase() != 'standard')
+          .toList();
+    }
+
     return liste;
   }
 

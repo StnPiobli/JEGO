@@ -33,7 +33,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   bool _erreurDate = false;
   bool _erreurDateRetour = false;
 
-  String? _categorie;
+  final Set<String> _categories = {};
   String? _typeTrajet;
   RangeValues _prix = const RangeValues(1000, 30000);
   bool _prixModifie = false;
@@ -42,7 +42,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   String? _typeSiege;
 
   bool get _filtresActifs =>
-      _categorie != null ||
+      _categories.isNotEmpty ||
       _typeTrajet != null ||
       _prixModifie ||
       _noteMin != null ||
@@ -59,7 +59,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
 
   void _reinitialiser() {
     setState(() {
-      _categorie = null;
+      _categories.clear();
       _typeTrajet = null;
       _prix = const RangeValues(1000, 30000);
       _prixModifie = false;
@@ -138,7 +138,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
       if (_heure != null)
         'heure':
             '${_heure!.hour.toString().padLeft(2, '0')}:${_heure!.minute.toString().padLeft(2, '0')}',
-      if (_categorie != null) 'categorie': _categorie!,
+      if (_categories.isNotEmpty) 'categorie': _categories.join(','),
       if (_typeTrajet != null) 'type_trajet': _typeTrajet!,
       if (_prixModifie) 'prix_min': _prix.start.round().toString(),
       if (_prixModifie) 'prix_max': _prix.end.round().toString(),
@@ -728,14 +728,10 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
         children: [
           _titreFiltre(Strings.t('categorie')),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            _puce('standard', Strings.t('cat_standard'), _categorie,
-                (v) => setState(() => _categorie = v)),
-            _puce('vip', Strings.t('cat_vip'), _categorie,
-                (v) => setState(() => _categorie = v)),
-            _puce('express', Strings.t('cat_express'), _categorie,
-                (v) => setState(() => _categorie = v)),
-            _puce('nuit', Strings.t('cat_nuit'), _categorie,
-                (v) => setState(() => _categorie = v)),
+            _puceMultiCategorie('standard', Strings.t('cat_standard')),
+            _puceMultiCategorie('vip', Strings.t('cat_vip')),
+            _puceMultiCategorie('express', Strings.t('cat_express')),
+            _puceMultiCategorie('nuit', Strings.t('cat_nuit')),
           ]),
           _titreFiltre(Strings.t('type_trajet')),
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -841,6 +837,16 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
     return BoutonTactile(
       onTap: () => setState(() {
         actif ? _equipements.remove(valeur) : _equipements.add(valeur);
+      }),
+      child: _decorPuce(libelle, actif),
+    );
+  }
+
+  Widget _puceMultiCategorie(String valeur, String libelle) {
+    final actif = _categories.contains(valeur);
+    return BoutonTactile(
+      onTap: () => setState(() {
+        actif ? _categories.remove(valeur) : _categories.add(valeur);
       }),
       child: _decorPuce(libelle, actif),
     );

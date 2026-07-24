@@ -55,8 +55,11 @@ class BilletsStore {
     }).toList();
   }
 
-  /// True si la date du billet est passee.
+  /// True si la date du billet est passee, OU si le billet a ete annule
+  /// (meme si le trajet est encore a venir : un billet annule ne doit
+  /// plus apparaitre dans "Valides").
   static bool estPasse(Map<String, dynamic> b) {
+    if (b['annule'] == true) return true;
     try {
       final d = DateTime.parse(b['date'] as String);
       final finJour = DateTime(d.year, d.month, d.day, 23, 59);

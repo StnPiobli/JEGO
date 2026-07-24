@@ -9,6 +9,13 @@ import '../widgets/champ_telephone.dart';
 import '../config/wallet_store.dart';
 import 'connexion_inscription.dart';
 import 'ecran_a_venir.dart';
+import 'ecran_a_propos.dart';
+import 'ecran_adresses.dart';
+import 'ecran_centre_aide.dart';
+import 'ecran_mes_avis.dart';
+import 'ecran_moyens_paiement.dart';
+import 'ecran_nous_contacter.dart';
+import 'ecran_preferences_voyage.dart';
 import 'wallet.dart';
 
 /// Ecran Profil voyageur. Reagit a l'etat de connexion et a la langue.
@@ -491,17 +498,20 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                   _ligneAction(
                     icone: Icons.credit_card_rounded,
                     libelle: Strings.t('profil_moyens_paiement'),
-                    onTap: () => _ouvrirAVenir(Strings.t('profil_moyens_paiement')),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranMoyensPaiement())),
                   ),
                   _ligneAction(
                     icone: Icons.location_on_outlined,
                     libelle: 'Adresses enregistrées',
-                    onTap: () => _ouvrirAVenir('Adresses enregistrées'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranAdresses())),
                   ),
                   _ligneAction(
                     icone: Icons.tune_rounded,
                     libelle: 'Préférences de voyage',
-                    onTap: () => _ouvrirAVenir('Préférences de voyage'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranPreferencesVoyage())),
                   ),
                 ],
               ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.1),
@@ -516,7 +526,8 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                   _ligneAction(
                     icone: Icons.rate_review_outlined,
                     libelle: 'Mes avis',
-                    onTap: () => _ouvrirAVenir('Mes avis'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranMesAvis())),
                   ),
                 ],
               ).animate(delay: 260.ms).fadeIn().slideY(begin: 0.1),
@@ -531,17 +542,20 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                   _ligneAction(
                     icone: Icons.help_outline_rounded,
                     libelle: 'Centre d\'aide',
-                    onTap: () => _ouvrirAVenir('Centre d\'aide'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranCentreAide())),
                   ),
                   _ligneAction(
                     icone: Icons.chat_bubble_outline_rounded,
                     libelle: 'Nous contacter',
-                    onTap: () => _ouvrirAVenir('Nous contacter'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranNousContacter())),
                   ),
                   _ligneAction(
                     icone: Icons.info_outline_rounded,
                     libelle: 'À propos de JEGO',
-                    onTap: () => _ouvrirAVenir('À propos de JEGO'),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const EcranAPropos())),
                   ),
                 ],
               ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.1),

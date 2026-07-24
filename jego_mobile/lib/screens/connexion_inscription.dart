@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
+import '../config/comptes_chauffeurs.dart';
 import '../config/session.dart';
+import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
+import 'ecran_accueil_chauffeur.dart';
 import '../l10n/strings.dart';
 import '../widgets/champ_telephone.dart';
 import '../widgets/selecteur_date.dart';
@@ -134,6 +137,22 @@ class _VueConnexionState extends State<_VueConnexion> {
       setState(() => _erreur = Strings.t('erreur_champs_requis'));
       return;
     }
+
+    // Compte chauffeur reconnu : espace chauffeur direct, aucune
+    // session voyageur n'est ouverte dans ce cas.
+    if (estCompteChauffeur(id)) {
+      if (!motDePasseChauffeurValide(id, _cMdp.text)) {
+        setState(() => _erreur = 'Mot de passe incorrect.');
+        return;
+      }
+      final compte = comptesChauffeurs[id]!;
+      SessionChauffeur.connecter(nom: compte['nom']!, agence: compte['agence']!);
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
+      );
+      return;
+    }
+
     final estEmail = id.contains('@');
     final estTel = RegExp(r'^\+?[0-9 ]{8,15}$').hasMatch(id);
     if (!estEmail && !estTel) {

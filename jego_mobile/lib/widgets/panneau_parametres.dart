@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../screens/conditions_utilisation.dart';
+import '../screens/ecran_confidentialite.dart';
+import '../screens/ecran_devise.dart';
+import '../screens/ecran_infos_compte.dart';
+import '../screens/ecran_politique_confidentialite.dart';
+import '../screens/ecran_securite.dart';
+import '../screens/ecran_theme.dart';
+import '../screens/ecran_unites.dart';
+import '../screens/ecran_verif_maj.dart';
 
 /// Panneau lateral (Drawer), ouvert via le hamburger de l'accueil.
 /// Reprend l'interface "Parametres" de la maquette fournie. Seuls Langue
@@ -66,11 +74,20 @@ class _PanneauParametresState extends State<PanneauParametres> {
                   _titreSection(Strings.t('param_compte')),
                   _carteSection([
                     _ligne(Icons.person_outline_rounded,
-                        Strings.t('param_info_compte')),
+                        Strings.t('param_info_compte'), onTap: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const EcranInfosCompte()));
+                    }),
                     _ligne(Icons.lock_outline_rounded,
-                        Strings.t('param_securite')),
+                        Strings.t('param_securite'), onTap: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const EcranSecurite()));
+                    }),
                     _ligne(Icons.shield_outlined,
-                        Strings.t('param_confidentialite')),
+                        Strings.t('param_confidentialite'), onTap: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const EcranConfidentialite()));
+                    }),
                   ]),
                   const SizedBox(height: 22),
                   _titreSection(Strings.t('param_notifications')),
@@ -99,11 +116,23 @@ class _PanneauParametresState extends State<PanneauParametres> {
                   _carteSection([
                     _ligneLangue(),
                     _ligneValeur(Icons.dark_mode_outlined,
-                        Strings.t('param_theme'), Strings.t('param_theme_clair')),
+                        Strings.t('param_theme'), Strings.t('param_theme_clair'),
+                        onTap: () {
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EcranTheme()));
+                    }),
                     _ligneValeur(
-                        Icons.attach_money_rounded, Strings.t('param_devise'), 'XAF'),
+                        Icons.attach_money_rounded, Strings.t('param_devise'), 'XAF',
+                        onTap: () {
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EcranDevise()));
+                    }),
                     _ligneValeur(Icons.straighten_rounded,
-                        Strings.t('param_unites'), Strings.t('param_unites_km')),
+                        Strings.t('param_unites'), Strings.t('param_unites_km'),
+                        onTap: () {
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EcranUnites()));
+                    }),
                   ]),
                   const SizedBox(height: 22),
                   _titreSection(Strings.t('param_autres')),
@@ -117,9 +146,15 @@ class _PanneauParametresState extends State<PanneauParametres> {
                       );
                     }),
                     _ligne(Icons.description_outlined,
-                        Strings.t('param_politique_confidentialite')),
+                        Strings.t('param_politique_confidentialite'), onTap: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const EcranPolitiqueConfidentialite()));
+                    }),
                     _ligneValeur(Icons.refresh_rounded,
-                        Strings.t('param_verifier_maj'), 'v1.0.0'),
+                        Strings.t('param_verifier_maj'), 'v1.0.0', onTap: () {
+                      Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EcranVerifMaj()));
+                    }),
                   ]),
                 ],
               ),

@@ -2,25 +2,16 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Navigation from '../../components/Navigation';
+import LayoutAgence from '../../components/LayoutAgence';
 
 /**
- * Plan des sieges en temps reel pour un trajet donne. Interface seule --
- * voir TODO. Deux points importants confirmes avant de construire :
+ * Plan des sieges en temps reel pour un trajet donne. Interface seule.
+ * Vente en physique : UN SEUL billet a la fois (aleatoire ou manuel,
+ * meme flux) -- demande les infos du client, puis simule l'envoi d'un
+ * mail de confirmation de reservation.
  *
- * 1. GET /api/bus/:id/plan existe (voirPlanBus) et renvoie la structure
- *    du bus (numero, rangee, position, type_position, est_premium,
- *    statut in ['disponible','supprime_toilettes','desactive']) --
- *    mais c'est un plan STRUCTUREL du bus, pas le statut de vente pour
- *    UN trajet precis.
- * 2. Le statut de vente par trajet (vendu en ligne / reserve) vit
- *    ailleurs (billets, soft_locks, route publique GET /trajets/:id/plan
- *    dans reservationController) -- pas inspecte ce soir.
- * 3. AUCUNE route "vendu en physique" n'existe nulle part dans le
- *    backend actuel (verifie : recherche "physique" negative dans tout
- *    routes/). Le bouton ci-dessous est donc une FACADE : il met a jour
- *    l'affichage local uniquement, sans rien persister. A batir cote
- *    backend avant branchement (nouveau statut siege + route dediee).
+ * Points confirmes/manquants cote backend, voir commentaires plus bas.
+ * AUCUNE route "vendu en physique" n'existe nulle part.
  */
 
 type StatutVente = 'disponible' | 'vendu_en_ligne' | 'vendu_physique' | 'reserve' | 'indisponible';
@@ -35,26 +26,17 @@ type Siege = {
   statutVente: StatutVente;
 };
 
-// DONNEES DEMO -- bus 2+2, 8 rangees, structure/statuts illustratifs.
 function genererSiegesDemo(): Siege[] {
   const sieges: Siege[] = [];
   const lettres = ['A', 'B', 'C', 'D'];
   const typesParPosition = ['fenetre_gauche', 'couloir_gauche', 'couloir_droit', 'fenetre_droite'];
-  const scenarios: StatutVente[] = [
-    'vendu_en_ligne', 'vendu_physique', 'disponible', 'reserve',
-    'disponible', 'disponible', 'vendu_en_ligne', 'disponible',
-  ];
-
+  const scenarios: StatutVente[] = ['vendu_en_ligne', 'vendu_physique', 'disponible', 'reserve', 'disponible', 'disponible', 'vendu_en_ligne', 'disponible'];
   for (let rangee = 1; rangee <= 8; rangee++) {
     for (let pos = 0; pos < 4; pos++) {
       const idx = (rangee - 1) * 4 + pos;
       sieges.push({
-        id: `s${idx}`,
-        numero: `${rangee}${lettres[pos]}`,
-        rangee,
-        position: pos + 1,
-        type_position: typesParPosition[pos],
-        est_premium: rangee <= 2,
+        id: `s${idx}`, numero: `${rangee}${lettres[pos]}`, rangee, position: pos + 1,
+        type_position: typesParPosition[pos], est_premium: rangee <= 2,
         statutVente: rangee === 8 && pos === 0 ? 'indisponible' : scenarios[idx % scenarios.length],
       });
     }
@@ -72,56 +54,46 @@ const couleurs: Record<StatutVente, { bg: string; text: string; label: string }>
 
 export default function PlanSieges() {
   const [sieges, setSieges] = useState<Siege[]>(genererSiegesDemo);
-  const [siegeSelectionne, setSiegeSelectionne] = useState<Siege | null>(null);
+  const [siegeAVendre, setSiegeAVendre] = useState<Siege | null>(null);
   const [avertissement, setAvertissement] = useState(true);
 
-  // TODO (branchement backend) : remplacer genererSiegesDemo() par un
-  // vrai fetch GET /api/bus/:id/plan croise avec le statut de vente du
-  // trajet (route a identifier/construire cote reservations).
+  const [nomClient, setNomClient] = useState('');
+  const [telClient, setTelClient] = useState('');
+  const [emailClient, setEmailClient] = useState('');
+  const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
 
   const rangees = Array.from(new Set(sieges.map((s) => s.rangee))).sort((a, b) => a - b);
   const nbVendus = sieges.filter((s) => s.statutVente === 'vendu_en_ligne' || s.statutVente === 'vendu_physique').length;
   const nbTotal = sieges.filter((s) => s.statutVente !== 'indisponible').length;
 
-  function marquerVenduPhysique(siege: Siege) {
-    // FACADE UNIQUEMENT -- voir avertissement en tete de fichier.
-    setSieges((prev) =>
-      prev.map((s) => (s.id === siege.id ? { ...s, statutVente: 'vendu_physique' } : s))
-    );
-    setSiegeSelectionne(null);
+  function ouvrirVente(siege: Siege) {
+    setSiegeAVendre(siege);
+    setEtapeVente('formulaire');
+    setNomClient(''); setTelClient(''); setEmailClient('');
   }
 
   function selectionAleatoire() {
-    // FACADE UNIQUEMENT. Choisit un nombre aleatoire (1 a 3) de sieges
-    // actuellement disponibles et les marque vendus en physique.
-    const disponibles = sieges.filter((s) => s.statutVente === 'disponible');
-    if (disponibles.length === 0) return;
-    const nb = Math.min(disponibles.length, 1 + Math.floor(Math.random() * 3));
-    const melanges = [...disponibles].sort(() => Math.random() - 0.5).slice(0, nb);
-    const idsChoisis = new Set(melanges.map((s) => s.id));
-    setSieges((prev) =>
-      prev.map((s) => (idsChoisis.has(s.id) ? { ...s, statutVente: 'vendu_physique' } : s))
-    );
-  }
-
-  function selectionAleatoire() {
-    // FACADE UNIQUEMENT, comme le marquage manuel. Choisit un siege
-    // disponible au hasard et le marque vendu en physique -- pratique
-    // pour tester sans cliquer chaque siege un par un.
     const disponibles = sieges.filter((s) => s.statutVente === 'disponible');
     if (disponibles.length === 0) return;
     const choisi = disponibles[Math.floor(Math.random() * disponibles.length)];
-    marquerVenduPhysique(choisi);
+    ouvrirVente(choisi);
+  }
+
+  function confirmerVente() {
+    if (!siegeAVendre || !nomClient.trim() || !telClient.trim()) return;
+    setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique' } : s)));
+    setEtapeVente('confirmation');
+    // FACADE : simule l'envoi d'un email de confirmation de reservation.
+  }
+
+  function fermerVente() {
+    setSiegeAVendre(null);
   }
 
   return (
-    <div className="min-h-screen bg-[#EEF1EE] p-6 md:p-10">
-      <Navigation />
+    <LayoutAgence>
       <div className="max-w-3xl mx-auto">
-        <Link
-          href="/trajets"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#64746C] hover:text-[#14201A] transition-colors mb-6"
-        >
+        <Link href="/trajets" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#64746C] hover:text-[#14201A] transition-colors mb-6">
           ← Retour a la liste
         </Link>
 
@@ -131,10 +103,10 @@ export default function PlanSieges() {
             onClick={selectionAleatoire}
             className="flex items-center gap-1.5 rounded-xl bg-[#F1F4F1] hover:bg-[#E7ECE8] text-[#14201A] font-bold text-xs px-4 py-2.5 transition-colors"
           >
-            🎲 Selection aleatoire
+            🎲 Vendre un siege au hasard
           </button>
         </div>
-        <p className="text-sm text-[#64746C] mb-1">Douala → Yaounde · 25 juil 2026 · 07:00</p>
+        <p className="text-sm text-[#64746C] mb-1">Douala → Yaounde · 26 juil 2026 · 07:00</p>
         <p className="text-sm text-[#64746C] mb-6">Confort Express 01</p>
 
         {avertissement && (
@@ -143,20 +115,14 @@ export default function PlanSieges() {
             <div className="flex-1">
               <p className="text-sm font-bold text-[#14201A]">Ecran en facade</p>
               <p className="text-sm text-[#64746C] mt-0.5">
-                Aucune route backend &quot;vendu en physique&quot; n&apos;existe encore. Marquer un siege
-                ici ne change que l&apos;affichage local, rien n&apos;est enregistre.
+                Aucune route backend &quot;vendu en physique&quot; n&apos;existe encore. L&apos;email de
+                confirmation est simule, rien n&apos;est reellement envoye.
               </p>
             </div>
-            <button
-              onClick={() => setAvertissement(false)}
-              className="text-[#9AA69F] hover:text-[#64746C] shrink-0"
-            >
-              ✕
-            </button>
+            <button onClick={() => setAvertissement(false)} className="text-[#9AA69F] hover:text-[#64746C] shrink-0">✕</button>
           </div>
         )}
 
-        {/* Legende */}
         <div className="flex flex-wrap gap-4 mb-6">
           {(Object.keys(couleurs) as StatutVente[]).map((s) => (
             <div key={s} className="flex items-center gap-2">
@@ -166,14 +132,11 @@ export default function PlanSieges() {
           ))}
         </div>
 
-        {/* Plan du bus */}
         <div className="bg-white rounded-3xl border border-[#E7ECE8] shadow-sm p-8">
-          {/* Cabine chauffeur */}
           <div className="flex justify-end mb-6">
             <div className="w-10 h-10 rounded-xl bg-[#F1F4F1] flex items-center justify-center">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA69F" strokeWidth="2">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+                <circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" />
               </svg>
             </div>
           </div>
@@ -181,7 +144,9 @@ export default function PlanSieges() {
           <div className="space-y-2.5">
             {rangees.map((rangee) => {
               const siegesRangee = sieges.filter((s) => s.rangee === rangee).sort((a, b) => a.position - b.position);
-              const idxCouloir = siegesRangee.findIndex((s) => s.type_position.endsWith('_gauche')) + 1;
+              let dernierIdxGauche = -1;
+              siegesRangee.forEach((s, idx) => { if (s.type_position.endsWith('_gauche')) dernierIdxGauche = idx; });
+              const idxCouloir = dernierIdxGauche + 1;
 
               return (
                 <div key={rangee} className="flex items-center gap-2">
@@ -192,14 +157,15 @@ export default function PlanSieges() {
                         {i === idxCouloir && <div className="w-5" />}
                         <button
                           disabled={siege.statutVente !== 'disponible'}
-                          onClick={() => setSiegeSelectionne(siege)}
-                          className={`w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-bold transition-transform ${
-                            couleurs[siege.statutVente].bg
-                          } ${couleurs[siege.statutVente].text} ${
-                            siege.statutVente === 'disponible' ? 'hover:scale-105 cursor-pointer' : 'cursor-default'
-                          } ${siege.est_premium ? 'ring-2 ring-[#E6B84C] ring-offset-1' : ''}`}
+                          onClick={() => ouvrirVente(siege)}
+                          className={`relative w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${couleurs[siege.statutVente].bg} ${couleurs[siege.statutVente].text} ${
+                            siege.statutVente === 'disponible' ? 'hover:ring-2 hover:ring-[#14201A]/20 cursor-pointer' : 'cursor-default'
+                          }`}
                         >
                           {siege.numero}
+                          {siege.est_premium && (
+                            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white shadow flex items-center justify-center text-[8px]">⭐</span>
+                          )}
                         </button>
                       </div>
                     ))}
@@ -210,49 +176,53 @@ export default function PlanSieges() {
           </div>
         </div>
 
-        {/* Stat */}
         <div className="mt-6 bg-white rounded-2xl border border-[#E7ECE8] px-5 py-4 flex items-center justify-between">
-          <span className="text-sm font-bold text-[#14201A]">
-            Places vendues : {nbVendus}/{nbTotal}
-          </span>
-          <span className="text-xs text-[#9AA69F]">Cercle dore = siege premium</span>
+          <span className="text-sm font-bold text-[#14201A]">Places vendues : {nbVendus}/{nbTotal}</span>
+          <span className="text-xs text-[#9AA69F]">⭐ = siege premium</span>
         </div>
       </div>
 
-      {/* Popover confirmation vente physique */}
-      {siegeSelectionne && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50"
-          onClick={() => setSiegeSelectionne(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl p-6 max-w-sm w-full"
-          >
-            <p className="text-sm font-bold text-[#14201A] mb-1">
-              Marquer le siege {siegeSelectionne.numero} comme vendu ?
-            </p>
-            <p className="text-sm text-[#64746C] mb-5">
-              A utiliser quand un client paie directement au guichet. Le siege deviendra
-              indisponible en ligne.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setSiegeSelectionne(null)}
-                className="flex-1 rounded-xl bg-[#F1F4F1] hover:bg-[#E7ECE8] text-[#14201A] font-bold text-sm py-3 transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => marquerVenduPhysique(siegeSelectionne)}
-                className="flex-1 rounded-xl bg-[#E6B84C] hover:bg-[#D9A93A] text-[#14201A] font-bold text-sm py-3 transition-colors"
-              >
-                Confirmer
-              </button>
-            </div>
+      {/* Formulaire vente un billet (manuel ou aleatoire, meme flux) */}
+      {siegeAVendre && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={fermerVente}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl p-8 max-w-sm w-full">
+            {etapeVente === 'formulaire' ? (
+              <>
+                <p className="text-sm font-bold text-[#14201A] mb-1">Vente du siege {siegeAVendre.numero}</p>
+                <p className="text-xs text-[#64746C] mb-5">Un seul billet a la fois. Renseigne les infos du client.</p>
+                <div className="space-y-3 mb-5">
+                  <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom du client" className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm" />
+                  <input value={telClient} onChange={(e) => setTelClient(e.target.value)} placeholder="Telephone" className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm" />
+                  <input type="email" value={emailClient} onChange={(e) => setEmailClient(e.target.value)} placeholder="Email (pour la confirmation)" className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm" />
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={fermerVente} className="flex-1 rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-sm py-3">Annuler</button>
+                  <button
+                    onClick={confirmerVente}
+                    disabled={!nomClient.trim() || !telClient.trim()}
+                    className="flex-1 rounded-xl bg-[#E6B84C] disabled:opacity-40 text-[#14201A] font-bold text-sm py-3"
+                  >
+                    Vendre
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-[#0B9E63]/10 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl">✓</span>
+                </div>
+                <p className="text-sm font-bold text-[#14201A] mb-1">Siege {siegeAVendre.numero} vendu</p>
+                <p className="text-xs text-[#64746C] mb-6">
+                  {emailClient
+                    ? `Email de confirmation envoye a ${emailClient} (facade -- non branche).`
+                    : 'Aucun email fourni -- confirmation non envoyee.'}
+                </p>
+                <button onClick={fermerVente} className="w-full rounded-xl bg-[#0B9E63] text-white font-bold text-sm py-3.5">Fermer</button>
+              </div>
+            )}
           </div>
         </div>
       )}
-    </div>
+    </LayoutAgence>
   );
 }

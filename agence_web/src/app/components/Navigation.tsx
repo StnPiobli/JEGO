@@ -14,6 +14,11 @@ const liens = [
   { href: '/accueil', label: 'Accueil' },
   { href: '/trajets', label: 'Trajets' },
   { href: '/flotte', label: 'Flotte' },
+  { href: '/chauffeurs', label: 'Chauffeurs' },
+  { href: '/reservations', label: 'Reservations' },
+  { href: '/paiements', label: 'Paiements' },
+  { href: '/incidents', label: 'Incidents / Litiges' },
+  { href: '/discussion', label: 'Discussion' },
 ];
 
 export default function Navigation() {
@@ -34,7 +39,7 @@ export default function Navigation() {
             <span className="font-extrabold text-[#14201A] text-sm">JEGO</span>
           </Link>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 overflow-x-auto">
             {liens.map((l) => {
               const actif = chemin === l.href || chemin?.startsWith(l.href + '/');
               return (

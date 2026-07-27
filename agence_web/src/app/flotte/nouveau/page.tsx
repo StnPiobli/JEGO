@@ -1,74 +1,91 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import Navigation from '../../components/Navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import LayoutAgence from '../../components/LayoutAgence';
+import { useLangue } from '../../lib/langue';
 
-/**
- * Configuration d'un bus, tout sur une seule page : infos de base a
- * gauche, apercu du plan genere EN TEMPS REEL a droite (se met a jour a
- * chaque changement de disposition/rangees), avec marquage interactif
- * des 4 categories issues du cahier des charges v4.0 section 11.1
- * fonctionnalites (Toilettes, Abimes, Premium) + Gate (ajout hors cahier des
- * charges : sieges supprimes par l'emplacement de la porte, meme logique que
- * Toilettes -- voir avertissement).
- *
- * Interface seule -- voir TODO. Contrat backend confirme :
- *   POST /api/bus (creerBus) : nom, type_bus, disposition,
- *     nombre_rangees, toilettes, climatisation, prises_usb, wifi,
- *     sieges_inclinables, supplement_premium
- *   PUT /api/bus/:id/sieges/toilettes { sieges: [...] }
- *   PUT /api/bus/:id/sieges/abime { sieges: [...] }
- *   PUT /api/bus/:id/sieges/premium { sieges: [...], supplement_premium? }
- *   (routes PUT appelables seulement APRES creation, une fois l'id connu)
- *   Gate : AUCUNE route backend nulle part -- facade permanente.
- */
+type Categorie = 'toilettes' | 'abime' | 'porte' | 'premium';
+type TypeBus = 'standard' | 'vip' | 'mixte';
 
-const dispositions = ['1+1', '2+1', '1+2', '2+2', '2+3', '3+2'] as const;
-
-const SCHEMAS_DISPOSITION: Record<string, string[]> = {
-  '1+1': ['fenetre_gauche', 'fenetre_droite'],
-  '2+1': ['fenetre_gauche', 'couloir_gauche', 'fenetre_droite'],
-  '1+2': ['fenetre_gauche', 'couloir_droit', 'fenetre_droite'],
-  '2+2': ['fenetre_gauche', 'couloir_gauche', 'couloir_droit', 'fenetre_droite'],
-  '2+3': ['fenetre_gauche', 'couloir_gauche', 'couloir_droit', 'milieu', 'fenetre_droite'],
-  '3+2': ['fenetre_gauche', 'milieu', 'couloir_gauche', 'couloir_droit', 'fenetre_droite'],
-};
-const LETTRES = ['A', 'B', 'C', 'D', 'E'];
-
+const LETTRES = ['A', 'B', 'C', 'D', 'E', 'F'];
+const SCHEMAS_DISPOSITION = { '2+2': ['A', 'B', 'C', 'D'], '2+3': ['A', 'B', 'C', 'D', 'E'] } as const;
 const typesBus = [
   { valeur: 'standard', libelle: 'Standard' },
   { valeur: 'vip', libelle: 'VIP (tous premium)' },
   { valeur: 'mixte', libelle: 'Mixte (premium au choix)' },
 ] as const;
-
-type Categorie = 'toilettes' | 'abime' | 'gate' | 'premium';
-
-const modes: { valeur: Categorie; label: string; icone: string }[] = [
-  { valeur: 'toilettes', label: 'Toilettes', icone: '🚽' },
-  { valeur: 'abime', label: 'Abime', icone: '❌' },
-  { valeur: 'gate', label: 'Porte (gate)', icone: '🚪' },
-  { valeur: 'premium', label: 'Premium', icone: '⭐' },
-];
+const dispositions = ['2+2', '2+3'] as const;
 
 export default function NouveauBus() {
-  const [nom, setNom] = useState('');
-  const [typeBus, setTypeBus] = useState<typeof typesBus[number]['valeur']>('standard');
-  const [disposition, setDisposition] = useState<typeof dispositions[number]>('2+2');
-  const [nombreRangees, setNombreRangees] = useState('8');
-  const [climatisation, setClimatisation] = useState(true);
-  const [prisesUsb, setPrisesUsb] = useState(false);
-  const [wifi, setWifi] = useState(false);
-  const [siegesInclinables, setSiegesInclinables] = useState(false);
-  const [supplementPremium, setSupplementPremium] = useState('1000');
+  const langue = useLangue();
+  const t = langue === 'en' ? {
+    editBus: 'Edit bus', newBus: 'New bus', config: 'Bus configuration and seat layout preview shown clearly on the right.', backFleet: 'Back to fleet',
+    busName: 'Bus name', layout: 'Layout', rows: 'Number of rows', equipment: 'Equipment', premiumSupplement: 'Premium surcharge',
+    cancel: 'Cancel', save: 'Update bus', create: 'Create bus', saving: 'Saving...', seatPlan: 'Seat plan', seatPlanText: 'The live layout preview stays directly on the right for a clear view.', totalSeats: 'total seats',
+    required: 'Bus name and row count are required.', created: 'Bus created successfully (demo).', updated: 'Bus updated successfully (demo).',
+    standardBlocked: 'Premium seat selection is disabled for a standard bus.', doorArea: 'Door area', toilets: 'Toilets', damaged: 'Damaged', premium: 'Premium'
+  } : {
+    editBus: 'Modifier un bus', newBus: 'Nouveau bus', config: 'Configuration du bus et apercu du plan affiche clairement a droite.', backFleet: 'Retour flotte',
+    busName: 'Nom du bus', layout: 'Disposition', rows: 'Nombre de rangees', equipment: 'Equipements', premiumSupplement: 'Supplement premium',
+    cancel: 'Annuler', save: 'Mettre a jour le bus', create: 'Creer le bus', saving: 'Enregistrement...', seatPlan: 'Plan des sieges', seatPlanText: 'Le plan en generation reste directement a droite pour une visualisation nette.', totalSeats: 'places au total',
+    required: 'Nom et nombre de rangees requis.', created: 'Bus cree avec succes (facade).', updated: 'Bus modifie avec succes (facade).',
+    standardBlocked: 'La selection premium est automatiquement bloquee pour un bus standard.', doorArea: 'Espace porte', toilets: 'Toilettes', damaged: 'Abime', premium: 'Premium'
+  };
+
+  const params = useSearchParams();
+  const router = useRouter();
+  const busId = params.get('id');
+  const isEdition = !!busId;
+
+  const base = useMemo(() => {
+    if (!isEdition) return null;
+    return {
+      nom: params.get('nom') || 'Confort Express 04',
+      typeBus: (params.get('type') as TypeBus) || 'standard',
+      disposition: (params.get('disposition') as keyof typeof SCHEMAS_DISPOSITION) || '2+3',
+      nombreRangees: params.get('rangees') || '13',
+      climatisation: (params.get('climatisation') || '1') === '1',
+      prisesUsb: (params.get('prisesUsb') || '1') === '1',
+      wifi: (params.get('wifi') || '1') === '1',
+      siegesInclinables: (params.get('siegesInclinables') || '1') === '1',
+      supplementPremium: params.get('supplementPremium') || '1000',
+    };
+  }, [isEdition, params]);
+
+  const [nom, setNom] = useState(base?.nom || '');
+  const [typeBus, setTypeBus] = useState<TypeBus>(base?.typeBus || 'standard');
+  const [disposition, setDisposition] = useState<keyof typeof SCHEMAS_DISPOSITION>(base?.disposition || '2+3');
+  const [nombreRangees, setNombreRangees] = useState(base?.nombreRangees || '13');
+  const [climatisation, setClimatisation] = useState(base?.climatisation ?? true);
+  const [prisesUsb, setPrisesUsb] = useState(base?.prisesUsb ?? true);
+  const [wifi, setWifi] = useState(base?.wifi ?? true);
+  const [siegesInclinables, setSiegesInclinables] = useState(base?.siegesInclinables ?? true);
+  const [supplementPremium, setSupplementPremium] = useState(base?.supplementPremium || '1000');
   const [erreur, setErreur] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
+  const [succes, setSucces] = useState('');
 
   const [modeMarquage, setModeMarquage] = useState<Categorie | null>(null);
   const [siegesToilettes, setSiegesToilettes] = useState<Set<string>>(new Set());
   const [siegesAbimes, setSiegesAbimes] = useState<Set<string>>(new Set());
-  const [siegesGate, setSiegesGate] = useState<Set<string>>(new Set());
+  const [siegesPorte, setSiegesPorte] = useState<Set<string>>(new Set());
   const [siegesPremium, setSiegesPremium] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (typeBus === 'standard') {
+      setSiegesPremium(new Set());
+      if (modeMarquage === 'premium') setModeMarquage(null);
+      setSucces(t.standardBlocked);
+      const timeout = window.setTimeout(() => setSucces(''), 2200);
+      return () => window.clearTimeout(timeout);
+    }
+    if (typeBus === 'vip') {
+      setSiegesPremium(new Set());
+      if (modeMarquage === 'premium') setModeMarquage(null);
+    }
+  }, [typeBus, modeMarquage, t.standardBlocked]);
 
   const schema = SCHEMAS_DISPOSITION[disposition];
   const nbRangees = Number(nombreRangees) || 0;
@@ -77,26 +94,30 @@ export default function NouveauBus() {
   function categorieDe(numero: string): Categorie | null {
     if (siegesToilettes.has(numero)) return 'toilettes';
     if (siegesAbimes.has(numero)) return 'abime';
-    if (siegesGate.has(numero)) return 'gate';
-    if (siegesPremium.has(numero)) return 'premium';
+    if (siegesPorte.has(numero)) return 'porte';
+    if (typeBus === 'mixte' && siegesPremium.has(numero)) return 'premium';
     return null;
   }
 
   function toggleSiege(numero: string) {
     if (!modeMarquage) return;
+    if (modeMarquage === 'premium' && typeBus !== 'mixte') return;
     const setters: Record<Categorie, [Set<string>, (s: Set<string>) => void]> = {
       toilettes: [siegesToilettes, setSiegesToilettes],
       abime: [siegesAbimes, setSiegesAbimes],
-      gate: [siegesGate, setSiegesGate],
+      porte: [siegesPorte, setSiegesPorte],
       premium: [siegesPremium, setSiegesPremium],
     };
     const [current, setCurrent] = setters[modeMarquage];
     const copie = new Set(current);
-    if (copie.has(numero)) {
-      copie.delete(numero);
-    } else {
-      (['toilettes', 'abime', 'gate', 'premium'] as Categorie[]).forEach((c) => {
-        if (c !== modeMarquage) setters[c][1]((s) => { const cc = new Set(s); cc.delete(numero); return cc; });
+    if (copie.has(numero)) copie.delete(numero);
+    else {
+      (['toilettes', 'abime', 'porte', 'premium'] as Categorie[]).forEach((c) => {
+        if (c !== modeMarquage) {
+          const autreSet = new Set(setters[c][0]);
+          autreSet.delete(numero);
+          setters[c][1](autreSet);
+        }
       });
       copie.add(numero);
     }
@@ -106,7 +127,7 @@ export default function NouveauBus() {
   const styleCategorie: Record<Categorie, string> = {
     toilettes: 'bg-[#64746C] text-white',
     abime: 'bg-[#D9534F] text-white',
-    gate: 'bg-[#7C5CBF] text-white',
+    porte: 'bg-[#7C5CBF] text-white',
     premium: 'bg-[#E6B84C] text-[#14201A]',
   };
 
@@ -117,122 +138,82 @@ export default function NouveauBus() {
     return 'bg-white border border-[#E7ECE8] text-[#64746C]';
   }
 
+  const equipements = useMemo(() => ([
+    { label: 'Climatisation', value: climatisation, setValue: setClimatisation, icone: '❄️' },
+    { label: 'Prises USB', value: prisesUsb, setValue: setPrisesUsb, icone: '🔌' },
+    { label: 'WiFi', value: wifi, setValue: setWifi, icone: '📶' },
+    { label: 'Sieges inclinables', value: siegesInclinables, setValue: setSiegesInclinables, icone: '💺' },
+  ]), [climatisation, prisesUsb, wifi, siegesInclinables]);
+
+  const modes = [
+    { valeur: 'toilettes' as const, label: t.toilets, icone: '🚻' },
+    { valeur: 'abime' as const, label: t.damaged, icone: '❌' },
+    { valeur: 'porte' as const, label: t.doorArea, icone: '🚪' },
+    { valeur: 'premium' as const, label: t.premium, icone: '⭐', disabled: typeBus !== 'mixte' },
+  ];
+
   async function creerBus(e: React.FormEvent) {
     e.preventDefault();
     setErreur(null);
+    setSucces('');
     if (!nom.trim() || !nombreRangees) {
-      setErreur('Nom et nombre de rangees sont obligatoires.');
+      setErreur(t.required);
       return;
     }
     setEnregistrement(true);
-
-    // TODO (branchement backend) :
-    //   1. POST /api/bus -> recupere l'id genere
-    //   2. PUT /api/bus/:id/sieges/toilettes { sieges: [...siegesToilettes] }
-    //   3. PUT /api/bus/:id/sieges/abime { sieges: [...siegesAbimes] }
-    //   4. PUT /api/bus/:id/sieges/premium { sieges: [...siegesPremium], supplement_premium }
-    //   (siegesGate n'a pas de route -- rien a envoyer)
-
-    await new Promise((r) => setTimeout(r, 700));
-    setEnregistrement(false);
-    setErreur('Creation non branchee pour l\'instant (interface uniquement).');
+    setTimeout(() => {
+      setEnregistrement(false);
+      setSucces(isEdition ? t.updated : t.created);
+    }, 900);
   }
 
   return (
-    <div className="min-h-screen bg-[#EEF1EE] p-6 md:p-10">
-      <Navigation />
+    <LayoutAgence>
       <div className="max-w-6xl mx-auto">
-        <Link
-          href="/flotte"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#64746C] hover:text-[#14201A] transition-colors mb-6"
-        >
-          ← Retour a la flotte
-        </Link>
+        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+          <div>
+            <h1 className="text-[28px] font-extrabold text-[#14201A]">{isEdition ? t.editBus : t.newBus}</h1>
+            <p className="text-[13px] text-[#64746C] mt-1">{t.config}</p>
+          </div>
+          <Link href="/flotte" className="rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[13px] px-5 py-3">{t.backFleet}</Link>
+        </div>
 
-        <h1 className="text-2xl font-extrabold text-[#14201A] mb-1">Nouveau bus</h1>
-        <p className="text-sm text-[#64746C] mb-6">
-          L&apos;apercu a droite se met a jour en temps reel selon tes choix.
-        </p>
-
-        <div className="grid lg:grid-cols-[1fr_400px] gap-6 items-start">
-          {/* Formulaire */}
-          <form onSubmit={creerBus} className="bg-white rounded-3xl border border-[#E7ECE8] shadow-sm p-8 space-y-5">
+        <form onSubmit={creerBus} className="grid lg:grid-cols-[minmax(360px,0.86fr)_minmax(420px,1.14fr)] gap-6 items-start">
+          <div className="bg-white rounded-3xl border border-[#E7ECE8] p-6 space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Nom du bus</label>
-              <input
-                type="text"
-                value={nom}
-                onChange={(e) => { setNom(e.target.value); setErreur(null); }}
-                placeholder="Confort Express 01"
-                className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm text-[#14201A] transition-colors"
-              />
+              <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.busName}</label>
+              <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl px-4 py-3 text-[13px]" placeholder="Confort Express 04" />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Type de bus</label>
-              <div className="space-y-2">
-                {typesBus.map((t) => (
-                  <button
-                    key={t.valeur}
-                    type="button"
-                    onClick={() => setTypeBus(t.valeur)}
-                    className={`w-full text-left rounded-xl border px-4 py-3 text-sm transition-colors ${
-                      typeBus === t.valeur
-                        ? 'border-[#0B9E63] bg-[#0B9E63]/6 text-[#14201A] font-bold'
-                        : 'border-[#E7ECE8] text-[#64746C] hover:border-[#D4D9D5]'
-                    }`}
-                  >
-                    {t.libelle}
-                  </button>
-                ))}
-              </div>
+            <div className="grid grid-cols-1 gap-3">
+              {typesBus.map((type) => (
+                <button type="button" key={type.valeur} onClick={() => setTypeBus(type.valeur)} className={`w-full rounded-xl border px-4 py-3 text-left text-[13px] ${typeBus === type.valeur ? 'border-[#0B9E63] bg-[#0B9E63]/8 text-[#0B9E63] font-bold' : 'border-[#E7ECE8] text-[#64746C]'}`}>{type.libelle}</button>
+              ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Disposition</label>
-                <select
-                  value={disposition}
-                  onChange={(e) => setDisposition(e.target.value as typeof disposition)}
-                  className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm text-[#14201A] transition-colors"
-                >
-                  {dispositions.map((d) => <option key={d} value={d}>{d}</option>)}
+                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.layout}</label>
+                <select value={disposition} onChange={(e) => setDisposition(e.target.value as keyof typeof SCHEMAS_DISPOSITION)} className="w-full rounded-xl px-4 py-3 text-[13px]">
+                  {dispositions.map((d) => <option key={d}>{d}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Nombre de rangees</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={nombreRangees}
-                  onChange={(e) => { setNombreRangees(e.target.value); setErreur(null); }}
-                  className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm text-[#14201A] transition-colors"
-                />
+                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.rows}</label>
+                <input value={nombreRangees} onChange={(e) => setNombreRangees(e.target.value)} type="number" min="1" className="w-full rounded-xl px-4 py-3 text-[13px]" />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#64746C] mb-2">Equipements</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Climatisation', val: climatisation, set: setClimatisation, icone: '❄️' },
-                  { label: 'Prises USB', val: prisesUsb, set: setPrisesUsb, icone: '🔌' },
-                  { label: 'WiFi', val: wifi, set: setWifi, icone: '📶' },
-                  { label: 'Sieges inclinables', val: siegesInclinables, set: setSiegesInclinables, icone: '💺' },
-                ].map((c) => (
-                  <button
-                    key={c.label}
-                    type="button"
-                    onClick={() => c.set(!c.val)}
-                    className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
-                      c.val ? 'border-[#0B9E63] bg-[#0B9E63]/6 text-[#14201A] font-semibold' : 'border-[#E7ECE8] text-[#64746C]'
-                    }`}
-                  >
-                    <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] shrink-0 ${c.val ? 'bg-[#0B9E63] text-white' : 'bg-[#F1F4F1]'}`}>
-                      {c.val ? '✓' : ''}
-                    </span>
-                    <span>{c.icone}</span>
-                    {c.label}
+              <p className="text-[12px] font-bold text-[#64746C] mb-3">{t.equipment}</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {equipements.map((item) => (
+                  <button key={item.label} type="button" onClick={() => item.setValue(!item.value)} className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left min-w-0 overflow-hidden ${item.value ? 'border-[#0B9E63] bg-[#0B9E63]/8' : 'border-[#E7ECE8] bg-[#F8FAF8]'}`}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="text-lg shrink-0">{item.icone}</span>
+                      <span className="text-[13px] font-semibold text-[#24332B] leading-tight break-words">{item.label}</span>
+                    </div>
+                    <span className={`inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${item.value ? 'bg-[#0B9E63]' : 'bg-[#D9E0DB]'}`}><span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${item.value ? 'translate-x-5' : 'translate-x-0.5'}`} /></span>
                   </button>
                 ))}
               </div>
@@ -240,129 +221,67 @@ export default function NouveauBus() {
 
             {typeBus === 'mixte' && (
               <div>
-                <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Supplement premium (FCFA)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={supplementPremium}
-                  onChange={(e) => setSupplementPremium(e.target.value)}
-                  className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm text-[#14201A] transition-colors"
-                />
+                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.premiumSupplement}</label>
+                <input value={supplementPremium} onChange={(e) => setSupplementPremium(e.target.value)} type="number" className="w-full rounded-xl px-4 py-3 text-[13px]" />
               </div>
             )}
 
-            {erreur && <p className="text-xs text-[#D9534F] font-medium">{erreur}</p>}
+            {erreur && <p className="text-[12px] text-[#D9534F]">{erreur}</p>}
+            {succes && <p className="text-[12px] text-[#0B9E63]">{succes}</p>}
 
-            <div className="flex gap-3 pt-2">
-              <Link
-                href="/flotte"
-                className="flex-1 rounded-xl bg-[#F1F4F1] hover:bg-[#E7ECE8] text-[#14201A] font-bold text-sm py-3.5 text-center transition-colors"
-              >
-                Annuler
-              </Link>
-              <button
-                type="submit"
-                disabled={enregistrement}
-                className="flex-1 rounded-xl bg-[#0B9E63] hover:bg-[#0A8D58] disabled:opacity-60 text-white font-bold text-sm py-3.5 transition-colors shadow-lg shadow-[#0B9E63]/25"
-              >
-                {enregistrement ? 'Enregistrement...' : 'Creer le bus'}
-              </button>
-            </div>
-          </form>
-
-          {/* Apercu temps reel, colle a droite */}
-          <div className="lg:sticky lg:top-6">
-            <div className="bg-white rounded-3xl border border-[#E7ECE8] shadow-sm p-6">
-              <p className="text-xs font-semibold text-[#64746C] mb-3">Apercu en temps reel</p>
-
-              <div className="flex flex-wrap gap-1.5 mb-1">
-                {modes.map((m) => (
-                  <button
-                    key={m.valeur}
-                    type="button"
-                    onClick={() => setModeMarquage(modeMarquage === m.valeur ? null : m.valeur)}
-                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors ${
-                      modeMarquage === m.valeur ? 'bg-[#14201A] text-white' : 'bg-[#F1F4F1] text-[#64746C]'
-                    }`}
-                  >
-                    <span>{m.icone}</span>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              {modeMarquage === 'gate' && (
-                <p className="text-[10px] text-[#7C5CBF] mb-3">
-                  Sieges supprimes par l&apos;emplacement de la porte (comme toilettes). Ajout hors
-                  cahier des charges -- aucune route backend, facade permanente.
-                </p>
-              )}
-              {modeMarquage && modeMarquage !== 'gate' && (
-                <p className="text-[11px] text-[#9AA69F] mb-3">
-                  Clique un siege pour le marquer {modes.find((m) => m.valeur === modeMarquage)?.label.toLowerCase()}.
-                </p>
-              )}
-              {!modeMarquage && <div className="mb-3" />}
-
-              <div className="bg-[#F6F8F6] rounded-2xl border border-[#E7ECE8] p-4">
-                <div className="flex justify-end mb-3">
-                  <div className="w-7 h-7 rounded-lg bg-[#E7ECE8] flex items-center justify-center">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9AA69F" strokeWidth="2">
-                      <circle cx="12" cy="8" r="4" />
-                      <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
-                    </svg>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
-                  {Array.from({ length: nbRangees }, (_, r) => r + 1).map((rangee) => {
-                    let dernierIdxGauche = -1;
-                    schema.forEach((t, idx) => { if (t.endsWith('_gauche')) dernierIdxGauche = idx; });
-                    const idxCouloir = dernierIdxGauche + 1;
-                    return (
-                      <div key={rangee} className="flex items-center gap-1.5">
-                        <span className="w-4 text-[9px] text-[#9AA69F] font-semibold shrink-0">{rangee}</span>
-                        <div className="flex gap-1.5">
-                          {schema.map((_, pos) => {
-                            const numero = `${rangee}${LETTRES[pos]}`;
-                            return (
-                              <div key={pos} className="flex items-center">
-                                {pos === idxCouloir && <div className="w-3" />}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSiege(numero)}
-                                  className={`w-7 h-7 rounded flex items-center justify-center text-[8px] font-bold transition-colors ${couleurSiege(numero)} ${
-                                    modeMarquage ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
-                                  }`}
-                                >
-                                  {numero}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <p className="text-xs text-[#64746C] mt-4 pt-4 border-t border-[#E7ECE8]">
-                  {totalPlaces} places au total{typeBus === 'vip' && ' · toutes premium (VIP)'}
-                </p>
-              </div>
-
-              {(siegesToilettes.size > 0 || siegesAbimes.size > 0 || siegesGate.size > 0 || siegesPremium.size > 0) && (
-                <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-[#64746C]">
-                  {siegesToilettes.size > 0 && <span>🚽 {siegesToilettes.size}</span>}
-                  {siegesAbimes.size > 0 && <span>❌ {siegesAbimes.size}</span>}
-                  {siegesGate.size > 0 && <span>🦵 {siegesGate.size}</span>}
-                  {siegesPremium.size > 0 && <span>⭐ {siegesPremium.size}</span>}
-                </div>
-              )}
+            <div className="flex gap-3 pt-2 flex-wrap">
+              <Link href="/flotte" className="flex-1 min-w-[180px] text-center rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[13px] px-5 py-3">{t.cancel}</Link>
+              <button disabled={enregistrement} className="flex-1 min-w-[180px] rounded-xl bg-[#0B9E63] hover:bg-[#0A8D58] disabled:opacity-60 text-white font-bold text-[13px] px-5 py-3">{enregistrement ? t.saving : isEdition ? t.save : t.create}</button>
             </div>
           </div>
-        </div>
+
+          <div className="bg-white rounded-3xl border border-[#E7ECE8] p-6 lg:sticky lg:top-6">
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+              <div>
+                <p className="text-[18px] font-extrabold text-[#14201A]">{t.seatPlan}</p>
+                <p className="text-[12px] text-[#64746C]">{t.seatPlanText}</p>
+              </div>
+              <p className="text-[12px] text-[#64746C]">{totalPlaces} {t.totalSeats}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-5">
+              {modes.map((m) => (
+                <button
+                  key={m.valeur}
+                  type="button"
+                  disabled={m.disabled}
+                  onClick={() => !m.disabled && setModeMarquage(m.valeur === modeMarquage ? null : m.valeur)}
+                  className={`rounded-xl px-3 py-2 text-[12px] font-bold border min-h-[42px] ${m.disabled ? 'border-[#E7ECE8] bg-[#F3F5F3] text-[#A7B1AB] cursor-not-allowed' : modeMarquage === m.valeur ? 'border-[#14201A] bg-[#14201A] text-white' : 'border-[#E7ECE8] bg-[#F8FAF8] text-[#64746C]'}`}
+                >
+                  <span className="inline-flex items-center gap-1.5 whitespace-normal text-left">{m.icone} <span>{m.label}</span></span>
+                </button>
+              ))}
+            </div>
+
+            <div className="rounded-3xl border border-[#E7ECE8] p-5 overflow-x-auto">
+              <div className="min-w-[420px] space-y-3">
+                {Array.from({ length: nbRangees }).map((_, indexRangee) => (
+                  <div key={indexRangee} className="flex items-center gap-4">
+                    <span className="w-7 text-[12px] text-[#8E9A93] font-semibold text-right">{indexRangee + 1}</span>
+                    <div className="flex items-center gap-3">
+                      {schema.map((_, seatIndex) => {
+                        const numero = `${indexRangee + 1}${LETTRES[seatIndex]}`;
+                        const isAisle = schema.length > 2 && seatIndex === Math.floor(schema.length / 2) - 1;
+                        return (
+                          <div key={numero} className="flex items-center gap-3">
+                            <button type="button" onClick={() => toggleSiege(numero)} className={`w-12 h-12 rounded-xl text-[13px] font-semibold ${couleurSiege(numero)}`}>{numero}</button>
+                            {isAisle && <div className="w-4" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </form>
       </div>
-    </div>
+    </LayoutAgence>
   );
 }

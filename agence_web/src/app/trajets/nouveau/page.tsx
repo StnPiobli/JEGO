@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import Navigation from '../../components/Navigation';
+import LayoutAgence from '../../components/LayoutAgence';
 import { VILLES } from '../../villes';
+import { todayInputDate } from '../../lib/date';
 
 /**
  * Formulaire d'ajout d'un trajet. La ligne (ville depart/arrivee) est
@@ -39,6 +40,12 @@ const busDemo = [
   { id: 'b3', libelle: 'Express 03 (2+2, 29 places)' },
 ];
 
+// Meme liste que Chauffeurs -- a terme, un vrai appel API partage.
+const chauffeursDemo = [
+  { id: 'c1', nom: "Paul Eto'o" },
+  { id: 'c2', nom: 'Andre Nkeng' },
+];
+
 type Arret = { ville: string; heure: string };
 
 export default function NouveauTrajet() {
@@ -56,7 +63,8 @@ export default function NouveauTrajet() {
 
   // Trajet
   const [busId, setBusId] = useState('');
-  const [dateDepart, setDateDepart] = useState('');
+  const [chauffeurId, setChauffeurId] = useState('');
+  const [dateDepart, setDateDepart] = useState(todayInputDate());
   const [heureDepart, setHeureDepart] = useState('');
   const [heureArrivee, setHeureArrivee] = useState('');
   const [prixBase, setPrixBase] = useState('');
@@ -76,6 +84,7 @@ export default function NouveauTrajet() {
     setVilleDepart(params.get('ville_depart') || '');
     setVilleArrivee(params.get('ville_arrivee') || '');
     setBusId(params.get('bus_id') || '');
+    setChauffeurId(params.get('chauffeur_id') || '');
     setCategorie((params.get('categorie') as typeof categorie) || 'standard');
     setPrixBase(params.get('prix') || '');
     setPointDepart(params.get('point_depart') || '');
@@ -96,8 +105,8 @@ export default function NouveauTrajet() {
     e.preventDefault();
     setErreur(null);
 
-    if (!villeDepart || !villeArrivee || !busId || !dateDepart || !heureDepart || !prixBase) {
-      setErreur('Ville de depart, ville d\'arrivee, bus, date, heure et prix sont obligatoires.');
+    if (!villeDepart || !villeArrivee || !busId || !dateDepart || !heureDepart || !heureArrivee || !prixBase) {
+      setErreur('Ville de depart, ville d\'arrivee, bus, date, heure de depart, heure d\'arrivee et prix sont obligatoires.');
       return;
     }
     if (villeDepart === villeArrivee) {
@@ -124,7 +133,7 @@ export default function NouveauTrajet() {
     //
     // 2. POST /api/trajets
     //    { ligne_id, bus_id: busId, date_depart: dateDepart,
-    //      heure_depart: heureDepart, heure_arrivee_estimee: heureArrivee || null,
+    //      heure_depart: heureDepart, heure_arrivee_estimee: heureArrivee,
     //      prix_base: Number(prixBase), categorie }
     //    (prixBagage / supplementPremium : aucun champ backend existant,
     //    rien a envoyer -- facade uniquement)
@@ -135,8 +144,7 @@ export default function NouveauTrajet() {
   }
 
   return (
-    <div className="min-h-screen bg-[#EEF1EE] p-6 md:p-10">
-      <Navigation />
+    <LayoutAgence>
 
       <div className="max-w-2xl mx-auto">
         <Link
@@ -300,6 +308,18 @@ export default function NouveauTrajet() {
             </select>
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Chauffeur</label>
+            <select
+              value={chauffeurId}
+              onChange={(e) => { setChauffeurId(e.target.value); setErreur(null); }}
+              className="w-full rounded-xl bg-[#F1F4F1] border border-transparent focus:border-[#0B9E63] focus:bg-white outline-none px-4 py-3 text-sm text-[#14201A] transition-colors"
+            >
+              <option value="">Choisir un chauffeur...</option>
+              {chauffeursDemo.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-[#64746C] mb-1.5">Date de depart</label>
@@ -334,7 +354,7 @@ export default function NouveauTrajet() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-[#64746C] mb-1.5">
-                Heure d&apos;arrivee estimee <span className="text-[#9AA69F] font-normal">(optionnel)</span>
+                Heure d&apos;arrivee estimee <span className="text-[#D9534F] font-normal">*</span>
               </label>
               <input
                 type="time"
@@ -413,6 +433,6 @@ export default function NouveauTrajet() {
           </div>
         </form>
       </div>
-    </div>
+    </LayoutAgence>
   );
 }

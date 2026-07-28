@@ -1,86 +1,173 @@
-// ⚠️ DEMO — le compte à rebours doit être calculé réellement (deadline - now), pas codé en dur.
-import { Topbar, Panel, Badge } from "@/components/ui";
+"use client";
+
+// ✅ BRANCHÉ SUR LE VRAI BACKEND
+// GET /api/litiges/admin/tous       — tous les litiges non résolus
+// PUT /api/litiges/:id/decision     — { decision } — décision finale (niveau 3)
+//
+// ⚠️ Pas de champ de deadline stocké en base pour les 48h de réponse agence —
+// calculé ici côté client à partir de cree_le (niveau 1 uniquement, la
+// deadline n'a plus de sens une fois que l'agence a répondu, niveau ≥ 2).
+
+import { useEffect, useState } from "react";
+import { Topbar, Panel, Badge, BtnMini } from "@/components/ui";
+import { apiFetch } from "@/lib/api";
+
+type Litige = {
+  id: number;
+  numero: string;
+  motif: string;
+  description: string;
+  statut: string;
+  niveau: number;
+  reponse_agence: string | null;
+  cree_le: string;
+  nom_agence: string;
+  nom_voyageur: string;
+  prenom_voyageur: string;
+};
+
+function heuresRestantes(creeLe: string): number {
+  const deadline = new Date(creeLe).getTime() + 48 * 60 * 60 * 1000;
+  return Math.max(0, Math.round((deadline - Date.now()) / (60 * 60 * 1000)));
+}
 
 export default function LitigesPage() {
+  const [litiges, setLitiges] = useState<Litige[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<Record<number, string>>({});
+  const [envoiEnCours, setEnvoiEnCours] = useState<number | null>(null);
+
+  async function charger() {
+    setChargement(true);
+    setErreur(null);
+    try {
+      const data = await apiFetch("/api/litiges/admin/tous");
+      setLitiges(data.litiges);
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Erreur de chargement");
+    } finally {
+      setChargement(false);
+    }
+  }
+
+  useEffect(() => {
+    charger();
+  }, []);
+
+  async function trancher(id: number) {
+    const decision = decisions[id];
+    if (!decision || !decision.trim()) {
+      setErreur("La décision est obligatoire avant de trancher");
+      return;
+    }
+    setEnvoiEnCours(id);
+    try {
+      await apiFetch(`/api/litiges/${id}/decision`, {
+        method: "PUT",
+        body: JSON.stringify({ decision }),
+      });
+      await charger();
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Erreur lors de la décision");
+    } finally {
+      setEnvoiEnCours(null);
+    }
+  }
+
+  const niveau1 = litiges.filter((l) => l.niveau === 1);
+  const niveau2 = litiges.filter((l) => l.niveau === 2);
+  const niveau3plus = litiges.filter((l) => l.niveau >= 3);
+
   return (
     <div>
-      <Topbar title="Litiges" subtitle="Résolution en 3 niveaux — Niveau 2 nécessite ton arbitrage" />
-      <div className="grid grid-cols-[1.4fr_1fr] gap-4">
-        <Panel title="Niveau 2 — Médiation guidée">
-          <div className="px-[18px] py-3.5 space-y-3">
-            <div className="border border-line rounded-xl p-3.5">
-              <div className="flex justify-between">
-                <b className="font-mono text-xs">#JG-L-0072</b>
-                <span className="font-mono text-[11px] font-semibold text-red">Réponse agence : 22h restantes</span>
-              </div>
-              <div className="bg-[#EAE7DD] rounded-md h-1.5 mt-1.5 overflow-hidden">
-                <div className="h-full bg-red" style={{ width: "78%" }} />
-              </div>
-              <p className="text-[13px] mt-2.5 mb-1">
-                <b>Client :</b> le chauffeur roulait dangereusement, dépassements répétés.
-              </p>
-              <p className="text-[13px] text-ink-soft mb-2">
-                Trajet : Douala → Yaoundé · Touristique Express · 3 signalements collectifs pendant le trajet (seuil atteint).
-              </p>
-              <button className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-green-700 text-white">
-                Examiner le dossier
-              </button>
-            </div>
-            <div className="border border-line rounded-xl p-3.5">
-              <div className="flex justify-between">
-                <b className="font-mono text-xs">#JG-L-0069</b>
-                <span className="font-mono text-[11px] font-semibold text-green-700">Réponse agence reçue</span>
-              </div>
-              <p className="text-[13px] mt-2.5 mb-1">
-                <b>Client :</b> bus parti avec 1h30 de retard sans annonce.
-              </p>
-              <p className="text-[13px] text-ink-soft mb-2">
-                Agence conteste : retard annoncé dans l&apos;app 20 min avant.
-              </p>
-              <button className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-green-700 text-white">
-                Trancher selon la grille
-              </button>
-            </div>
-          </div>
-        </Panel>
+      <Topbar title="Litiges" subtitle={`${litiges.length} litige(s) non résolu(s) — flux réel niveau 1 → 2 → 3`} />
 
-        <div>
-          <Panel title="Niveau 1 — auto-résolu">
-            <table className="w-full">
-              <tbody>
-                <tr className="border-t border-line first:border-t-0">
-                  <td className="px-[18px] py-3 text-[13px]">
-                    #JG-L-0065<br /><span className="text-ink-soft text-[11.5px]">Annulation agence</span>
-                  </td>
-                  <td className="px-[18px] py-3"><Badge color="green">Remboursé 100%</Badge></td>
-                </tr>
-                <tr className="border-t border-line">
-                  <td className="px-[18px] py-3 text-[13px]">
-                    #JG-L-0066<br /><span className="text-ink-soft text-[11.5px]">Retard &gt;2h</span>
-                  </td>
-                  <td className="px-[18px] py-3"><Badge color="green">Remboursé 30%</Badge></td>
-                </tr>
-                <tr className="border-t border-line">
-                  <td className="px-[18px] py-3 text-[13px]">
-                    #JG-L-0067<br /><span className="text-ink-soft text-[11.5px]">Client absent</span>
-                  </td>
-                  <td className="px-[18px] py-3"><Badge color="grey">0% — clos</Badge></td>
-                </tr>
-              </tbody>
-            </table>
-          </Panel>
-          <div className="mt-4">
-            <Panel title="Niveau 3 — cas extrêmes">
+      {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
+
+      {chargement ? (
+        <div className="text-ink-soft text-sm">Chargement…</div>
+      ) : (
+        <div className="grid grid-cols-[1.4fr_1fr] gap-4">
+          <Panel title={`Niveau 2 — en attente de ton arbitrage (${niveau2.length})`}>
+            {niveau2.length === 0 ? (
               <div className="px-5 py-8 text-center text-ink-soft text-[12.5px]">
-                <div className="text-2xl mb-2">🛡️</div>
-                Aucun cas extrême en cours
-                <br />
-                (accident, fraude, mise en danger)
+                Aucun litige au niveau 2 pour l&apos;instant
               </div>
+            ) : (
+              <div className="px-[18px] py-3.5 space-y-3">
+                {niveau2.map((l) => (
+                  <div key={l.id} className="border border-line rounded-xl p-3.5">
+                    <div className="flex justify-between">
+                      <b className="font-mono text-xs">{l.numero}</b>
+                      <span className="text-[11px] text-ink-soft">
+                        {l.nom_agence} · {l.prenom_voyageur} {l.nom_voyageur}
+                      </span>
+                    </div>
+                    <p className="text-[13px] mt-2.5 mb-1">
+                      <b>Motif :</b> {l.motif}
+                    </p>
+                    <p className="text-[13px] text-ink-soft mb-1">{l.description}</p>
+                    {l.reponse_agence && (
+                      <p className="text-[13px] text-ink-soft mb-2 italic">
+                        Réponse agence : {l.reponse_agence}
+                      </p>
+                    )}
+                    <textarea
+                      placeholder="Ta décision finale…"
+                      value={decisions[l.id] || ""}
+                      onChange={(e) => setDecisions({ ...decisions, [l.id]: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-line text-sm mb-2"
+                      rows={2}
+                    />
+                    <BtnMini variant="primary" onClick={() => envoiEnCours !== l.id && trancher(l.id)}>
+                      {envoiEnCours === l.id ? "…" : "Trancher"}
+                    </BtnMini>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <div className="space-y-4">
+            <Panel title={`Niveau 1 — en attente de réponse agence (${niveau1.length})`}>
+              {niveau1.length === 0 ? (
+                <div className="px-5 py-6 text-center text-ink-soft text-[12.5px]">Aucun</div>
+              ) : (
+                <table className="w-full">
+                  <tbody>
+                    {niveau1.map((l) => {
+                      const h = heuresRestantes(l.cree_le);
+                      return (
+                        <tr key={l.id} className="border-t border-line first:border-t-0">
+                          <td className="px-[18px] py-3 text-[13px]">
+                            {l.numero}
+                            <br />
+                            <span className="text-ink-soft text-[11.5px]">{l.motif} — {l.nom_agence}</span>
+                          </td>
+                          <td className="px-[18px] py-3">
+                            <Badge color={h < 12 ? "red" : h < 24 ? "amber" : "green"}>
+                              {h}h restantes
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </Panel>
+
+            {niveau3plus.length > 0 && (
+              <Panel title={`Autres (niveau ≥ 3) — ${niveau3plus.length}`}>
+                <div className="px-5 py-4 text-[12.5px] text-ink-soft">
+                  Statut inattendu pour des litiges déjà tranchés — vérifie le filtre backend.
+                </div>
+              </Panel>
+            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

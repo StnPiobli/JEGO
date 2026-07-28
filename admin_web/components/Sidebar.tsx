@@ -29,7 +29,6 @@ const groups: NavGroup[] = [
     items: [
       { label: "Agences", href: "/agences", badge: 3 },
       { label: "Voyageurs", href: "/voyageurs" },
-      { label: "Chauffeurs", href: "/chauffeurs" },
       { label: "Billets & trajets", href: "/billets" },
       { label: "Litiges", href: "/litiges", badge: 5 },
       { label: "Finances", href: "/finances" },

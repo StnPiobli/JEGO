@@ -218,6 +218,7 @@ function formatFcfa(valeur: number) {
 
 export default function Statistiques() {
   const [telechargement, setTelechargement] = useState<Periode | null>(null);
+  const [anneeChoisie, setAnneeChoisie] = useState(new Date().getFullYear() - 1);
 
   const rapportHebdo = RAPPORTS.semaine;
   const maxCA = Math.max(...rapportHebdo.evolutionCA.map((d) => d.valeur));
@@ -226,15 +227,17 @@ export default function Statistiques() {
   const totalSemainePrecedente = rapportHebdo.comparaisonCA.reduce((s, item) => s + item.valeur, 0);
 
   const cartes = useMemo(() => ([
-    { titre: "Chiffre d'affaires", valeur: formatFcfa(statsAccueil.chiffreAffaires), fond: 'bg-gradient-to-br from-[#14201A] to-[#0B9E63] text-white', second: 'text-white/70' },
-    { titre: 'Reservations', valeur: `${statsAccueil.reservationsTotal}`, fond: 'bg-white border border-[#E7ECE8]', second: 'text-[#9AA69F]' },
-    { titre: 'Taux de remplissage', valeur: `${statsAccueil.tauxRemplissage}%`, fond: 'bg-white border border-[#E7ECE8]', second: 'text-[#9AA69F]' },
-    { titre: 'Note moyenne', valeur: `⭐ ${statsAccueil.noteMoyenne}`, fond: 'bg-white border border-[#E7ECE8]', second: 'text-[#9AA69F]' },
+    { titre: "Chiffre d'affaires", valeur: formatFcfa(statsAccueil.chiffreAffaires), fond: 'bg-gradient-to-br from-ink to-green-700 text-white', second: 'text-white/70' },
+    { titre: 'Reservations', valeur: `${statsAccueil.reservationsTotal}`, fond: 'bg-paper border border-line', second: 'text-ink-soft' },
+    { titre: 'Taux de remplissage', valeur: `${statsAccueil.tauxRemplissage}%`, fond: 'bg-paper border border-line', second: 'text-ink-soft' },
+    { titre: 'Note moyenne', valeur: `⭐ ${statsAccueil.noteMoyenne}`, fond: 'bg-paper border border-line', second: 'text-ink-soft' },
   ]), []);
 
-  function genererPdf(periode: Periode) {
+  function genererPdf(periode: Periode, anneeSurcharge?: number) {
     setTelechargement(periode);
-    const data = RAPPORTS[periode];
+    const data = periode === 'annee' && anneeSurcharge
+      ? { ...RAPPORTS.annee, titre: `Rapport annuel ${anneeSurcharge}`, sousTitre: `Année ${anneeSurcharge}`, comparaisonLabel: String(anneeSurcharge - 1), fichier: `rapport_jego_annuel_${anneeSurcharge}` }
+      : RAPPORTS[periode];
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
@@ -295,7 +298,8 @@ export default function Statistiques() {
       doc.setTextColor(20, 32, 26);
       doc.text(valeur, x + 4, y + 17);
       doc.setFontSize(7.5);
-      doc.setTextColor(...(favorable ? [11, 158, 99] as const : [217, 83, 79] as const));
+      const couleurEvolution: [number, number, number] = favorable ? [11, 158, 99] : [217, 83, 79];
+      doc.setTextColor(couleurEvolution[0], couleurEvolution[1], couleurEvolution[2]);
       doc.text(evolution, x + w - 4, y + 17, { align: 'right' });
     }
 
@@ -557,11 +561,11 @@ export default function Statistiques() {
   return (
     <LayoutAgence>
       <div className="max-w-5xl mx-auto">
-        <h1 className="text-[28px] font-extrabold text-[#14201A] mb-1">Statistiques</h1>
-        <p className="text-[13px] text-[#64746C] mb-2">Vue d&apos;ensemble de ton activite.</p>
+        <h1 className="text-[28px] font-extrabold text-ink mb-1">Statistiques</h1>
+        <p className="text-[13px] text-ink-soft mb-2">Vue d&apos;ensemble de ton activite.</p>
 
-        <div className="rounded-2xl p-3 mb-6 bg-[#D9534F]/6 border border-[#D9534F]/20">
-          <p className="text-xs text-[#64746C]">
+        <div className="rounded-2xl p-3 mb-6 bg-red/6 border border-red/20">
+          <p className="text-xs text-ink-soft">
             Les rapports sont maintenant strictement separes : hebdomadaire = semaine precedente,
             mensuel = mois precedent, annuel = annee precedente.
           </p>
@@ -571,51 +575,51 @@ export default function Statistiques() {
           {cartes.map((carte) => (
             <div key={carte.titre} className={`${carte.fond} rounded-2xl p-6`}>
               <p className={`text-xs mb-1 ${carte.second}`}>{carte.titre}</p>
-              <p className={`text-2xl font-extrabold ${carte.fond.includes('text-white') ? 'text-white' : 'text-[#14201A]'}`}>{carte.valeur}</p>
+              <p className={`text-2xl font-extrabold ${carte.fond.includes('text-white') ? 'text-white' : 'text-ink'}`}>{carte.valeur}</p>
             </div>
           ))}
         </div>
 
-        <div className="bg-white rounded-2xl border border-[#E7ECE8] p-5 mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-paper rounded-2xl border border-line p-5 mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[#8A968F] mb-1">Variation sur la semaine precedente</p>
-            <p className="text-[22px] font-extrabold text-[#14201A]">+{rapportHebdo.variation}%</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft mb-1">Variation sur la semaine precedente</p>
+            <p className="text-[22px] font-extrabold text-ink">+{rapportHebdo.variation}%</p>
           </div>
-          <div className="text-[13px] text-[#64746C]">
-            Semaine precedente : <strong className="text-[#14201A]">{formatFcfa(totalSemaine)}</strong> ·
-            comparaison : <strong className="text-[#14201A]">{formatFcfa(totalSemainePrecedente)}</strong>
+          <div className="text-[13px] text-ink-soft">
+            Semaine precedente : <strong className="text-ink">{formatFcfa(totalSemaine)}</strong> ·
+            comparaison : <strong className="text-ink">{formatFcfa(totalSemainePrecedente)}</strong>
           </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-4 mb-6">
-          <div className="bg-white rounded-2xl border border-[#E7ECE8] p-6">
+          <div className="bg-paper rounded-2xl border border-line p-6">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-bold text-[#64746C]">Evolution du chiffre d&apos;affaires (semaine precedente)</p>
-              <span className="text-[10px] text-[#9AA69F] whitespace-nowrap">20/07 → 26/07</span>
+              <p className="text-xs font-bold text-ink-soft">Evolution du chiffre d&apos;affaires (semaine precedente)</p>
+              <span className="text-[10px] text-ink-soft whitespace-nowrap">20/07 → 26/07</span>
             </div>
             <div className="flex items-end justify-between gap-2 h-36">
               {rapportHebdo.evolutionCA.map((d, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center gap-2">
                   <div className="w-full flex-1 flex items-end">
-                    <div className="w-full rounded-t-md bg-gradient-to-t from-[#0B9E63] to-[#10C070]" style={{ height: `${(d.valeur / maxCA) * 100}%` }} />
+                    <div className="w-full rounded-t-md bg-gradient-to-t from-green-700 to-green-500" style={{ height: `${(d.valeur / maxCA) * 100}%` }} />
                   </div>
-                  <p className="text-[9px] text-[#9AA69F]">{d.label}</p>
+                  <p className="text-[9px] text-ink-soft">{d.label}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#E7ECE8] p-6">
-            <p className="text-xs font-bold text-[#64746C] mb-4">Top destinations</p>
+          <div className="bg-paper rounded-2xl border border-line p-6">
+            <p className="text-xs font-bold text-ink-soft mb-4">Top destinations</p>
             <div className="space-y-3">
               {statsAccueil.topDestinations.map((d) => (
                 <div key={d.route}>
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="font-semibold text-[#14201A]">{d.route}</span>
-                    <span className="text-[#9AA69F]">{d.reservations}</span>
+                    <span className="font-semibold text-ink">{d.route}</span>
+                    <span className="text-ink-soft">{d.reservations}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-[#F1F4F1] overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#0B9E63] to-[#10C070]" style={{ width: `${(d.reservations / maxDest) * 100}%` }} />
+                  <div className="h-2 rounded-full bg-off-white overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-green-700 to-green-500" style={{ width: `${(d.reservations / maxDest) * 100}%` }} />
                   </div>
                 </div>
               ))}
@@ -623,19 +627,18 @@ export default function Statistiques() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-[#E7ECE8] p-6">
-          <p className="text-sm font-bold text-[#14201A] mb-1">Telecharger un rapport (PDF)</p>
-          <p className="text-xs text-[#64746C] mb-4">Rapports detailles de 4 pages, chacun limite a sa periode precedente complete.</p>
-          <div className="flex flex-wrap gap-3">
+        <div className="bg-paper rounded-2xl border border-line p-6">
+          <p className="text-sm font-bold text-ink mb-1">Telecharger un rapport (PDF)</p>
+          <p className="text-xs text-ink-soft mb-4">Rapports detailles de 4 pages, chacun limite a sa periode precedente complete.</p>
+          <div className="flex flex-wrap items-center gap-3">
             {([
               { valeur: 'semaine', label: 'Hebdomadaire' },
               { valeur: 'mois', label: 'Mensuel' },
-              { valeur: 'annee', label: 'Annuel' },
             ] as const).map((p) => (
               <button
                 key={p.valeur}
                 onClick={() => genererPdf(p.valeur)}
-                className="flex items-center gap-2 rounded-xl bg-[#0B9E63]/10 hover:bg-[#0B9E63]/20 text-[#0B9E63] font-bold text-sm px-4 py-2.5 transition-colors"
+                className="flex items-center gap-2 rounded-xl bg-green-700/10 hover:bg-green-700/20 text-green-700 font-bold text-sm px-4 py-2.5 transition-colors"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
@@ -643,6 +646,25 @@ export default function Statistiques() {
                 {telechargement === p.valeur ? 'Telecharge !' : p.label}
               </button>
             ))}
+
+            <div className="flex items-center gap-1.5 rounded-xl bg-off-white border border-line pl-3 pr-1.5 py-1.5">
+              <span className="text-[11px] font-bold text-ink-soft">Annuel</span>
+              <select
+                value={anneeChoisie}
+                onChange={(e) => setAnneeChoisie(Number(e.target.value))}
+                className="text-[12px] font-bold text-ink bg-transparent rounded-lg px-1.5 py-1 w-[72px]"
+              >
+                {Array.from({ length: 12 }, (_, i) => anneeChoisie + 2 - i).map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => genererPdf('annee', anneeChoisie)}
+                className="flex items-center gap-1.5 rounded-lg bg-green-700 hover:bg-green-900 text-white font-bold text-[11px] px-3 py-2 transition-colors"
+              >
+                {telechargement === 'annee' ? 'Telecharge !' : 'Telecharger'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

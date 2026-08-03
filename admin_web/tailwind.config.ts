@@ -1,6 +1,11 @@
 import type { Config } from "tailwindcss";
 
+function c(varName: string) {
+  return `rgb(var(${varName}) / <alpha-value>)`;
+}
+
 const config: Config = {
+  darkMode: "class",
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -8,22 +13,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#12140F",
-        "ink-soft": "#2A2E24",
-        "green-900": "#0E2B20",
-        "green-700": "#1B4A36",
-        "green-500": "#2E7D54",
-        "green-300": "#6FBE94",
-        "off-white": "#F6F3EC",
-        paper: "#FCFBF7",
-        line: "#DCD6C6",
-        red: "#B8433A",
-        "red-bg": "#FBEAE6",
-        amber: "#B9822E",
-        "amber-bg": "#FBF1DF",
-        purple: "#6E4A9E",
-        "purple-bg": "#EDE7F5",
-        "ok-bg": "#E9F3EC",
+        ink: c("--c-ink"),
+        "ink-soft": c("--c-ink-soft"),
+        "green-900": c("--c-green-900"),
+        "green-700": c("--c-green-700"),
+        "green-500": c("--c-green-500"),
+        "green-300": c("--c-green-300"),
+        "off-white": c("--c-off-white"),
+        paper: c("--c-paper"),
+        line: c("--c-line"),
+        red: c("--c-red"),
+        "red-bg": c("--c-red-bg"),
+        amber: c("--c-amber"),
+        "amber-bg": c("--c-amber-bg"),
+        purple: c("--c-purple"),
+        "purple-bg": c("--c-purple-bg"),
+        "ok-bg": c("--c-ok-bg"),
+        "grey-bg": c("--c-grey-bg"),
+        "on-dark": c("--c-on-dark"),
       },
       fontFamily: {
         display: ["var(--font-space-grotesk)", "sans-serif"],
@@ -31,7 +38,7 @@ const config: Config = {
         mono: ["var(--font-jetbrains)", "monospace"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(18,20,15,.06), 0 8px 24px -12px rgba(18,20,15,.18)",
+        card: "0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -12px rgb(0 0 0 / 0.25)",
       },
     },
   },

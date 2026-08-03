@@ -1,4 +1,7 @@
+"use client";
 // Petits composants réutilisés sur toutes les pages admin.
+
+import { useState } from "react";
 
 export function Topbar({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -44,7 +47,7 @@ export function Badge({
     green: "bg-ok-bg text-green-700",
     amber: "bg-amber-bg text-amber",
     red: "bg-red-bg text-red",
-    grey: "bg-[#EAE7DD] text-ink-soft",
+    grey: "bg-grey-bg text-ink-soft",
     purple: "bg-purple-bg text-purple",
   };
   return (
@@ -115,6 +118,90 @@ export function LockedPage({
       <div className="text-3xl mb-2.5">{icon}</div>
       <h2 className="font-display text-lg mb-2">{title}</h2>
       <div className="text-[13px] leading-relaxed text-ink-soft max-w-2xl">{children}</div>
+    </div>
+  );
+}
+
+// Bandeau de confirmation démo — pas de backend, juste un retour visuel
+// pour que chaque action ait un effet visible pendant les tests.
+export function ToastDemo({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="fixed bottom-6 right-6 bg-green-700 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl shadow-card z-50">
+      {message}
+    </div>
+  );
+}
+
+// Modale de double confirmation — pour les changements sensibles
+// (commissions, paramètres support...).
+
+export function ConfirmModal({
+  titre,
+  message,
+  onConfirm,
+  trigger,
+}: {
+  titre: string;
+  message: string;
+  onConfirm: () => void;
+  trigger: (open: () => void) => React.ReactNode;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <>
+      {trigger(() => setOuvert(true))}
+      {ouvert && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-paper rounded-2xl shadow-card p-6 w-[380px]">
+            <h3 className="font-display text-[15px] font-semibold mb-2">{titre}</h3>
+            <p className="text-[13px] text-ink-soft mb-5">{message}</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setOuvert(false)} className="text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border border-line text-ink-soft">
+                Annuler
+              </button>
+              <button
+                onClick={() => { onConfirm(); setOuvert(false); }}
+                className="text-[12.5px] font-semibold px-3 py-1.5 rounded-lg bg-green-700 text-white"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Carte statistique dépliable — clic pour révéler un détail en dessous.
+export function ExpandableCard({
+  num,
+  label,
+  delta,
+  children,
+}: {
+  num: string;
+  label: string;
+  delta?: { text: string; up: boolean };
+  children: React.ReactNode;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <div className="bg-paper border border-line rounded-2xl shadow-card overflow-hidden">
+      <button onClick={() => setOuvert((v) => !v)} className="w-full text-left px-[18px] py-4">
+        <div className="flex items-center justify-between">
+          <div className="font-display text-2xl font-bold">{num}</div>
+          <span className="text-ink-soft text-xs">{ouvert ? "▲" : "▼"}</span>
+        </div>
+        <div className="text-[11.5px] text-ink-soft mt-1">{label}</div>
+        {delta && (
+          <div className={`text-[11px] font-semibold mt-1 ${delta.up ? "text-green-700" : "text-red"}`}>
+            {delta.up ? "↑" : "↓"} {delta.text}
+          </div>
+        )}
+      </button>
+      {ouvert && <div className="border-t border-dashed border-line px-[18px] py-3">{children}</div>}
     </div>
   );
 }

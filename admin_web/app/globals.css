@@ -2,13 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --c-ink: 18 20 15;
+  --c-ink-soft: 42 46 36;
+  --c-green-900: 14 43 32;
+  --c-green-700: 27 74 54;
+  --c-green-500: 46 125 84;
+  --c-green-300: 111 190 148;
+  --c-off-white: 246 243 236;
+  --c-paper: 252 251 247;
+  --c-line: 220 214 198;
+  --c-red: 184 67 58;
+  --c-red-bg: 251 234 230;
+  --c-amber: 185 130 46;
+  --c-amber-bg: 251 241 223;
+  --c-purple: 110 74 158;
+  --c-purple-bg: 237 231 245;
+  --c-ok-bg: 233 243 236;
+  --c-grey-bg: 234 231 221;
+  --c-on-dark: 246 243 236;
+}
+
+.dark {
+  --c-ink: 232 236 227;
+  --c-ink-soft: 158 168 150;
+  --c-green-900: 9 26 20;
+  --c-green-700: 34 84 61;
+  --c-green-500: 58 145 98;
+  --c-green-300: 111 190 148;
+  --c-off-white: 15 18 14;
+  --c-paper: 24 28 21;
+  --c-line: 47 53 42;
+  --c-red: 224 110 100;
+  --c-red-bg: 51 27 25;
+  --c-amber: 216 165 84;
+  --c-amber-bg: 52 42 20;
+  --c-purple: 176 148 216;
+  --c-purple-bg: 44 36 58;
+  --c-ok-bg: 22 42 31;
+  --c-grey-bg: 40 44 34;
+}
+
 body {
-  background: #F6F3EC;
-  color: #12140F;
+  background: rgb(var(--c-off-white));
+  color: rgb(var(--c-ink));
+  transition: background-color .15s ease, color .15s ease;
+}
+
+input, select, textarea {
+  color: rgb(var(--c-ink));
+  background-color: transparent;
+}
+input::placeholder, textarea::placeholder {
+  color: rgb(var(--c-ink-soft));
+  opacity: 0.55;
 }
 
 .ticket-cut {
-  border-top: 2px dashed #DCD6C6;
+  border-top: 2px dashed rgb(var(--c-line));
   position: relative;
 }
 .ticket-cut::before,
@@ -19,7 +70,7 @@ body {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #F6F3EC;
+  background: rgb(var(--c-off-white));
 }
 .ticket-cut::before { left: -9px; }
 .ticket-cut::after { right: -9px; }
@@ -29,6 +80,6 @@ body {
   justify-content: space-between;
   padding: 8px 0;
   font-size: 13px;
-  border-top: 1px dashed #DCD6C6;
+  border-top: 1px dashed rgb(var(--c-line));
 }
 .kv:first-child { border-top: none; }

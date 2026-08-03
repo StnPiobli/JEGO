@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { Panel, Badge } from "@/components/ui";
+import HistoriqueButton from "@/components/HistoriqueButton";
 
 export default function DashboardPage() {
   return (
@@ -12,9 +13,15 @@ export default function DashboardPage() {
           <h1 className="font-display text-[22px] tracking-tight">Tableau de bord</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">Mercredi 15 janvier 2026</div>
         </div>
-        <div className="text-[11px] font-semibold text-green-700 bg-ok-bg border border-green-300 px-2.5 py-1.5 rounded-full flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-          Session Super Admin — connexion loggée · IP 41.202.xx.xx
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-semibold text-green-700 bg-ok-bg border border-green-300 px-2.5 py-1.5 rounded-full flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            Session Super Admin — connexion loggée · IP 41.202.xx.xx
+          </div>
+          <HistoriqueButton entrees={[
+            { heure: "09:14", action: "Connexion au tableau de bord", auteur: "s.piobli" },
+            { heure: "hier 22:00", action: "Journal de bord généré automatiquement", auteur: "système" },
+          ]} />
         </div>
       </div>
 

@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { LANGUE_STORAGE_KEY, lireLangue, NAV_LABELS, type Langue } from '../lib/langue';
 import SiteLanguageTranslator from './SiteLanguageTranslator';
+import { ThemeToggle } from './ui';
+import { getAgenceLocale, onboardingComplet, clearSession } from '../lib/api';
 
 const liens = [
   { href: '/accueil', key: 'accueil', icone: 'accueil' },
@@ -17,6 +19,7 @@ const liens = [
   { href: '/incidents', key: 'incidents', icone: 'incidents' },
   { href: '/litiges', key: 'litiges', icone: 'litiges' },
   { href: '/discussion', key: 'discussion', icone: 'discussion' },
+  { href: '/avis', key: 'avis', icone: 'avis' },
 ] as const;
 
 const notificationsInitiales = [
@@ -26,7 +29,7 @@ const notificationsInitiales = [
 ];
 
 function Icone({ nom, className }: { nom: string; className?: string }) {
-  const props = { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, className };
+  const props = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, className };
   switch (nom) {
     case 'accueil': return <svg {...props}><path d="M3 11.5 12 4l9 7.5" /><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" /></svg>;
     case 'trajets': return <svg {...props}><path d="M9 20 3 17V7l6 3m0 10 6-3m-6 3V10m6 7 6 3V10l-6-3m0 10V7m0 0L9 4" /></svg>;
@@ -38,37 +41,54 @@ function Icone({ nom, className }: { nom: string; className?: string }) {
     case 'incidents': return <svg {...props}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
     case 'litiges': return <svg {...props}><path d="M8 3h8l4 4v14H4V3h4Z" /><path d="M8 11h8M8 15h6M8 7h4" /></svg>;
     case 'discussion': return <svg {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
+    case 'avis': return <svg {...props}><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>;
     case 'profil': return <svg {...props}><circle cx="12" cy="12" r="10" /><circle cx="12" cy="10" r="3" /><path d="M6.5 19a5.5 5.5 0 0 1 11 0" /></svg>;
     default: return null;
   }
 }
 
 function BoutonLien({
-  href,
-  icone,
-  label,
-  actif,
-  replie,
+  href, icone, label, actif, replie,
 }: { href: string; icone: string; label: string; actif: boolean; replie: boolean }) {
   return (
     <Link
       href={href}
       title={replie ? label : undefined}
-      className={`relative flex items-center ${replie ? 'justify-center px-0' : 'gap-2.5 px-3'} h-[28px] rounded-[14px] border overflow-hidden transition-colors duration-100 ${actif ? 'text-white bg-[linear-gradient(90deg,rgba(14,173,106,.38),rgba(14,173,106,.15))] border-[#28D588]/22 shadow-[0_10px_24px_rgba(7,94,58,0.14)]' : 'text-white/70 hover:text-white hover:bg-white/[0.05] border-transparent'}`}
+      className={`flex items-center gap-2.5 ${replie ? 'justify-center px-0' : 'px-2.5'} py-2 rounded-lg text-[13px] mb-0.5 transition-colors ${
+        actif ? 'bg-white/10 text-white font-semibold' : 'text-white/78 hover:bg-white/5'
+      }`}
     >
-      {actif && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-[#3DDB93]" />}
-      <Icone nom={icone} className={`${actif ? 'text-[#D7FFE8]' : 'text-white/66'} shrink-0`} />
-      {!replie && <span className="text-[10px] font-semibold leading-none truncate">{label}</span>}
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${actif ? 'bg-green-300' : 'bg-white/30'}`} />
+      <Icone nom={icone} className="shrink-0" />
+      {!replie && <span className="truncate">{label}</span>}
     </Link>
   );
 }
 
 export default function LayoutAgence({ children }: { children: React.ReactNode }) {
   const chemin = usePathname();
+  const router = useRouter();
   const [replie, setReplie] = useState(false);
   const [notificationsOuvertes, setNotificationsOuvertes] = useState(false);
   const [notifications, setNotifications] = useState(notificationsInitiales);
   const [langue, setLangue] = useState<Langue>('fr');
+
+  // Garde-fou : LayoutAgence n'habille que les pages du dashboard complet
+  // (accueil, trajets, flotte...). Si quelqu'un navigue directement dessus
+  // (lien, favori) sans passer par la connexion, on le renvoie vers le bon
+  // écran selon son vrai statut. Le mode démo (statut === 'demo', utilisé
+  // par le panneau de prévisualisation sur l'écran de connexion) est exempté.
+  useEffect(() => {
+    const agence = getAgenceLocale();
+    if (!agence) {
+      router.replace('/');
+      return;
+    }
+    if (agence.statut === 'demo') return;
+    if (agence.statut === 'en_attente') { router.replace('/en-attente'); return; }
+    if (agence.statut === 'refuse') { router.replace('/rejete'); return; }
+    if (!onboardingComplet(agence.id)) { router.replace('/completer-profil'); return; }
+  }, [router]);
 
   useEffect(() => {
     setLangue(lireLangue());
@@ -99,93 +119,103 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   return (
     <>
       <SiteLanguageTranslator />
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(14,173,106,0.07),_transparent_22%),linear-gradient(180deg,#F8F8F5_0%,#EEF1EC_100%)] text-[#14201A]">
-      <aside className={`fixed left-3 top-3 bottom-3 z-40 rounded-[26px] border border-white/20 bg-[linear-gradient(180deg,rgba(7,24,19,0.98)_0%,rgba(10,29,23,0.97)_52%,rgba(11,21,18,0.98)_100%)] backdrop-blur-[10px] shadow-[0_24px_60px_rgba(4,20,16,0.18)] transition-none ${replie ? 'w-[74px]' : 'w-[244px]'}`}>
-        <div className="absolute inset-0 opacity-[0.10] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(61,219,147,.16) 0, transparent 28%), repeating-radial-gradient(circle at 90% 10%, rgba(255,255,255,.13) 0 1px, transparent 1px 28px)' }} />
-
-        <div className="relative h-full flex flex-col px-3 py-3 overflow-hidden">
-          <div className={`${replie ? 'text-center' : 'px-2'} mb-2`}>
-            <p className="text-[18px] font-black tracking-tight text-white">{replie ? 'J' : 'JEGO'}</p>
-            {!replie && <p className="text-white/66 text-[10px] mt-0.5">Espace agence</p>}
-          </div>
-
-          <div className="h-px bg-white/10 mb-2" />
-
-          <nav className="flex-1 min-h-0 overflow-hidden pr-1 space-y-0.5">
-            {liens.map((l) => {
-              const actif = chemin === l.href || chemin?.startsWith(l.href + '/');
-              return <BoutonLien key={l.href} href={l.href} icone={l.icone} label={labels[l.key]} actif={!!actif} replie={replie} />;
-            })}
-          </nav>
-
-          <div className="pt-1.5 mt-1.5 border-t border-white/10 space-y-0.5">
-            <BoutonLien href="/profil" icone="profil" label={labels.profil} actif={profilActif} replie={replie} />
-
-            <button onClick={() => setReplie(!replie)} className={`w-full flex items-center ${replie ? 'justify-center' : 'gap-2.5 px-3'} h-[28px] rounded-[14px] text-white/66 hover:bg-white/[0.05] hover:text-white transition-colors`}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${replie ? 'rotate-180' : ''}`}><path d="M15 18l-6-6 6-6" /></svg>
-              {!replie && <span className="text-[10px] font-semibold">{replie ? labels.expand : labels.collapse}</span>}
-            </button>
-
-            <div className={`flex items-center ${replie ? 'justify-center' : 'gap-2.5 px-2'} h-11`} title={labels.logout}>
-              <div className="relative shrink-0">
-                <div className="w-9 h-9 rounded-full border border-white/15 bg-[#030A08] flex items-center justify-center text-white text-[13px] font-semibold">N</div>
-                <span className="absolute right-0 bottom-0 w-2.5 h-2.5 rounded-full bg-[#18D27E] border-2 border-[#061A14]" />
-              </div>
-              {!replie && <span className="text-white/72 text-[10px] font-semibold">{labels.logout}</span>}
+      <div className="min-h-screen bg-off-white">
+        <div className="grid grid-cols-[auto_1fr] min-h-screen">
+          <aside className={`bg-green-900 px-3 py-6 flex flex-col sticky top-0 h-screen overflow-y-auto transition-[width] ${replie ? 'w-[70px]' : 'w-[220px]'}`}>
+            <div className={`${replie ? 'text-center' : 'px-1.5'} mb-5 flex items-center gap-2.5`}>
+              <div className="w-[30px] h-[30px] rounded-[8px] bg-green-300 flex items-center justify-center text-green-900 font-display font-bold text-sm -rotate-3 shrink-0">J</div>
+              {!replie && (
+                <div>
+                  <div className="font-display font-bold text-[15px] text-on-dark">JEGO</div>
+                  <div className="text-[9.5px] text-green-300 uppercase tracking-wider">Espace agence</div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      </aside>
 
-      <main className={`transition-none ${replie ? 'pl-[98px]' : 'pl-[276px]'} pr-5 py-5`}>
-        <div className="agency-ui min-h-[calc(100vh-48px)] rounded-[30px] bg-[linear-gradient(180deg,rgba(255,255,255,.90),rgba(248,249,246,.95))] backdrop-blur-[8px] border border-white/70 shadow-[0_20px_70px_rgba(26,48,40,0.08)] px-6 py-6 relative overflow-hidden">
-          <div className="pointer-events-none absolute inset-0 opacity-[0.20]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.22) 1px, transparent 1px)', backgroundSize: '72px 72px', maskImage: 'linear-gradient(180deg, black, transparent 88%)' }} />
-          <div className="relative z-[1] pr-12">{children}</div>
-        </div>
-      </main>
+            <nav className="flex-1 min-h-0 overflow-y-auto">
+              {liens.map((l) => {
+                const actif = chemin === l.href || chemin?.startsWith(l.href + '/');
+                return <BoutonLien key={l.href} href={l.href} icone={l.icone} label={labels[l.key]} actif={!!actif} replie={replie} />;
+              })}
+            </nav>
 
-      <div className="fixed top-7 right-8 z-50">
-        <button
-          type="button"
-          onClick={() => setNotificationsOuvertes((v) => !v)}
-          className="relative w-10 h-10 rounded-full bg-white border border-[#E4EAE5] shadow-[0_10px_28px_rgba(20,32,26,0.10)] flex items-center justify-center text-[#14201A]"
-          aria-label={labels.notifications}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>
-          {nombreNonLues > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[#D9534F] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">{nombreNonLues}</span>}
-        </button>
+            <div className="pt-3 mt-2 border-t border-white/10 space-y-0.5">
+              <BoutonLien href="/profil" icone="profil" label={labels.profil} actif={profilActif} replie={replie} />
 
-        {notificationsOuvertes && (
-          <div className="absolute right-0 mt-3 w-[330px] rounded-[22px] bg-white border border-[#E4EAE5] shadow-[0_24px_60px_rgba(20,32,26,0.18)] p-4">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <div>
-                <p className="text-[14px] font-extrabold text-[#14201A]">{labels.notifications}</p>
-                <p className="text-[10px] text-[#8B9890]">{nombreNonLues} non lue(s)</p>
+              <button onClick={() => setReplie(!replie)} className={`w-full flex items-center ${replie ? 'justify-center' : 'gap-2.5 px-2.5'} py-2 rounded-lg text-white/66 hover:bg-white/5 hover:text-white transition-colors`}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={replie ? 'rotate-180' : ''}><path d="M15 18l-6-6 6-6" /></svg>
+                {!replie && <span className="text-[11px] font-semibold">{labels.collapse}</span>}
+              </button>
+
+              <div className="pt-2">
+                <ThemeToggle />
               </div>
-              <button onClick={marquerToutCommeLu} className="text-[10px] font-bold text-[#0B9E63]">Tout marquer comme lu</button>
+
+              <button
+                onClick={() => { clearSession(); router.push('/'); }}
+                className={`w-full flex items-center ${replie ? 'justify-center' : 'gap-2.5 px-1.5'} pt-2 hover:opacity-80 transition-opacity`}
+                title={labels.logout}
+              >
+                <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold text-white shrink-0">N</div>
+                {!replie && (
+                  <div className="text-[12.5px] text-left">
+                    <b className="block text-[13px] text-on-dark">Nuit Express</b>
+                    <span className="text-white/50 text-[11px] underline">{labels.logout}</span>
+                  </div>
+                )}
+              </button>
             </div>
-            <div className="space-y-2">
-              {notifications.map((notification) => (
+          </aside>
+
+          <main className="px-10 py-7 pb-16 relative">
+            <div className="flex justify-end mb-4">
+              <div className="relative">
                 <button
                   type="button"
-                  key={notification.id}
-                  onClick={() => setNotifications((liste) => liste.map((n) => n.id === notification.id ? { ...n, lu: true } : n))}
-                  className={`w-full text-left rounded-2xl border p-3 transition-colors ${notification.lu ? 'bg-[#FBFCFB] border-[#EEF1EE]' : 'bg-[#F6FBF8] border-[#DDEEE5]'}`}
+                  onClick={() => setNotificationsOuvertes((v) => !v)}
+                  className="relative w-10 h-10 rounded-full bg-paper border border-line shadow-card flex items-center justify-center text-ink"
+                  aria-label={labels.notifications}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[12px] font-bold text-[#14201A]">{notification.titre}</p>
-                      <p className="text-[10px] text-[#64746C] mt-1 leading-relaxed">{notification.texte}</p>
-                    </div>
-                    {!notification.lu && <span className="w-2.5 h-2.5 rounded-full bg-[#0B9E63] mt-1 shrink-0" />}
-                  </div>
-                  <p className="text-[9px] text-[#8B9890] mt-2">{notification.heure}</p>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>
+                  {nombreNonLues > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red text-white text-[10px] font-bold flex items-center justify-center border-2 border-paper">{nombreNonLues}</span>}
                 </button>
-              ))}
+
+                {notificationsOuvertes && (
+                  <div className="absolute right-0 mt-3 w-[330px] rounded-2xl bg-paper border border-line shadow-card p-4 z-50">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div>
+                        <p className="text-[14px] font-bold text-ink font-display">{labels.notifications}</p>
+                        <p className="text-[10px] text-ink-soft">{nombreNonLues} non lue(s)</p>
+                      </div>
+                      <button onClick={marquerToutCommeLu} className="text-[10px] font-bold text-green-700">Tout marquer comme lu</button>
+                    </div>
+                    <div className="space-y-2">
+                      {notifications.map((notification) => (
+                        <button
+                          type="button"
+                          key={notification.id}
+                          onClick={() => setNotifications((liste) => liste.map((n) => n.id === notification.id ? { ...n, lu: true } : n))}
+                          className={`w-full text-left rounded-xl border p-3 transition-colors ${notification.lu ? 'bg-off-white border-line' : 'bg-ok-bg border-green-300'}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[12px] font-bold text-ink">{notification.titre}</p>
+                              <p className="text-[10px] text-ink-soft mt-1 leading-relaxed">{notification.texte}</p>
+                            </div>
+                            {!notification.lu && <span className="w-2.5 h-2.5 rounded-full bg-green-500 mt-1 shrink-0" />}
+                          </div>
+                          <p className="text-[9px] text-ink-soft mt-2">{notification.heure}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+
+            {children}
+          </main>
+        </div>
       </div>
     </>
   );

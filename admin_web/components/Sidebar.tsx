@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ThemeToggle from "./ThemeToggle";
 
 type NavItem = {
   label: string;
@@ -21,6 +22,7 @@ const groups: NavGroup[] = [
     label: "Vue d'ensemble",
     items: [
       { label: "Tableau de bord", href: "/dashboard" },
+      { label: "Utilisateurs & activité", href: "/activite" },
       { label: "Rapports & statistiques", href: "/rapports" },
     ],
   },
@@ -29,6 +31,7 @@ const groups: NavGroup[] = [
     items: [
       { label: "Agences", href: "/agences", badge: 3 },
       { label: "Voyageurs", href: "/voyageurs" },
+      { label: "Points JEGO", href: "/points" },
       { label: "Billets & trajets", href: "/billets" },
       { label: "Litiges", href: "/litiges", badge: 5 },
       { label: "Finances", href: "/finances" },
@@ -65,7 +68,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="bg-green-900 text-off-white px-4 py-7 flex flex-col sticky top-0 h-screen overflow-y-auto w-[248px] shrink-0">
+    <aside className="bg-green-900 text-on-dark px-4 py-7 flex flex-col sticky top-0 h-screen overflow-y-auto w-[248px] shrink-0">
       <div className="flex items-center gap-2.5 px-2 pb-6">
         <div className="w-[34px] h-[34px] rounded-[9px] bg-green-300 flex items-center justify-center text-green-900 font-display font-bold text-base -rotate-3">
           J
@@ -121,13 +124,18 @@ export default function Sidebar() {
         </div>
       ))}
 
-      <div className="mt-auto pt-3.5 border-t border-white/10 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold">
-          SP
+      <div className="mt-auto">
+        <div className="pt-3.5 border-t border-white/10">
+          <ThemeToggle />
         </div>
-        <div className="text-[12.5px]">
-          <b className="block text-[13px]">Stéphane P.</b>
-          <span className="text-white/50 text-[11px]">Super Admin</span>
+        <div className="mt-2 pt-3.5 border-t border-white/10 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold">
+            SP
+          </div>
+          <div className="text-[12.5px]">
+            <b className="block text-[13px]">Stéphane P.</b>
+            <span className="text-white/50 text-[11px]">Super Admin</span>
+          </div>
         </div>
       </div>
     </aside>

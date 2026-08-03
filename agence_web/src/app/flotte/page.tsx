@@ -25,7 +25,7 @@ const initialBus: Bus[] = [
 ];
 
 const libellesType = { vip: 'VIP', standard: 'Standard', mixte: 'Mixte' };
-const stylesType = { vip: 'bg-[#E6B84C]/15 text-[#8A6A1E]', standard: 'bg-[#F1F4F1] text-[#64746C]', mixte: 'bg-[#0B9E63]/10 text-[#0B9E63]' };
+const stylesType = { vip: 'bg-amber/15 text-amber', standard: 'bg-off-white text-ink-soft', mixte: 'bg-green-700/10 text-green-700' };
 const equipements: { cle: keyof Bus; icone: string; label: string }[] = [
   { cle: 'climatisation', icone: '❄️', label: 'Climatisation' },
   { cle: 'toilettes', icone: '🚽', label: 'Toilettes' },
@@ -43,30 +43,30 @@ export default function Flotte() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-[28px] font-extrabold text-[#14201A]">Ma flotte</h1>
-            <p className="text-[13px] text-[#64746C] mt-1">Gere tes bus, leur configuration et leurs equipements.</p>
+            <h1 className="text-[28px] font-extrabold text-ink">Ma flotte</h1>
+            <p className="text-[13px] text-ink-soft mt-1">Gere tes bus, leur configuration et leurs equipements.</p>
           </div>
-          <Link href="/flotte/nouveau" className="rounded-xl bg-[#0B9E63] hover:bg-[#0A8D58] text-white font-bold text-[13px] px-5 py-3 transition-colors shadow-lg shadow-[#0B9E63]/25 whitespace-nowrap">+ Nouveau bus</Link>
+          <Link href="/flotte/nouveau" className="rounded-xl bg-green-700 hover:bg-green-900 text-white font-bold text-[13px] px-5 py-3 transition-colors shadow-lg shadow--green-700/25 whitespace-nowrap">+ Nouveau bus</Link>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           {bus.map((b) => (
-            <div key={b.id} className="bg-white rounded-2xl border border-[#E7ECE8] p-5">
+            <div key={b.id} className="bg-paper rounded-2xl border border-line p-5">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <p className="text-[14px] font-extrabold text-[#14201A]">{b.nom}</p>
-                  <p className="text-[12px] text-[#64746C] mt-0.5">{b.disposition} · {b.nombre_rangees} rangees · {b.nombre_sieges} places</p>
+                  <p className="text-[14px] font-extrabold text-ink">{b.nom}</p>
+                  <p className="text-[12px] text-ink-soft mt-0.5">{b.disposition} · {b.nombre_rangees} rangees · {b.nombre_sieges} places</p>
                 </div>
                 <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${stylesType[b.type_bus]}`}>{libellesType[b.type_bus]}</span>
               </div>
 
               <div className="flex flex-wrap gap-2 mb-4">
-                {equipements.filter((eq) => b[eq.cle]).map((eq) => <span key={eq.cle} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F1F4F1] text-[11px] text-[#64746C]"><span>{eq.icone}</span>{eq.label}</span>)}
+                {equipements.filter((eq) => b[eq.cle]).map((eq) => <span key={eq.cle} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-off-white text-[11px] text-ink-soft"><span>{eq.icone}</span>{eq.label}</span>)}
               </div>
 
               <div className="flex gap-2">
-                <Link href={`/flotte/nouveau?edit=${b.id}`} className="flex-1 text-center rounded-xl bg-[#14201A] text-white font-bold text-[13px] px-4 py-2.5">Modifier</Link>
-                <button onClick={() => setSuppression(b)} className="flex-1 rounded-xl bg-[#D9534F]/10 text-[#D9534F] font-bold text-[13px] px-4 py-2.5">Supprimer</button>
+                <Link href={`/flotte/nouveau?edit=${b.id}`} className="flex-1 text-center rounded-xl bg-ink text-white font-bold text-[13px] px-4 py-2.5">Modifier</Link>
+                <button onClick={() => setSuppression(b)} className="flex-1 rounded-xl bg-red/10 text-red font-bold text-[13px] px-4 py-2.5">Supprimer</button>
               </div>
             </div>
           ))}
@@ -75,12 +75,12 @@ export default function Flotte() {
 
       {suppression && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => setSuppression(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl p-6 max-w-md w-full">
-            <p className="text-[18px] font-extrabold text-[#14201A] mb-2">Supprimer ce bus ?</p>
-            <p className="text-[13px] text-[#64746C] mb-5">{suppression.nom} sera retire de la liste de la flotte dans cette facade.</p>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-3xl p-6 max-w-md w-full">
+            <p className="text-[18px] font-extrabold text-ink mb-2">Supprimer ce bus ?</p>
+            <p className="text-[13px] text-ink-soft mb-5">{suppression.nom} sera retire de la liste de la flotte dans cette facade.</p>
             <div className="flex gap-3">
-              <button onClick={() => setSuppression(null)} className="flex-1 rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[13px] py-3">Annuler</button>
-              <button onClick={() => { setBus((prev) => prev.filter((item) => item.id !== suppression.id)); setSuppression(null); }} className="flex-1 rounded-xl bg-[#D9534F] text-white font-bold text-[13px] py-3">Confirmer</button>
+              <button onClick={() => setSuppression(null)} className="flex-1 rounded-xl bg-off-white text-ink font-bold text-[13px] py-3">Annuler</button>
+              <button onClick={() => { setBus((prev) => prev.filter((item) => item.id !== suppression.id)); setSuppression(null); }} className="flex-1 rounded-xl bg-red text-white font-bold text-[13px] py-3">Confirmer</button>
             </div>
           </div>
         </div>

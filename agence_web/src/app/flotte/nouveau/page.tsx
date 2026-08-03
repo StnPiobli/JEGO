@@ -5,18 +5,32 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../../components/LayoutAgence';
 import { useLangue } from '../../lib/langue';
+import { apiFetch } from '../../lib/api';
+
+// ✅ Création BRANCHÉE — POST /api/bus (nom, type_bus, disposition,
+// nombre_rangees, toilettes, climatisation, prises_usb, wifi,
+// sieges_inclinables, supplement_premium). ⚠️ Modification reste DÉMO —
+// aucune route PUT n'existe pour éditer un bus existant.
 
 type Categorie = 'toilettes' | 'abime' | 'porte' | 'premium';
 type TypeBus = 'standard' | 'vip' | 'mixte';
 
 const LETTRES = ['A', 'B', 'C', 'D', 'E', 'F'];
-const SCHEMAS_DISPOSITION = { '2+2': ['A', 'B', 'C', 'D'], '2+3': ['A', 'B', 'C', 'D', 'E'] } as const;
+const SCHEMAS_DISPOSITION = {
+  '1+1': ['A', 'B'],
+  '1+2': ['A', 'B', 'C'],
+  '2+1': ['A', 'B', 'C'],
+  '2+2': ['A', 'B', 'C', 'D'],
+  '2+3': ['A', 'B', 'C', 'D', 'E'],
+  '3+2': ['A', 'B', 'C', 'D', 'E'],
+  '3+3': ['A', 'B', 'C', 'D', 'E', 'F'],
+} as const;
 const typesBus = [
   { valeur: 'standard', libelle: 'Standard' },
   { valeur: 'vip', libelle: 'VIP (tous premium)' },
   { valeur: 'mixte', libelle: 'Mixte (premium au choix)' },
 ] as const;
-const dispositions = ['2+2', '2+3'] as const;
+const dispositions = ['1+1', '1+2', '2+1', '2+2', '2+3', '3+2', '3+3'] as const;
 
 export default function NouveauBus() {
   const langue = useLangue();
@@ -88,6 +102,7 @@ export default function NouveauBus() {
   }, [typeBus, modeMarquage, t.standardBlocked]);
 
   const schema = SCHEMAS_DISPOSITION[disposition];
+  const [placesGauche] = disposition.split('+').map(Number);
   const nbRangees = Number(nombreRangees) || 0;
   const totalPlaces = nbRangees * schema.length;
 
@@ -125,17 +140,17 @@ export default function NouveauBus() {
   }
 
   const styleCategorie: Record<Categorie, string> = {
-    toilettes: 'bg-[#64746C] text-white',
-    abime: 'bg-[#D9534F] text-white',
-    porte: 'bg-[#7C5CBF] text-white',
-    premium: 'bg-[#E6B84C] text-[#14201A]',
+    toilettes: 'bg-ink-soft text-white',
+    abime: 'bg-red text-white',
+    porte: 'bg-purple text-white',
+    premium: 'bg-amber text-ink',
   };
 
   function couleurSiege(numero: string): string {
     const cat = categorieDe(numero);
     if (cat) return styleCategorie[cat];
-    if (typeBus === 'vip') return 'bg-[#0B9E63]/15 text-[#0B9E63] border border-[#0B9E63]/30';
-    return 'bg-white border border-[#E7ECE8] text-[#64746C]';
+    if (typeBus === 'vip') return 'bg-green-700/15 text-green-700 border border-green-700/30';
+    return 'bg-paper border border-line text-ink-soft';
   }
 
   const equipements = useMemo(() => ([
@@ -161,10 +176,37 @@ export default function NouveauBus() {
       return;
     }
     setEnregistrement(true);
-    setTimeout(() => {
+    if (isEdition) {
+      // Aucune route PUT de modification n'existe côté backend — reste démo.
+      setTimeout(() => {
+        setEnregistrement(false);
+        setSucces(t.updated);
+      }, 900);
+      return;
+    }
+    try {
+      await apiFetch('/api/bus', {
+        method: 'POST',
+        body: JSON.stringify({
+          nom,
+          type_bus: typeBus,
+          disposition,
+          nombre_rangees: Number(nombreRangees),
+          toilettes: siegesToilettes.size > 0,
+          climatisation,
+          prises_usb: prisesUsb,
+          wifi,
+          sieges_inclinables: siegesInclinables,
+          supplement_premium: typeBus === 'mixte' ? Number(supplementPremium) : null,
+        }),
+      });
+      setSucces(t.created);
+      router.push('/flotte');
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Erreur de création');
+    } finally {
       setEnregistrement(false);
-      setSucces(isEdition ? t.updated : t.created);
-    }, 900);
+    }
   }
 
   return (
@@ -172,48 +214,48 @@ export default function NouveauBus() {
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div>
-            <h1 className="text-[28px] font-extrabold text-[#14201A]">{isEdition ? t.editBus : t.newBus}</h1>
-            <p className="text-[13px] text-[#64746C] mt-1">{t.config}</p>
+            <h1 className="text-[28px] font-extrabold text-ink">{isEdition ? t.editBus : t.newBus}</h1>
+            <p className="text-[13px] text-ink-soft mt-1">{t.config}</p>
           </div>
-          <Link href="/flotte" className="rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[13px] px-5 py-3">{t.backFleet}</Link>
+          <Link href="/flotte" className="rounded-xl bg-off-white text-ink font-bold text-[13px] px-5 py-3">{t.backFleet}</Link>
         </div>
 
         <form onSubmit={creerBus} className="grid lg:grid-cols-[minmax(360px,0.86fr)_minmax(420px,1.14fr)] gap-6 items-start">
-          <div className="bg-white rounded-3xl border border-[#E7ECE8] p-6 space-y-5">
+          <div className="bg-paper rounded-3xl border border-line p-6 space-y-5">
             <div>
-              <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.busName}</label>
+              <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.busName}</label>
               <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl px-4 py-3 text-[13px]" placeholder="Confort Express 04" />
             </div>
 
             <div className="grid grid-cols-1 gap-3">
               {typesBus.map((type) => (
-                <button type="button" key={type.valeur} onClick={() => setTypeBus(type.valeur)} className={`w-full rounded-xl border px-4 py-3 text-left text-[13px] ${typeBus === type.valeur ? 'border-[#0B9E63] bg-[#0B9E63]/8 text-[#0B9E63] font-bold' : 'border-[#E7ECE8] text-[#64746C]'}`}>{type.libelle}</button>
+                <button type="button" key={type.valeur} onClick={() => setTypeBus(type.valeur)} className={`w-full rounded-xl border px-4 py-3 text-left text-[13px] ${typeBus === type.valeur ? 'border-green-700 bg-green-700/8 text-green-700 font-bold' : 'border-line text-ink-soft'}`}>{type.libelle}</button>
               ))}
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.layout}</label>
+                <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.layout}</label>
                 <select value={disposition} onChange={(e) => setDisposition(e.target.value as keyof typeof SCHEMAS_DISPOSITION)} className="w-full rounded-xl px-4 py-3 text-[13px]">
                   {dispositions.map((d) => <option key={d}>{d}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.rows}</label>
+                <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.rows}</label>
                 <input value={nombreRangees} onChange={(e) => setNombreRangees(e.target.value)} type="number" min="1" className="w-full rounded-xl px-4 py-3 text-[13px]" />
               </div>
             </div>
 
             <div>
-              <p className="text-[12px] font-bold text-[#64746C] mb-3">{t.equipment}</p>
+              <p className="text-[12px] font-bold text-ink-soft mb-3">{t.equipment}</p>
               <div className="grid sm:grid-cols-2 gap-3">
                 {equipements.map((item) => (
-                  <button key={item.label} type="button" onClick={() => item.setValue(!item.value)} className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left min-w-0 overflow-hidden ${item.value ? 'border-[#0B9E63] bg-[#0B9E63]/8' : 'border-[#E7ECE8] bg-[#F8FAF8]'}`}>
+                  <button key={item.label} type="button" onClick={() => item.setValue(!item.value)} className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left min-w-0 overflow-hidden ${item.value ? 'border-green-700 bg-green-700/8' : 'border-line bg-off-white'}`}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <span className="text-lg shrink-0">{item.icone}</span>
-                      <span className="text-[13px] font-semibold text-[#24332B] leading-tight break-words">{item.label}</span>
+                      <span className="text-[13px] font-semibold text-ink leading-tight break-words">{item.label}</span>
                     </div>
-                    <span className={`inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${item.value ? 'bg-[#0B9E63]' : 'bg-[#D9E0DB]'}`}><span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${item.value ? 'translate-x-5' : 'translate-x-0.5'}`} /></span>
+                    <span className={`inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${item.value ? 'bg-green-700' : 'bg-line'}`}><span className={`h-5 w-5 rounded-full bg-paper shadow-sm transition-transform ${item.value ? 'translate-x-5' : 'translate-x-0.5'}`} /></span>
                   </button>
                 ))}
               </div>
@@ -221,27 +263,27 @@ export default function NouveauBus() {
 
             {typeBus === 'mixte' && (
               <div>
-                <label className="block text-[11px] font-semibold text-[#64746C] mb-1.5">{t.premiumSupplement}</label>
+                <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.premiumSupplement}</label>
                 <input value={supplementPremium} onChange={(e) => setSupplementPremium(e.target.value)} type="number" className="w-full rounded-xl px-4 py-3 text-[13px]" />
               </div>
             )}
 
-            {erreur && <p className="text-[12px] text-[#D9534F]">{erreur}</p>}
-            {succes && <p className="text-[12px] text-[#0B9E63]">{succes}</p>}
+            {erreur && <p className="text-[12px] text-red">{erreur}</p>}
+            {succes && <p className="text-[12px] text-green-700">{succes}</p>}
 
             <div className="flex gap-3 pt-2 flex-wrap">
-              <Link href="/flotte" className="flex-1 min-w-[180px] text-center rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[13px] px-5 py-3">{t.cancel}</Link>
-              <button disabled={enregistrement} className="flex-1 min-w-[180px] rounded-xl bg-[#0B9E63] hover:bg-[#0A8D58] disabled:opacity-60 text-white font-bold text-[13px] px-5 py-3">{enregistrement ? t.saving : isEdition ? t.save : t.create}</button>
+              <Link href="/flotte" className="flex-1 min-w-[180px] text-center rounded-xl bg-off-white text-ink font-bold text-[13px] px-5 py-3">{t.cancel}</Link>
+              <button disabled={enregistrement} className="flex-1 min-w-[180px] rounded-xl bg-green-700 hover:bg-green-900 disabled:opacity-60 text-white font-bold text-[13px] px-5 py-3">{enregistrement ? t.saving : isEdition ? t.save : t.create}</button>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl border border-[#E7ECE8] p-6 lg:sticky lg:top-6">
+          <div className="bg-paper rounded-3xl border border-line p-6 lg:sticky lg:top-6">
             <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div>
-                <p className="text-[18px] font-extrabold text-[#14201A]">{t.seatPlan}</p>
-                <p className="text-[12px] text-[#64746C]">{t.seatPlanText}</p>
+                <p className="text-[18px] font-extrabold text-ink">{t.seatPlan}</p>
+                <p className="text-[12px] text-ink-soft">{t.seatPlanText}</p>
               </div>
-              <p className="text-[12px] text-[#64746C]">{totalPlaces} {t.totalSeats}</p>
+              <p className="text-[12px] text-ink-soft">{totalPlaces} {t.totalSeats}</p>
             </div>
 
             <div className="flex flex-wrap gap-2 mb-5">
@@ -251,22 +293,22 @@ export default function NouveauBus() {
                   type="button"
                   disabled={m.disabled}
                   onClick={() => !m.disabled && setModeMarquage(m.valeur === modeMarquage ? null : m.valeur)}
-                  className={`rounded-xl px-3 py-2 text-[12px] font-bold border min-h-[42px] ${m.disabled ? 'border-[#E7ECE8] bg-[#F3F5F3] text-[#A7B1AB] cursor-not-allowed' : modeMarquage === m.valeur ? 'border-[#14201A] bg-[#14201A] text-white' : 'border-[#E7ECE8] bg-[#F8FAF8] text-[#64746C]'}`}
+                  className={`rounded-xl px-3 py-2 text-[12px] font-bold border min-h-[42px] ${m.disabled ? 'border-line bg-off-white text-ink-soft cursor-not-allowed' : modeMarquage === m.valeur ? 'border-ink bg-ink text-white' : 'border-line bg-off-white text-ink-soft'}`}
                 >
                   <span className="inline-flex items-center gap-1.5 whitespace-normal text-left">{m.icone} <span>{m.label}</span></span>
                 </button>
               ))}
             </div>
 
-            <div className="rounded-3xl border border-[#E7ECE8] p-5 overflow-x-auto">
+            <div className="rounded-3xl border border-line p-5 overflow-x-auto">
               <div className="min-w-[420px] space-y-3">
                 {Array.from({ length: nbRangees }).map((_, indexRangee) => (
                   <div key={indexRangee} className="flex items-center gap-4">
-                    <span className="w-7 text-[12px] text-[#8E9A93] font-semibold text-right">{indexRangee + 1}</span>
+                    <span className="w-7 text-[12px] text-ink-soft font-semibold text-right">{indexRangee + 1}</span>
                     <div className="flex items-center gap-3">
                       {schema.map((_, seatIndex) => {
                         const numero = `${indexRangee + 1}${LETTRES[seatIndex]}`;
-                        const isAisle = schema.length > 2 && seatIndex === Math.floor(schema.length / 2) - 1;
+                        const isAisle = seatIndex === placesGauche - 1 && seatIndex < schema.length - 1;
                         return (
                           <div key={numero} className="flex items-center gap-3">
                             <button type="button" onClick={() => toggleSiege(numero)} className={`w-12 h-12 rounded-xl text-[13px] font-semibold ${couleurSiege(numero)}`}>{numero}</button>

@@ -1,14 +1,22 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+// ✅ BRANCHÉ (repli démo) — GET /api/trajets, PUT :id/retard { retard_minutes,
+// nouvelle_heure_depart?, nouvelle_heure_arrivee? }, PUT :id/annuler { motif }.
+// ⚠️ La vraie liste ne renvoie ni numero_voyage, ni points précis de
+// départ/arrivée, ni nom du chauffeur — affichés seulement en démo.
+// GET /api/programmation/mon-horizon existe aussi (bandeau horizon) mais
+// reste ici illustré en démo tant que non branché.
+
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
+import { Panel, Badge, BtnMini, ToastDemo } from '../components/ui';
 import { addDaysToInput, todayInputDate } from '../lib/date';
+import { apiFetch } from '../lib/api';
 
 type Trajet = {
-  id: string;
-  numero_voyage: string;
+  id: string | number;
   date_depart: string;
   heure_depart: string;
   heure_arrivee_estimee: string | null;
@@ -18,72 +26,105 @@ type Trajet = {
   ville_depart: string;
   ville_arrivee: string;
   nom_bus: string;
-  point_depart: string;
-  point_arrivee: string;
-  bus_id: string;
-  chauffeur: string;
-  chauffeur_id: string;
-  retardDeclareMinutes: number;
-  sourceRetard: 'chauffeur' | 'agence' | null;
+  // Démo uniquement — absents de la vraie réponse API :
+  numero_voyage?: string;
+  point_depart?: string;
+  point_arrivee?: string;
+  chauffeur?: string;
+  retard_minutes?: number;
+  retard_declare_a?: string; // ISO — pour afficher "il y a X min" en direct
+  retard_declare_par?: 'chauffeur' | 'agence';
+  depart_effectue?: boolean;
 };
-
-type Horizon = { horizon_jours: number; seuil_alerte: number; conforme: boolean; message: string };
 
 const AUJOURDHUI = todayInputDate();
 const DEMAIN = addDaysToInput(AUJOURDHUI, 1);
 const HIER = addDaysToInput(AUJOURDHUI, -1);
 
-const horizonDemo: Horizon = {
+const horizonDemo = {
   horizon_jours: 9, seuil_alerte: 14, conforme: false,
   message: 'Alerte : horizon de programmation sous le seuil (9 jours restants, minimum 14 requis)',
 };
 
 const trajetsDemoInitial: Trajet[] = [
-  { id: '1', numero_voyage: 'JG-260727-0700-DLYDE', date_depart: AUJOURDHUI, heure_depart: '07:00', heure_arrivee_estimee: '11:30', prix_base: 4000, categorie: 'vip', statut: 'en_cours', ville_depart: 'Douala', ville_arrivee: 'Yaounde', nom_bus: 'Confort Express 01', point_depart: 'Bonaberi, apres le bar Chez Paul', point_arrivee: 'Mvan, face a la pharmacie', bus_id: 'b1', chauffeur: "Paul Eto'o", chauffeur_id: 'c1', retardDeclareMinutes: 30, sourceRetard: 'chauffeur' },
-  { id: '2', numero_voyage: 'JG-260727-1400-YDE-DLA', date_depart: AUJOURDHUI, heure_depart: '14:00', heure_arrivee_estimee: '18:15', prix_base: 3500, categorie: 'standard', statut: 'programme', ville_depart: 'Yaounde', ville_arrivee: 'Douala', nom_bus: 'Confort 02', point_depart: 'Mvan, face a la pharmacie', point_arrivee: 'Bonaberi, apres le bar Chez Paul', bus_id: 'b2', chauffeur: 'Andre Nkeng', chauffeur_id: 'c2', retardDeclareMinutes: 0, sourceRetard: null },
-  { id: '3', numero_voyage: 'JG-260728-0630-DLA-BFM', date_depart: DEMAIN, heure_depart: '06:30', heure_arrivee_estimee: '10:30', prix_base: 4200, categorie: 'express', statut: 'programme', ville_depart: 'Douala', ville_arrivee: 'Bafoussam', nom_bus: 'Express 03', point_depart: 'Akwa, gare routiere centrale', point_arrivee: 'Centre-ville', bus_id: 'b3', chauffeur: "Paul Eto'o", chauffeur_id: 'c1', retardDeclareMinutes: 0, sourceRetard: null },
-  { id: '4', numero_voyage: 'JG-260726-1830-KBI-DLA', date_depart: HIER, heure_depart: '18:30', heure_arrivee_estimee: '21:15', prix_base: 3200, categorie: 'standard', statut: 'retard', ville_depart: 'Kribi', ville_arrivee: 'Douala', nom_bus: 'Confort 04', point_depart: 'Agence JEGO Kribi', point_arrivee: 'Bonaberi', bus_id: 'b4', chauffeur: 'Marc Bella', chauffeur_id: 'c4', retardDeclareMinutes: 90, sourceRetard: 'agence' },
+  { id: '1', numero_voyage: 'JG-260727-0700-DLYDE', date_depart: AUJOURDHUI, heure_depart: '07:00', heure_arrivee_estimee: '11:30', prix_base: 4000, categorie: 'vip', statut: 'en_cours', ville_depart: 'Douala', ville_arrivee: 'Yaounde', nom_bus: 'Confort Express 01', point_depart: 'Bonaberi, apres le bar Chez Paul', point_arrivee: 'Mvan, face a la pharmacie', chauffeur: "Paul Eto'o" },
+  { id: '2', numero_voyage: 'JG-260727-1400-YDE-DLA', date_depart: AUJOURDHUI, heure_depart: '14:00', heure_arrivee_estimee: '18:15', prix_base: 3500, categorie: 'standard', statut: 'programme', ville_depart: 'Yaounde', ville_arrivee: 'Douala', nom_bus: 'Confort 02', point_depart: 'Mvan, face a la pharmacie', point_arrivee: 'Bonaberi, apres le bar Chez Paul', chauffeur: 'Andre Nkeng' },
+  { id: '3', numero_voyage: 'JG-260728-0630-DLA-BFM', date_depart: DEMAIN, heure_depart: '06:30', heure_arrivee_estimee: '10:30', prix_base: 4200, categorie: 'express', statut: 'programme', ville_depart: 'Douala', ville_arrivee: 'Bafoussam', nom_bus: 'Express 03', point_depart: 'Akwa, gare routiere centrale', point_arrivee: 'Centre-ville', chauffeur: "Paul Eto'o" },
+  { id: '4', numero_voyage: 'JG-260726-1830-KBI-DLA', date_depart: HIER, heure_depart: '18:30', heure_arrivee_estimee: '21:15', prix_base: 3200, categorie: 'standard', statut: 'retard', ville_depart: 'Kribi', ville_arrivee: 'Douala', nom_bus: 'Confort 04', point_depart: 'Agence JEGO Kribi', point_arrivee: 'Bonaberi', chauffeur: 'Marc Bella' },
 ];
 
 const libellesCategorie: Record<Trajet['categorie'], string> = { standard: 'Standard', vip: 'VIP', express: 'Express', nuit: 'Nuit' };
-const stylesCategorie: Record<Trajet['categorie'], string> = {
-  standard: 'bg-[#F1F4F1] text-[#64746C]', vip: 'bg-[#E6B84C]/15 text-[#8A6A1E]',
-  express: 'bg-[#0B9E63]/10 text-[#0B9E63]', nuit: 'bg-[#14201A]/10 text-[#14201A]',
-};
-const stylesStatut: Record<Trajet['statut'], string> = {
-  programme: 'bg-[#0B9E63]/10 text-[#0B9E63]', en_cours: 'bg-[#E6B84C]/15 text-[#8A6A1E]',
-  retard: 'bg-[#D9534F]/10 text-[#D9534F]', termine: 'bg-[#F1F4F1] text-[#64746C]', annule: 'bg-[#D9534F]/10 text-[#D9534F]',
-};
-const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programme', en_cours: 'En cours', retard: 'Retard', termine: 'Termine', annule: 'Annule' };
-
-function lienDuplication(t: Trajet): string {
-  const params = new URLSearchParams({
-    dupliquer: '1', ville_depart: t.ville_depart.toLowerCase(), ville_arrivee: t.ville_arrivee.toLowerCase(),
-    bus_id: t.bus_id, chauffeur_id: t.chauffeur_id, categorie: t.categorie, prix: String(t.prix_base),
-    point_depart: t.point_depart, point_arrivee: t.point_arrivee,
-  });
-  return `/trajets/nouveau?${params.toString()}`;
-}
+const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Annulé' };
+const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red' };
 
 function libelleRetard(minutes: number) {
-  if (!minutes) return 'Aucun retard declare';
+  if (!minutes) return 'Aucun retard déclaré';
   if (minutes < 60) return `Retard de ${minutes} minutes`;
   const heures = Math.floor(minutes / 60);
   const reste = minutes % 60;
   return reste === 0 ? `Retard de ${heures}h` : `Retard de ${heures}h${String(reste).padStart(2, '0')}`;
 }
 
+function tempsEcoule(iso?: string): string {
+  if (!iso) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const heures = Math.floor(minutes / 60);
+  return `il y a ${heures}h${String(minutes % 60).padStart(2, '0')}`;
+}
+
 export default function ProgrammationTrajets() {
-  const [horizon] = useState<Horizon>(horizonDemo);
-  const [trajets, setTrajets] = useState<Trajet[]>(trajetsDemoInitial);
+  const [trajets, setTrajets] = useState<Trajet[]>([]);
+  const [modeDemo, setModeDemo] = useState(false);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
   const [recherche, setRecherche] = useState('');
 
   const [dialogueRetard, setDialogueRetard] = useState<Trajet | null>(null);
   const [minutesRetard, setMinutesRetard] = useState('');
-  const [sourceRetard, setSourceRetard] = useState<'chauffeur' | 'agence'>('chauffeur');
+  // (déclarant retiré — c'est toujours l'agence qui déclare ici)
+  const [dialogueDepart, setDialogueDepart] = useState<Trajet | null>(null);
+  const [texteConfirmationDepart, setTexteConfirmationDepart] = useState('');
   const [dialogueArret, setDialogueArret] = useState<Trajet | null>(null);
-  const [texteArret, setTexteArret] = useState('');
+  const [motifArret, setMotifArret] = useState('');
+  const [texteConfirmation, setTexteConfirmation] = useState('');
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const intervalle = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(intervalle);
+  }, []);
+
+  function notifier(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  }
+
+  async function charger() {
+    setChargement(true);
+    setErreur(null);
+    try {
+      const data = await apiFetch('/api/trajets');
+      if (data.trajets && data.trajets.length > 0) {
+        setTrajets(data.trajets);
+        setModeDemo(false);
+      } else {
+        // Backend joignable mais table vide — bascule sur la démo pour rester testable.
+        setTrajets(trajetsDemoInitial);
+        setModeDemo(true);
+      }
+    } catch {
+      setTrajets(trajetsDemoInitial);
+      setModeDemo(true);
+    } finally {
+      setChargement(false);
+    }
+  }
+
+  useEffect(() => { charger(); }, []);
 
   const trajetsDuJour = useMemo(() => trajets.filter((t) => t.date_depart === dateChoisie), [trajets, dateChoisie]);
 
@@ -91,27 +132,61 @@ export default function ProgrammationTrajets() {
     const terme = recherche.trim().toLowerCase();
     if (!terme) return [];
     return trajets.filter((t) => [
-      t.numero_voyage, t.date_depart, t.heure_depart, t.ville_depart, t.ville_arrivee, t.nom_bus,
-      t.point_depart, t.point_arrivee, t.chauffeur, libellesStatut[t.statut], libellesCategorie[t.categorie], libelleRetard(t.retardDeclareMinutes),
+      t.numero_voyage, t.date_depart, t.heure_depart, t.ville_depart, t.ville_arrivee, t.nom_bus, t.chauffeur,
     ].join(' ').toLowerCase().includes(terme));
   }, [recherche, trajets]);
 
-  function declarerRetard() {
+  async function declarerRetard() {
     if (!dialogueRetard || !minutesRetard) return;
     const minutes = Math.max(1, Number(minutesRetard));
-    setTrajets((prev) => prev.map((t) => (t.id === dialogueRetard.id ? {
-      ...t, statut: 'retard', retardDeclareMinutes: minutes, sourceRetard,
-    } : t)));
-    setDialogueRetard(null);
-    setMinutesRetard('');
-    setSourceRetard('chauffeur');
+    const maintenant = new Date().toISOString();
+    try {
+      if (modeDemo) {
+        setTrajets((prev) => prev.map((t) => (t.id === dialogueRetard.id ? { ...t, statut: 'retard', retard_minutes: (t.retard_minutes || 0) + minutes, retard_declare_a: maintenant, retard_declare_par: 'agence' } : t)));
+      } else {
+        await apiFetch(`/api/trajets/${dialogueRetard.id}/retard`, {
+          method: 'PUT',
+          body: JSON.stringify({ retard_minutes: minutes }),
+        });
+        await charger();
+      }
+      notifier(`Retard de ${minutes} min déclaré`);
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setDialogueRetard(null);
+      setMinutesRetard('');
+    }
   }
 
-  function arreterTrajet() {
-    if (!dialogueArret || texteArret.trim().toUpperCase() !== 'ARRETER') return;
-    setTrajets((prev) => prev.map((t) => (t.id === dialogueArret.id ? { ...t, statut: 'annule' } : t)));
-    setDialogueArret(null);
-    setTexteArret('');
+  function declarerDepart() {
+    if (!dialogueDepart || texteConfirmationDepart.trim().toUpperCase() !== 'DEPART') return;
+    setTrajets((prev) => prev.map((t) => (t.id === dialogueDepart.id ? { ...t, statut: 'en_cours', depart_effectue: true } : t)));
+    notifier('Départ déclaré (démo — aucune route backend pour ça)');
+    setDialogueDepart(null);
+    setTexteConfirmationDepart('');
+  }
+
+  async function arreterTrajet() {
+    if (!dialogueArret || texteConfirmation.trim().toUpperCase() !== 'ARRETER' || !motifArret.trim()) return;
+    try {
+      if (modeDemo) {
+        setTrajets((prev) => prev.map((t) => (t.id === dialogueArret.id ? { ...t, statut: 'annule' } : t)));
+      } else {
+        await apiFetch(`/api/trajets/${dialogueArret.id}/annuler`, {
+          method: 'PUT',
+          body: JSON.stringify({ motif: motifArret }),
+        });
+        await charger();
+      }
+      notifier('Trajet annulé');
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setDialogueArret(null);
+      setMotifArret('');
+      setTexteConfirmation('');
+    }
   }
 
   return (
@@ -119,115 +194,144 @@ export default function ProgrammationTrajets() {
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl font-extrabold text-[#14201A]">Programmation des trajets</h1>
-            <p className="text-sm text-[#64746C] mt-1">Gere tes trajets programmes et maintiens ton horizon a jour.</p>
+            <h1 className="font-display text-2xl font-bold text-ink">Programmation des trajets</h1>
+            <p className="text-sm text-ink-soft mt-1">Gère tes trajets programmés et maintiens ton horizon à jour.</p>
           </div>
-          <Link href="/trajets/nouveau" className="rounded-xl bg-[#0B9E63] hover:bg-[#0A8D58] text-white font-bold text-sm px-5 py-3 transition-colors shadow-lg shadow-[#0B9E63]/25 whitespace-nowrap">
+          <Link href="/trajets/nouveau" className="rounded-lg bg-green-700 hover:bg-green-900 text-white font-semibold text-sm px-5 py-2.5 transition-colors whitespace-nowrap">
             + Nouveau trajet
           </Link>
         </div>
 
-        <div className={`rounded-2xl p-5 mb-6 border ${horizon.conforme ? 'bg-[#0B9E63]/6 border-[#0B9E63]/20' : 'bg-[#E6B84C]/10 border-[#E6B84C]/30'}`}>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          {modeDemo ? (
+            <div className="text-xs font-semibold text-amber bg-amber-bg rounded-lg px-3 py-2">Mode démo — données factices</div>
+          ) : <div />}
+          <button onClick={() => { setTrajets(trajetsDemoInitial); setModeDemo(true); }} className="text-[11px] font-bold text-green-700 underline shrink-0">
+            Voir des données de démonstration
+          </button>
+        </div>
+        {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
+
+        <div className={`rounded-2xl p-5 mb-6 border ${horizonDemo.conforme ? 'bg-ok-bg border-green-300' : 'bg-amber-bg border-amber'}`}>
           <div className="flex items-start gap-3">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${horizon.conforme ? 'bg-[#0B9E63]/15' : 'bg-[#E6B84C]/20'}`}><span className="text-base">{horizon.conforme ? '✓' : '⚠'}</span></div>
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${horizonDemo.conforme ? 'bg-ok-bg' : 'bg-amber-bg'}`}><span className="text-base">{horizonDemo.conforme ? '✓' : '⚠'}</span></div>
             <div className="flex-1">
-              <p className="text-sm font-bold text-[#14201A]">{horizon.conforme ? 'Programme a jour' : 'Programme incomplet'}</p>
-              <p className="text-sm text-[#64746C] mt-0.5">{horizon.message}</p>
+              <p className="text-sm font-bold text-ink">{horizonDemo.conforme ? 'Programme à jour' : 'Programme incomplet'}</p>
+              <p className="text-sm text-ink-soft mt-0.5">{horizonDemo.message} <span className="italic">(démo — GET /api/programmation/mon-horizon existe, pas encore branché)</span></p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-2xl font-extrabold text-[#14201A]">{horizon.horizon_jours}j</p>
-              <p className="text-xs text-[#9AA69F]">seuil : {horizon.seuil_alerte}j</p>
+              <p className="text-2xl font-display font-bold text-ink">{horizonDemo.horizon_jours}j</p>
+              <p className="text-xs text-ink-soft">seuil : {horizonDemo.seuil_alerte}j</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-[#E7ECE8] p-4 mb-5">
-          <label className="block text-[11px] font-semibold text-[#64746C] mb-2">Recherche globale sur tous les trajets</label>
-          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Numero de voyage, ville, chauffeur, date, bus..." className="w-full rounded-xl px-4 py-3 text-[13px]" />
-          <p className="text-[10px] text-[#8B9890] mt-2">Cette recherche parcourt la page sur toutes les dates.</p>
-        </div>
+        <Panel>
+          <div className="p-4">
+            <label className="block text-[11px] font-semibold text-ink-soft mb-2">Recherche globale sur tous les trajets</label>
+            <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Numéro de voyage, ville, chauffeur, date, bus..." className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px]" />
+          </div>
+        </Panel>
 
         {recherche.trim() && (
-          <div className="bg-white rounded-2xl border border-[#E7ECE8] overflow-hidden mb-6">
-            <div className="px-5 py-4 border-b border-[#E7ECE8]">
-              <h2 className="text-sm font-bold text-[#14201A]">Resultats de recherche ({resultatsRecherche.length})</h2>
-            </div>
-            {resultatsRecherche.length === 0 ? (
-              <div className="p-6 text-[12px] text-[#64746C]">Aucun trajet ne correspond a cette recherche.</div>
-            ) : (
-              <div className="divide-y divide-[#E7ECE8]">
-                {resultatsRecherche.map((t) => (
-                  <div key={`search-${t.id}`} className="px-5 py-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[14px] font-extrabold text-[#14201A]">{t.ville_depart} → {t.ville_arrivee}</p>
-                        <p className="text-[12px] text-[#64746C] mt-1">{t.numero_voyage} · {t.date_depart.split('-').reverse().join('/')} · {t.heure_depart} · {t.nom_bus}</p>
-                        <p className="text-[11px] text-[#8B9890] mt-1">{libelleRetard(t.retardDeclareMinutes)}{t.sourceRetard ? ` · declaration ${t.sourceRetard}` : ''}</p>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${stylesCategorie[t.categorie]}`}>{libellesCategorie[t.categorie]}</span>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${stylesStatut[t.statut]}`}>{libellesStatut[t.statut]}</span>
-                      </div>
+          <div className="mt-4">
+            <Panel title={`Résultats de recherche (${resultatsRecherche.length})`}>
+              {resultatsRecherche.length === 0 ? (
+                <div className="p-6 text-[12px] text-ink-soft">Aucun trajet ne correspond à cette recherche.</div>
+              ) : (
+                <div className="divide-y divide-line">
+                  {resultatsRecherche.map((t) => (
+                    <div key={`search-${t.id}`} className="px-5 py-4">
+                      <p className="text-[14px] font-bold text-ink">{t.ville_depart} → {t.ville_arrivee} <span className="font-mono text-[10px] text-ink-soft">#{t.id}</span></p>
+                      <p className="text-[12px] text-ink-soft mt-1">{t.numero_voyage ?? '—'} · {t.date_depart.split('-').reverse().join('/')} · {t.heure_depart} · {t.nom_bus}</p>
+                      <div className="mt-1.5"><Badge color={couleurStatut[t.statut]}>{libellesStatut[t.statut]}</Badge></div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </Panel>
           </div>
         )}
 
-        <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-6" />
+        <div className="mt-6 mb-4"><DateNavigator date={dateChoisie} onChange={setDateChoisie} /></div>
 
-        <div className="bg-white rounded-2xl border border-[#E7ECE8] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#E7ECE8]">
-            <h2 className="text-sm font-bold text-[#14201A]">{dateChoisie === AUJOURDHUI ? "Trajets d'aujourd'hui" : 'Trajets ce jour-la'} ({trajetsDuJour.length})</h2>
-          </div>
-
-          {trajetsDuJour.length === 0 ? (
-            <div className="p-10 text-center"><p className="text-sm text-[#64746C]">Aucun trajet programme ce jour-la.</p></div>
+        <Panel title={`${dateChoisie === AUJOURDHUI ? "Trajets d'aujourd'hui" : 'Trajets ce jour-là'} (${trajetsDuJour.length})`}>
+          {chargement ? (
+            <div className="p-10 text-center text-sm text-ink-soft">Chargement…</div>
+          ) : trajetsDuJour.length === 0 ? (
+            <div className="p-10 text-center"><p className="text-sm text-ink-soft">Aucun trajet programmé ce jour-là.</p></div>
           ) : (
-            <div className="divide-y divide-[#E7ECE8]">
+            <div className="divide-y divide-line">
               {trajetsDuJour.map((t) => (
-                <div key={t.id} className="px-5 py-4 hover:bg-[#F6F8F6] transition-colors">
+                <div key={t.id} className="px-5 py-4 hover:bg-green-500/5 transition-colors">
                   <div className="flex flex-wrap items-start gap-4 justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-3 flex-wrap mb-2">
-                        <p className="text-sm font-bold text-[#14201A]">{t.heure_depart}</p>
-                        <p className="text-sm font-bold text-[#14201A]">{t.ville_depart} → {t.ville_arrivee}</p>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${stylesCategorie[t.categorie]}`}>{libellesCategorie[t.categorie]}</span>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${stylesStatut[t.statut]}`}>{libellesStatut[t.statut]}</span>
+                        <p className="text-sm font-bold text-ink">{t.heure_depart}</p>
+                        <p className="text-sm font-bold text-ink">{t.ville_depart} → {t.ville_arrivee}</p>
+                        <span className="font-mono text-[10px] text-ink-soft">#{t.id}</span>
+                        <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
+                        <Badge color={t.depart_effectue ? 'green' : couleurStatut[t.statut]}>{t.depart_effectue ? 'Départ effectué' : libellesStatut[t.statut]}</Badge>
+                        {t.retard_minutes != null && (
+                          <Badge color="amber">
+                            +{t.retard_minutes} min ({t.retard_declare_par === 'chauffeur' ? 'par le chauffeur' : 'par l’agence'}, {tempsEcoule(t.retard_declare_a)})
+                          </Badge>
+                        )}
                       </div>
-                      <p className="text-xs text-[#64746C]">{t.numero_voyage} · {t.nom_bus} · {t.chauffeur} {t.heure_arrivee_estimee ? `· arrivee ${t.heure_arrivee_estimee}` : ''}</p>
-                      <p className="text-[11px] text-[#8B9890] mt-1">{libelleRetard(t.retardDeclareMinutes)}{t.sourceRetard ? ` · declaration ${t.sourceRetard}` : ''}</p>
-                      <p className="text-[11px] text-[#8B9890] mt-1">Depart : {t.point_depart} · Arrivee : {t.point_arrivee}</p>
+                      <p className="text-xs text-ink-soft">{t.numero_voyage ?? '—'} · {t.nom_bus} {t.heure_arrivee_estimee ? `· arrivée ${t.heure_arrivee_estimee}` : ''}</p>
+                      {(t.point_depart || t.point_arrivee) && <p className="text-[11px] text-ink-soft mt-1">Départ : {t.point_depart} · Arrivée : {t.point_arrivee}</p>}
                     </div>
 
-                    <div className="flex gap-2 flex-wrap justify-end">
-                      <button onClick={() => setDialogueRetard(t)} className="rounded-xl bg-[#E6B84C]/16 text-[#8A6A1E] font-bold text-[11px] px-4 py-2.5">Declarer un retard</button>
-                      <button onClick={() => setDialogueArret(t)} className="rounded-xl bg-[#D9534F]/12 text-[#D9534F] font-bold text-[11px] px-4 py-2.5">Arreter le trajet</button>
-                      <Link href={lienDuplication(t)} className="rounded-xl bg-[#14201A] text-white font-bold text-[11px] px-4 py-2.5">Dupliquer</Link>
+                    <div className="flex gap-1.5 flex-wrap justify-end">
+                      <Link href={`/trajets/plan?id=${t.id}`} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-ink text-white border border-ink">
+                        🎟️ Vendre un billet (guichet)
+                      </Link>
+                      {t.statut !== 'annule' && t.statut !== 'termine' && (
+                        <>
+                          {!t.depart_effectue && (
+                            <button onClick={() => setDialogueDepart(t)} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-green-700 text-white border border-green-700">
+                              Déclarer le départ
+                            </button>
+                          )}
+                          <button onClick={() => setDialogueRetard(t)} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-amber text-white border border-amber">
+                            Déclarer un retard
+                          </button>
+                          <BtnMini variant="danger" onClick={() => setDialogueArret(t)}>Arrêter le trajet</BtnMini>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </Panel>
       </div>
+
+      {dialogueDepart && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setDialogueDepart(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
+            <p className="text-[16px] font-display font-semibold text-ink mb-2">Déclarer le départ — {dialogueDepart.ville_depart} → {dialogueDepart.ville_arrivee}</p>
+            <p className="text-[11px] text-ink-soft mb-3">Pour confirmer, écris <strong>DEPART</strong> ci-dessous.</p>
+            <input value={texteConfirmationDepart} onChange={(e) => setTexteConfirmationDepart(e.target.value)} className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => { setDialogueDepart(null); setTexteConfirmationDepart(''); }} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Annuler</button>
+              <button onClick={declarerDepart} disabled={texteConfirmationDepart.trim().toUpperCase() !== 'DEPART'} className="flex-1 rounded-lg bg-green-700 disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Confirmer</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {dialogueRetard && (
         <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setDialogueRetard(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl p-7 max-w-md w-full">
-            <p className="text-[17px] font-extrabold text-[#14201A] mb-2">Declarer un retard</p>
-            <p className="text-[11px] text-[#64746C] mb-4">Indique le retard declare par le chauffeur ou par l'agence. Exemple : 30 minutes, 60 minutes, 1h30.</p>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <button type="button" onClick={() => setSourceRetard('chauffeur')} className={`rounded-xl px-3 py-2.5 text-[11px] font-bold ${sourceRetard === 'chauffeur' ? 'bg-[#14201A] text-white' : 'bg-[#F1F4F1] text-[#14201A]'}`}>Declaration chauffeur</button>
-              <button type="button" onClick={() => setSourceRetard('agence')} className={`rounded-xl px-3 py-2.5 text-[11px] font-bold ${sourceRetard === 'agence' ? 'bg-[#14201A] text-white' : 'bg-[#F1F4F1] text-[#14201A]'}`}>Declaration agence</button>
-            </div>
-            <input value={minutesRetard} onChange={(e) => setMinutesRetard(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="Retard en minutes" className="w-full rounded-xl px-4 py-3 text-[13px] mb-4" />
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
+            <p className="text-[16px] font-display font-semibold text-ink mb-2">Déclarer un retard</p>
+            <p className="text-[11px] text-ink-soft mb-3">Chaque déclaration s&apos;ajoute au retard déjà en place, elle ne le remplace pas.</p>
+            <label className="block text-[11px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Retard supplémentaire, en minutes</label>
+            <input value={minutesRetard} onChange={(e) => setMinutesRetard(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="Ex : 45 (minutes)" className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => setDialogueRetard(null)} className="flex-1 rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[11px] py-3">Annuler</button>
-              <button onClick={declarerRetard} className="flex-1 rounded-xl bg-[#E6B84C] text-[#14201A] font-bold text-[11px] py-3">Valider</button>
+              <button onClick={() => setDialogueRetard(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Annuler</button>
+              <button onClick={declarerRetard} className="flex-1 rounded-lg bg-amber text-white font-semibold text-[11px] py-2.5">Valider</button>
             </div>
           </div>
         </div>
@@ -235,17 +339,20 @@ export default function ProgrammationTrajets() {
 
       {dialogueArret && (
         <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setDialogueArret(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl p-7 max-w-md w-full">
-            <p className="text-[17px] font-extrabold text-[#14201A] mb-2">Arreter le trajet</p>
-            <p className="text-[11px] text-[#64746C] mb-4">Pour confirmer, ecris <strong>ARRETER</strong> ci-dessous.</p>
-            <input value={texteArret} onChange={(e) => setTexteArret(e.target.value)} className="w-full rounded-xl px-4 py-3 text-[13px] mb-4" />
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
+            <p className="text-[16px] font-display font-semibold text-ink mb-2">Arrêter le trajet</p>
+            <label className="block text-[11px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Motif d&apos;annulation (obligatoire)</label>
+            <textarea value={motifArret} onChange={(e) => setMotifArret(e.target.value)} rows={2} className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-3" />
+            <p className="text-[11px] text-ink-soft mb-2">Pour confirmer, écris <strong>ARRETER</strong> ci-dessous.</p>
+            <input value={texteConfirmation} onChange={(e) => setTexteConfirmation(e.target.value)} className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => setDialogueArret(null)} className="flex-1 rounded-xl bg-[#F1F4F1] text-[#14201A] font-bold text-[11px] py-3">Annuler</button>
-              <button onClick={arreterTrajet} disabled={texteArret.trim().toUpperCase() !== 'ARRETER'} className="flex-1 rounded-xl bg-[#D9534F] disabled:opacity-40 text-white font-bold text-[11px] py-3">Confirmer</button>
+              <button onClick={() => setDialogueArret(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Annuler</button>
+              <button onClick={arreterTrajet} disabled={texteConfirmation.trim().toUpperCase() !== 'ARRETER' || !motifArret.trim()} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Confirmer</button>
             </div>
           </div>
         </div>
       )}
+      <ToastDemo message={toast} />
     </LayoutAgence>
   );
 }

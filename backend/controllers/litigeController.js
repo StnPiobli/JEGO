@@ -13,7 +13,6 @@ async function ouvrirLitige(req, res) {
       return res.status(400).json({ error: 'Billet, motif et description sont obligatoires' });
     }
 
-    // Vérifier que le billet appartient au voyageur
     const billet = await pool.query(
       `SELECT id, trajet_id, agence_id FROM billets WHERE id = $1 AND voyageur_id = $2`,
       [billet_id, voyageurId]
@@ -101,53 +100,118 @@ async function repondreLitige(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// L'ADMIN TRANCHE (niveau 3) — décision écrite, sans effet automatique
+// L'ADMIN TRANCHE (niveau 3) — effet automatique réel sur l'escrow
+//
+// gagnant = 'agence' : l'escrow du billet passe 'retenu' -> 'verse'.
+// gagnant = 'voyageur' : l'escrow passe 'retenu' -> 'rembourse',
+//   une ligne remboursements (motif='litige') est créée.
 // ═══════════════════════════════════════════════════
 async function trancherLitige(req, res) {
+  const client = await pool.connect();
   try {
     if (req.utilisateur.type !== 'admin') {
       return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
     }
     const adminId = req.utilisateur.id;
     const litigeId = req.params.id;
-    const { decision } = req.body;
+    const { decision, gagnant } = req.body;
 
     if (!decision || decision.trim().length === 0) {
       return res.status(400).json({ error: 'La décision est obligatoire' });
     }
+    if (!['voyageur', 'agence'].includes(gagnant)) {
+      return res.status(400).json({ error: "Le champ gagnant doit valoir 'voyageur' ou 'agence'" });
+    }
 
-    const check = await pool.query(
-      `SELECT id, voyageur_id, agence_id, statut FROM litiges WHERE id = $1`,
+    await client.query('BEGIN');
+
+    const check = await client.query(
+      `SELECT id, billet_id, voyageur_id, agence_id, statut FROM litiges WHERE id = $1 FOR UPDATE`,
       [litigeId]
     );
     if (check.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Litige introuvable' });
     }
+    const l = check.rows[0];
+    if (['resolu', 'cloture'].includes(l.statut)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce litige est déjà tranché' });
+    }
 
-    await pool.query(
+    await client.query(
       `UPDATE litiges SET
-        decision = $1, decide_par = $2, decide_le = NOW(),
+        decision = $1, gagnant = $2, decide_par = $3, decide_le = NOW(),
         niveau = 3, statut = 'resolu', mis_a_jour_le = NOW()
-       WHERE id = $3`,
-      [decision, adminId, litigeId]
+       WHERE id = $4`,
+      [decision, gagnant, adminId, litigeId]
     );
 
-    const l = check.rows[0];
+    let montantMouvemente = 0;
+
+    if (l.billet_id) {
+      const escrowRow = await client.query(
+        `SELECT id, statut, montant_total, montant_agence FROM escrow WHERE billet_id = $1 FOR UPDATE`,
+        [l.billet_id]
+      );
+
+      if (escrowRow.rows.length > 0 && escrowRow.rows[0].statut === 'retenu') {
+        const e = escrowRow.rows[0];
+
+        if (gagnant === 'agence') {
+          await client.query(
+            `UPDATE escrow SET statut = 'verse', verse_le = NOW() WHERE id = $1`,
+            [e.id]
+          );
+          montantMouvemente = e.montant_agence;
+
+        } else {
+          await client.query(
+            `UPDATE escrow SET statut = 'rembourse' WHERE id = $1`,
+            [e.id]
+          );
+          await client.query(
+            `INSERT INTO remboursements
+              (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
+             VALUES ($1, $2, $3, 'litige', 100, 'traite', $4, NOW())`,
+            [l.billet_id, l.voyageur_id, e.montant_total, `REMB-LIT-${Date.now()}`]
+          );
+          montantMouvemente = e.montant_total;
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+
     await creerNotification({
       destinataire_type: 'voyageur', destinataire_id: l.voyageur_id,
       type: 'litige_decision', titre: 'Décision rendue sur votre litige',
-      contenu: decision, canal: 'email'
+      contenu: gagnant === 'voyageur'
+        ? `${decision} Remboursement de ${montantMouvemente} FCFA traité.`
+        : decision,
+      canal: 'email'
     });
     await creerNotification({
       destinataire_type: 'agence', destinataire_id: l.agence_id,
       type: 'litige_decision', titre: 'Décision rendue sur un litige',
-      contenu: decision, canal: 'email'
+      contenu: gagnant === 'agence'
+        ? `${decision} Versement de ${montantMouvemente} FCFA effectué.`
+        : decision,
+      canal: 'email'
     });
 
-    res.json({ message: 'Décision enregistrée et notifiée', litige_id: litigeId });
+    res.json({
+      message: 'Décision enregistrée et appliquée',
+      litige_id: litigeId,
+      gagnant,
+      montant_mouvemente: montantMouvemente
+    });
 
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 }
 
@@ -163,7 +227,7 @@ async function mesLitiges(req, res) {
     else return res.status(403).json({ error: 'Accès non autorisé' });
 
     const resultat = await pool.query(
-      `SELECT id, numero, motif, description, statut, niveau, reponse_agence, decision, cree_le
+      `SELECT id, numero, motif, description, statut, niveau, reponse_agence, decision, gagnant, cree_le
        FROM litiges WHERE ${colonne} = $1 ORDER BY cree_le DESC`,
       [id]
     );

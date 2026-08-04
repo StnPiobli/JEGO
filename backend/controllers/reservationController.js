@@ -1,4 +1,6 @@
 const pool = require('../config/database');
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { genererQR, verifierQR } = require('../utils/qr');
 const { creerNotification } = require('../services/notificationService');
 const { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers } = require('../services/pointsService');
@@ -6,13 +8,11 @@ const { normaliserTelephone } = require('../utils/telephone');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
-// Montre quels sièges sont libres / pris pour CE trajet
 // ═══════════════════════════════════════════════════
 async function planTrajet(req, res) {
   try {
     const trajetId = req.params.id;
 
-    // 1. Récupérer le trajet + son bus + infos villes
     const trajetResult = await pool.query(
       `SELECT
           t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
@@ -35,9 +35,6 @@ async function planTrajet(req, res) {
     }
     const trajet = trajetResult.rows[0];
 
-    // 2. Récupérer tous les sièges du bus AVEC leur disponibilité pour ce trajet
-    // LEFT JOIN sur billets : si un billet confirmé existe pour ce siège+trajet,
-    // alors le siège est pris.
     const siegesResult = await pool.query(
       `SELECT
           s.id, s.numero, s.rangee, s.position, s.type_position,
@@ -82,21 +79,28 @@ async function planTrajet(req, res) {
 
 // ═══════════════════════════════════════════════════
 // VERROUILLER UN SIÈGE (soft lock — 5 min)
-// Route protégée : le voyageur doit être connecté
+// Accepte désormais point_embarquement_ordre / point_debarquement_ordre
+// optionnels (lignes à arrêts). Si absents : comportement identique
+// à avant (réservation du trajet entier, 0 -> 1).
 // ═══════════════════════════════════════════════════
 async function verrouillerSiege(req, res) {
   const client = await pool.connect();
   try {
     const voyageurId = req.utilisateur.id;
-    const { trajet_id, siege_id } = req.body;
+    const { trajet_id, siege_id, point_embarquement_ordre, point_debarquement_ordre } = req.body;
 
     if (!trajet_id || !siege_id) {
       return res.status(400).json({ error: 'Trajet et siège sont obligatoires' });
     }
 
+    const a = point_embarquement_ordre !== undefined ? parseInt(point_embarquement_ordre) : 0;
+    const b = point_debarquement_ordre !== undefined ? parseInt(point_debarquement_ordre) : 1;
+    if (b <= a) {
+      return res.status(400).json({ error: 'Le point de débarquement doit être après le point d\'embarquement' });
+    }
+
     await client.query('BEGIN');
 
-    // 1. Vérifier que le siège existe, appartient au bon bus, et est vendable
     const siegeCheck = await client.query(
       `SELECT s.id, s.numero, s.statut, s.est_premium
        FROM sieges s
@@ -121,56 +125,74 @@ async function verrouillerSiege(req, res) {
       return res.status(400).json({ error: 'Ce siège est indisponible (hors service)' });
     }
 
-    // 1bis. Vérifier le statut du trajet et la marge de 30 min
     const trajetInfo = await client.query(
       `SELECT date_depart, heure_depart, statut FROM trajets WHERE id = $1`,
       [trajet_id]
     );
-    // Si le trajet est déjà parti, terminé ou annulé → vente bloquée
     if (['en_cours', 'termine', 'annule'].includes(trajetInfo.rows[0].statut)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'La vente est fermée pour ce trajet (déjà parti, terminé ou annulé)' });
     }
 
-    // 2. Vérifier qu'aucun billet confirmé n'existe pour ce siège+trajet
+    // Chevauchement : le siège est pris pour (a,b) si un billet confirmé
+    // existant (c,d) sur ce siège+trajet vérifie NOT(a>=d OR c>=b).
+    // Les billets sans point_embarquement/debarquement (lignes simples,
+    // anciens billets) sont traités comme occupant tout le trajet (0,1).
     const billetCheck = await client.query(
       `SELECT id FROM billets
-       WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'`,
-      [siege_id, trajet_id]
+       WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'
+         AND NOT (
+           $3 >= COALESCE(point_debarquement_ordre, 1)
+           OR COALESCE(point_embarquement_ordre, 0) >= $4
+         )`,
+      [siege_id, trajet_id, a, b]
     );
     if (billetCheck.rows.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Ce siège est déjà vendu' });
+      return res.status(409).json({ error: 'Ce siège est déjà vendu sur ce segment' });
     }
 
-    // 3. Nettoyer un éventuel verrou EXPIRÉ sur ce siège+trajet
     await client.query(
       `DELETE FROM soft_locks
        WHERE siege_id = $1 AND trajet_id = $2 AND expire_le < NOW()`,
       [siege_id, trajet_id]
     );
 
-    // 4. Vérifier s'il reste un verrou ACTIF (par quelqu'un d'autre)
+    // Même logique de chevauchement que pour les billets confirmés : un
+    // verrou existant sur un segment DIFFÉRENT et non superposé du même
+    // siège n'empêche pas ce nouveau verrou (multi-arrêts). En revanche,
+    // si le chevauchement trouvé est un verrou du MÊME voyageur mais sur
+    // un segment DIFFÉRENT de celui demandé, ce n'est pas "déjà verrouillé"
+    // -- c'est un vrai conflit s'il chevauche le verrou d'un autre voyageur.
     const verrouExistant = await client.query(
-      `SELECT id, voyageur_id FROM soft_locks
-       WHERE siege_id = $1 AND trajet_id = $2 AND expire_le > NOW()`,
-      [siege_id, trajet_id]
+      `SELECT id, voyageur_id,
+              COALESCE(point_embarquement_ordre, 0) AS a_existant,
+              COALESCE(point_debarquement_ordre, 1) AS b_existant
+       FROM soft_locks
+       WHERE siege_id = $1 AND trajet_id = $2 AND expire_le > NOW()
+         AND NOT (
+           $3 >= COALESCE(point_debarquement_ordre, 1)
+           OR COALESCE(point_embarquement_ordre, 0) >= $4
+         )`,
+      [siege_id, trajet_id, a, b]
     );
     if (verrouExistant.rows.length > 0) {
-      if (verrouExistant.rows[0].voyageur_id === voyageurId) {
+      const memeSegmentMemeVoyageur = verrouExistant.rows.some(
+        r => r.voyageur_id === voyageurId && r.a_existant === a && r.b_existant === b
+      );
+      if (memeSegmentMemeVoyageur) {
         await client.query('ROLLBACK');
-        return res.status(200).json({ message: 'Vous avez déjà ce siège verrouillé' });
+        return res.status(200).json({ message: 'Vous avez déjà ce siège verrouillé sur ce segment' });
       }
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Ce siège est en cours de réservation par un autre voyageur' });
+      return res.status(409).json({ error: 'Ce siège est en cours de réservation par un autre voyageur sur ce segment' });
     }
 
-    // 5. Créer le verrou : expire dans 5 minutes
     const verrou = await client.query(
-      `INSERT INTO soft_locks (siege_id, trajet_id, voyageur_id, expire_le, prolongations)
-       VALUES ($1, $2, $3, NOW() + INTERVAL '5 minutes', 0)
+      `INSERT INTO soft_locks (siege_id, trajet_id, voyageur_id, expire_le, prolongations, point_embarquement_ordre, point_debarquement_ordre)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '5 minutes', 0, $4, $5)
        RETURNING id, expire_le`,
-      [siege_id, trajet_id, voyageurId]
+      [siege_id, trajet_id, voyageurId, a, b]
     );
 
     await client.query('COMMIT');
@@ -201,7 +223,6 @@ async function prolongerVerrou(req, res) {
     const voyageurId = req.utilisateur.id;
     const verrouId = req.params.id;
 
-    // Récupérer le verrou et vérifier qu'il appartient au voyageur
     const verrou = await pool.query(
       `SELECT id, voyageur_id, expire_le, prolongations
        FROM soft_locks WHERE id = $1`,
@@ -218,19 +239,16 @@ async function prolongerVerrou(req, res) {
       return res.status(403).json({ error: 'Ce verrou ne vous appartient pas' });
     }
 
-    // Vérifier que le verrou n'est pas déjà expiré
     if (new Date(v.expire_le) < new Date()) {
       return res.status(410).json({ error: 'Ce verrou a déjà expiré' });
     }
 
-    // Vérifier la limite de prolongations (max 2)
     if (v.prolongations >= 2) {
       return res.status(403).json({
         error: 'Limite de prolongations atteinte (2 maximum). Veuillez finaliser le paiement.'
       });
     }
 
-    // Prolonger de 5 minutes et incrémenter le compteur
     const resultat = await pool.query(
       `UPDATE soft_locks
        SET expire_le = expire_le + INTERVAL '5 minutes',
@@ -255,16 +273,23 @@ async function prolongerVerrou(req, res) {
 // ═══════════════════════════════════════════════════
 // PAYER ET CRÉER LE BILLET (route protégée)
 // [SIMULATION Mobile Money — à remplacer par la vraie API plus tard]
+//
+// Idempotence : le client envoie un header Idempotency-Key (généré une
+// fois côté app au moment où le voyageur appuie sur "Payer", réutilisé
+// tel quel pour tout retry). Un double-clic ou un retry réseau avec la
+// même clé renvoie la réponse déjà produite au lieu de créer un 2e billet.
 // ═══════════════════════════════════════════════════
 async function payer(req, res) {
   const client = await pool.connect();
+  const cleIdempotence = req.headers['idempotency-key'] || null;
   try {
     const voyageurId = req.utilisateur.id;
     const {
       trajet_id, siege_id, operateur,
       est_premium_choisi, supplement_bagage, est_flexible,
       est_cadeau, destinataire_tel, destinataire_email,
-      utiliser_reduction, utiliser_gratuit
+      utiliser_reduction, utiliser_gratuit,
+      point_embarquement_ordre, point_debarquement_ordre
     } = req.body;
 
     if (!trajet_id || !siege_id || !operateur) {
@@ -283,29 +308,60 @@ async function payer(req, res) {
       return res.status(400).json({ error: 'La gratuité par points ne s\'applique qu\'aux billets standard' });
     }
 
+    const a = point_embarquement_ordre !== undefined ? parseInt(point_embarquement_ordre) : 0;
+    const b = point_debarquement_ordre !== undefined ? parseInt(point_debarquement_ordre) : 1;
+
     await client.query('BEGIN');
+
+    if (cleIdempotence) {
+      const reservation = await client.query(
+        `INSERT INTO requetes_idempotentes (cle, voyageur_id, statut)
+         VALUES ($1, $2, 'en_cours')
+         ON CONFLICT (cle) DO NOTHING
+         RETURNING id`,
+        [cleIdempotence, voyageurId]
+      );
+      if (reservation.rows.length === 0) {
+        const existante = await client.query(
+          `SELECT statut, reponse FROM requetes_idempotentes WHERE cle = $1`,
+          [cleIdempotence]
+        );
+        await client.query('ROLLBACK');
+        if (existante.rows[0].statut === 'termine') {
+          return res.status(200).json(existante.rows[0].reponse);
+        }
+        return res.status(409).json({ error: 'Ce paiement est déjà en cours de traitement, patientez.' });
+      }
+    }
 
     const verrou = await client.query(
       `SELECT id FROM soft_locks
-       WHERE siege_id = $1 AND trajet_id = $2 AND voyageur_id = $3 AND expire_le > NOW()`,
-      [siege_id, trajet_id, voyageurId]
+       WHERE siege_id = $1 AND trajet_id = $2 AND voyageur_id = $3 AND expire_le > NOW()
+         AND COALESCE(point_embarquement_ordre, 0) = $4
+         AND COALESCE(point_debarquement_ordre, 1) = $5`,
+      [siege_id, trajet_id, voyageurId, a, b]
     );
     if (verrou.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'Aucun verrou valide. Sélectionnez à nouveau le siège.' });
+      return res.status(403).json({ error: 'Aucun verrou valide pour ce segment. Sélectionnez à nouveau le siège.' });
     }
 
     const dejaVendu = await client.query(
-      `SELECT id FROM billets WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'`,
-      [siege_id, trajet_id]
+      `SELECT id FROM billets
+       WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'
+         AND NOT (
+           $3 >= COALESCE(point_debarquement_ordre, 1)
+           OR COALESCE(point_embarquement_ordre, 0) >= $4
+         )`,
+      [siege_id, trajet_id, a, b]
     );
     if (dejaVendu.rows.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Ce siège vient d\'être vendu' });
+      return res.status(409).json({ error: 'Ce siège vient d\'être vendu sur ce segment' });
     }
 
     const infos = await client.query(
-      `SELECT t.prix_base, t.agence_id, t.date_depart,
+      `SELECT t.prix_base, t.agence_id, t.date_depart, t.ligne_id,
               b.supplement_premium,
               s.numero AS siege_numero, s.est_premium
        FROM trajets t
@@ -322,6 +378,14 @@ async function payer(req, res) {
     }
 
     let prixAgence = info.prix_base;
+    const troncon = await client.query(
+      `SELECT prix FROM ligne_troncon_prix
+       WHERE ligne_id = $1 AND ordre_depart = $2 AND ordre_arrivee = $3`,
+      [info.ligne_id, a, b]
+    );
+    if (troncon.rows.length > 0) {
+      prixAgence = troncon.rows[0].prix;
+    }
     if (info.est_premium) {
       prixAgence += info.supplement_premium;
     }
@@ -344,23 +408,22 @@ async function payer(req, res) {
     const pourcentage = grille.rows.length > 0 ? parseFloat(grille.rows[0].pourcentage) : 7;
     const commission = Math.round(prixAgence * pourcentage / 100);
 
-    const margeJego = commission + suppSiege + suppBagage + suppFlexible;
-    let prixTotalClient = prixAgence + margeJego;
+    const margeJego = commission + suppSiege + suppFlexible;
+    const prixAgenceFinal = prixAgence + suppBagage;
+    let prixTotalClient = prixAgenceFinal + margeJego;
 
-    // Application de la reconversion de points (Lecture A)
     const paliers = await recupererPaliers();
     let pointsUtilises = 0;
     let reductionAppliquee = 0;
 
     if (utiliser_gratuit) {
-      // Vérifie le solde AVANT (debiterPoints le revérifiera aussi, double sécurité)
       const soldeCheck = await client.query(`SELECT points_fidelite FROM voyageurs WHERE id = $1`, [voyageurId]);
       if (soldeCheck.rows[0].points_fidelite < paliers.gratuitPoints) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: `Solde insuffisant : ${paliers.gratuitPoints} points requis pour un billet gratuit` });
       }
       pointsUtilises = paliers.gratuitPoints;
-      reductionAppliquee = prixTotalClient; // le client ne paie plus rien
+      reductionAppliquee = prixTotalClient;
       prixTotalClient = 0;
     } else if (utiliser_reduction) {
       const soldeCheck = await client.query(`SELECT points_fidelite FROM voyageurs WHERE id = $1`, [voyageurId]);
@@ -373,9 +436,7 @@ async function payer(req, res) {
       prixTotalClient -= reductionAppliquee;
     }
 
-    // Frais MoMo calculés sur ce que le client paie RÉELLEMENT (0 si gratuit)
     const fraisMomo = prixTotalClient > 0 ? Math.round(prixTotalClient * 0.015) : 0;
-
     const referenceMomo = prixTotalClient > 0 ? `SIM-${operateur.toUpperCase()}-${Date.now()}` : 'GRATUIT-POINTS';
 
     const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
@@ -401,17 +462,18 @@ async function payer(req, res) {
          type_billet, statut, est_flexible, supplement_flexible,
          supplement_bagage, supplement_siege,
          prix_total_client, prix_agence, marge_jego, frais_momo,
-         qr_code, source_vente, est_cadeau, destinataire_tel, destinataire_email)
-       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne',$16,$17,$18)
+         qr_code, source_vente, est_cadeau, destinataire_tel, destinataire_email,
+         point_embarquement_ordre, point_debarquement_ordre)
+       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne',$16,$17,$18,$19,$20)
        RETURNING id, numero, qr_code, prix_total_client`,
       [numeroBillet, trajet_id, voyageurProprietaire, siege_id, info.agence_id,
        est_cadeau ? 'cadeau' : (est_flexible ? 'flexible' : 'standard'), est_flexible || false, suppFlexible,
-       suppBagage, suppSiege, prixTotalClient, prixAgence, margeJego, fraisMomo,
-       qrCode, est_cadeau || false, destinataire_tel || null, destinataire_email || null]
+       suppBagage, suppSiege, prixTotalClient, prixAgenceFinal, margeJego, fraisMomo,
+       qrCode, est_cadeau || false, destinataire_tel || null, destinataire_email || null,
+       a, b]
     );
     const billetId = billet.rows[0].id;
 
-    // Paiement : si prixTotalClient = 0 (gratuit), on trace quand même un paiement à 0, statut confirmé
     await client.query(
       `INSERT INTO paiements
         (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
@@ -419,30 +481,57 @@ async function payer(req, res) {
       [billetId, voyageurId, prixTotalClient, operateur, referenceMomo]
     );
 
-    // Escrow : l'agence reçoit TOUJOURS son prix normal, même si le client n'a rien payé
-    // JEGO absorbe la différence (montant_jego peut devenir négatif si la réduction dépasse sa marge)
     const montantJegoNet = margeJego - fraisMomo - reductionAppliquee;
     await client.query(
       `INSERT INTO escrow
         (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
        VALUES ($1,$2,$3,$4,$5,'retenu')`,
-      [billetId, prixAgence + margeJego, prixAgence, montantJegoNet, fraisMomo]
+      [billetId, prixAgenceFinal + margeJego, prixAgenceFinal, montantJegoNet, fraisMomo]
     );
 
     await client.query(
-      `DELETE FROM soft_locks WHERE siege_id = $1 AND trajet_id = $2`,
-      [siege_id, trajet_id]
+      `DELETE FROM soft_locks
+       WHERE siege_id = $1 AND trajet_id = $2
+         AND COALESCE(point_embarquement_ordre, 0) = $3
+         AND COALESCE(point_debarquement_ordre, 1) = $4`,
+      [siege_id, trajet_id, a, b]
     );
 
-    // Débiter les points utilisés pour la reconversion
     if (pointsUtilises > 0) {
       await debiterPoints(voyageurId, pointsUtilises, utiliser_gratuit ? 'Billet gratuit (points)' : 'Réduction (points)', billetId, client);
     }
 
-    // Créditer les points gagnés sur ce qui a été RÉELLEMENT payé (0 si gratuit)
     const pointsGagnes = calculerPointsGagnes(prixTotalClient);
     if (pointsGagnes > 0) {
       await crediterPoints(voyageurId, pointsGagnes, est_cadeau ? 'Achat de billet cadeau' : 'Achat de billet', billetId, client);
+    }
+
+    const reponse = {
+      message: est_cadeau ? 'Paiement réussi, billet cadeau envoyé' : 'Paiement réussi, billet confirmé',
+      billet: {
+        id: billetId,
+        numero: billet.rows[0].numero,
+        qr_code: billet.rows[0].qr_code,
+        siege: info.siege_numero,
+        prix_paye: prixTotalClient,
+        points_utilises: pointsUtilises,
+        reduction_appliquee: reductionAppliquee,
+        proprietaire_a_un_compte: voyageurProprietaire !== voyageurId
+      },
+      detail_prix: {
+        prix_agence: prixAgenceFinal,
+        commission_jego: commission,
+        supplements: suppSiege + suppBagage + suppFlexible,
+        frais_momo: fraisMomo,
+        total_client: prixTotalClient
+      }
+    };
+
+    if (cleIdempotence) {
+      await client.query(
+        `UPDATE requetes_idempotentes SET statut = 'termine', reponse = $1 WHERE cle = $2`,
+        [JSON.stringify(reponse), cleIdempotence]
+      );
     }
 
     await client.query('COMMIT');
@@ -469,24 +558,195 @@ async function payer(req, res) {
       });
     }
 
+    res.status(201).json(reponse);
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Ce siège vient d\'être pris par un autre voyageur' });
+    }
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// VENTE AU GUICHET (agence connectée, paiement espèces)
+// Contourne le flux voyageur+verrou : l'agence encaisse en direct
+// et crée le billet pour un client physique sans compte JEGO.
+// ═══════════════════════════════════════════════════
+async function venteGuichet(req, res) {
+  const client = await pool.connect();
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+    const {
+      siege_id, nom_client, telephone_client,
+      supplement_bagage, est_premium_choisi,
+      point_embarquement_ordre, point_debarquement_ordre,
+      montant_recu
+    } = req.body;
+
+    if (!siege_id || !nom_client || !telephone_client || montant_recu === undefined) {
+      return res.status(400).json({ error: 'Siège, nom client, téléphone et montant reçu sont obligatoires' });
+    }
+
+    const a = point_embarquement_ordre !== undefined ? parseInt(point_embarquement_ordre) : 0;
+    const b = point_debarquement_ordre !== undefined ? parseInt(point_debarquement_ordre) : 1;
+
+    await client.query('BEGIN');
+
+    const trajetCheck = await client.query(
+      `SELECT t.id, t.agence_id, t.prix_base, t.date_depart, t.statut, t.ligne_id,
+              b.supplement_premium
+       FROM trajets t JOIN bus b ON b.id = t.bus_id
+       WHERE t.id = $1`,
+      [trajetId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const trajet = trajetCheck.rows[0];
+    if (trajet.agence_id !== agenceId) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Ce trajet n\'appartient pas à votre agence' });
+    }
+    if (['en_cours', 'termine', 'annule'].includes(trajet.statut)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'La vente est fermée pour ce trajet' });
+    }
+
+    const siegeCheck = await client.query(
+      `SELECT numero, est_premium, statut FROM sieges WHERE id = $1`,
+      [siege_id]
+    );
+    if (siegeCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Siège introuvable' });
+    }
+    const siege = siegeCheck.rows[0];
+    if (['supprime_toilettes', 'desactive'].includes(siege.statut)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce siège n\'est pas vendable' });
+    }
+
+    const occupe = await client.query(
+      `SELECT id FROM billets
+       WHERE siege_id = $1 AND trajet_id = $2 AND statut = 'confirme'
+         AND NOT (
+           $3 >= COALESCE(point_debarquement_ordre, 1)
+           OR COALESCE(point_embarquement_ordre, 0) >= $4
+         )`,
+      [siege_id, trajetId, a, b]
+    );
+    if (occupe.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ce siège est déjà vendu sur ce segment' });
+    }
+
+    let prixAgence = trajet.prix_base;
+    const troncon = await client.query(
+      `SELECT prix FROM ligne_troncon_prix WHERE ligne_id = $1 AND ordre_depart = $2 AND ordre_arrivee = $3`,
+      [trajet.ligne_id, a, b]
+    );
+    if (troncon.rows.length > 0) prixAgence = troncon.rows[0].prix;
+    if (siege.est_premium) prixAgence += trajet.supplement_premium;
+
+    const suppSiege = est_premium_choisi ? 500 : 0;
+    const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
+    const prixAgenceFinal = prixAgence + suppBagage;
+
+    const grille = await client.query(
+      `SELECT pourcentage FROM configuration_frais
+       WHERE type_frais = 'commission' AND actif = true
+         AND tranche_min <= $1 AND (tranche_max IS NULL OR tranche_max >= $1)
+         AND (agence_id = $2 OR agence_id IS NULL)
+       ORDER BY agence_id NULLS LAST LIMIT 1`,
+      [prixAgence, agenceId]
+    );
+    const pourcentage = grille.rows.length > 0 ? parseFloat(grille.rows[0].pourcentage) : 7;
+    const commission = Math.round(prixAgence * pourcentage / 100);
+    const margeJego = commission + suppSiege;
+    const prixTotalClient = prixAgenceFinal + margeJego;
+
+    if (parseInt(montant_recu) !== prixTotalClient) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Montant reçu incorrect. Prix attendu : ${prixTotalClient} FCFA`,
+        prix_attendu: prixTotalClient
+      });
+    }
+
+    const telNormalise = normaliserTelephone(telephone_client);
+    let voyageurId;
+    const existant = await client.query(`SELECT id FROM voyageurs WHERE telephone = $1`, [telNormalise]);
+    if (existant.rows.length > 0) {
+      voyageurId = existant.rows[0].id;
+    } else {
+      // Compte "fantôme" : le guichet ne collecte ni email ni date/lieu de
+      // naissance (colonnes rendues nullables en migration pour ce cas
+      // précis). Le mot de passe est un hash bcrypt d'une valeur aléatoire
+      // inutilisable -- ce compte ne pourra jamais se connecter par
+      // mot de passe tant que le voyageur ne complète pas son profil.
+      const [prenom, ...resteNom] = nom_client.trim().split(' ');
+      const motDePasseInutilisable = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+      const nouveau = await client.query(
+        `INSERT INTO voyageurs (nom, prenom, telephone, mot_de_passe, cree_par_guichet)
+         VALUES ($1, $2, $3, $4, true)
+         RETURNING id`,
+        [resteNom.join(' ') || prenom, prenom, telNormalise, motDePasseInutilisable]
+      );
+      voyageurId = nouveau.rows[0].id;
+    }
+
+    const dateStr = new Date(trajet.date_depart).toISOString().slice(0,10).replace(/-/g,'');
+    const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
+    const numeroBillet = `JG-${dateStr}-${suffixe}`;
+    const qrCode = genererQR(numeroBillet, trajetId, siege_id);
+
+    const billet = await client.query(
+      `INSERT INTO billets
+        (numero, trajet_id, voyageur_id, siege_id, agence_id,
+         type_billet, statut, supplement_bagage, supplement_siege,
+         prix_total_client, prix_agence, marge_jego, frais_momo,
+         qr_code, source_vente, point_embarquement_ordre, point_debarquement_ordre)
+       VALUES ($1,$2,$3,$4,$5,'standard','confirme',$6,$7,$8,$9,$10,0,$11,'physique',$12,$13)
+       RETURNING id, numero, qr_code`,
+      [numeroBillet, trajetId, voyageurId, siege_id, agenceId,
+       suppBagage, suppSiege, prixTotalClient, prixAgenceFinal, margeJego,
+       qrCode, a, b]
+    );
+    const billetId = billet.rows[0].id;
+
+    await client.query(
+      `INSERT INTO paiements
+        (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
+       VALUES ($1,$2,$3,'especes',$4,'confirme','paiement',NOW())`,
+      [billetId, voyageurId, prixTotalClient, `GUICHET-${Date.now()}`]
+    );
+
+    await client.query(
+      `INSERT INTO escrow
+        (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
+       VALUES ($1,$2,$3,$4,0,'retenu')`,
+      [billetId, prixTotalClient, prixAgenceFinal, margeJego]
+    );
+
+    await client.query('COMMIT');
+
     res.status(201).json({
-      message: est_cadeau ? 'Paiement réussi, billet cadeau envoyé' : 'Paiement réussi, billet confirmé',
+      message: 'Vente au guichet enregistrée',
       billet: {
         id: billetId,
         numero: billet.rows[0].numero,
         qr_code: billet.rows[0].qr_code,
-        siege: info.siege_numero,
-        prix_paye: prixTotalClient,
-        points_utilises: pointsUtilises,
-        reduction_appliquee: reductionAppliquee,
-        proprietaire_a_un_compte: voyageurProprietaire !== voyageurId
-      },
-      detail_prix: {
-        prix_agence: prixAgence,
-        commission_jego: commission,
-        supplements: suppSiege + suppBagage + suppFlexible,
-        frais_momo: fraisMomo,
-        total_client: prixTotalClient
+        siege: siege.numero,
+        prix_total: prixTotalClient
       }
     });
 
@@ -499,15 +759,11 @@ async function payer(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// SCANNER UN BILLET (chauffeur connecté)
-// 1. Vérifie que c'est bien un chauffeur
-// 2. Vérifie la signature du QR (authenticité, hors-ligne)
-// 3. Vérifie que le billet appartient à un trajet du chauffeur
-// 4. Vérifie le statut + marque comme scanné
+// SCANNER UN BILLET (chauffeur connecté) — inchangé,
+// déjà signé/vérifiable hors-ligne via utils/qr.js
 // ═══════════════════════════════════════════════════
 async function scannerBillet(req, res) {
   try {
-    // 1. Vérifier que c'est un chauffeur
     if (req.utilisateur.type !== 'chauffeur') {
       return res.status(403).json({ error: 'Seul un chauffeur peut scanner les billets' });
     }
@@ -518,7 +774,6 @@ async function scannerBillet(req, res) {
       return res.status(400).json({ error: 'Contenu du QR manquant' });
     }
 
-    // 2. Vérifier la signature du QR (authenticité)
     const verification = verifierQR(contenu_qr);
     if (!verification.valide) {
       return res.status(400).json({
@@ -528,7 +783,6 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // 3. Récupérer le billet + vérifier qu'il est sur un trajet de CE chauffeur
     const billet = await pool.query(
       `SELECT b.id, b.numero, b.statut, b.qr_scanne, b.qr_scanne_le,
               s.numero AS siege_numero,
@@ -552,7 +806,6 @@ async function scannerBillet(req, res) {
 
     const b = billet.rows[0];
 
-    // Le billet doit appartenir à un trajet assigné à ce chauffeur
     if (b.chauffeur_id !== chauffeurId) {
       return res.status(403).json({
         valide: false,
@@ -561,7 +814,6 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // 4. Vérifier le statut
     if (b.statut === 'annule') {
       return res.status(400).json({
         valide: false,
@@ -570,7 +822,6 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // Déjà scanné ?
     if (b.qr_scanne) {
       return res.status(409).json({
         valide: false,
@@ -581,7 +832,6 @@ async function scannerBillet(req, res) {
       });
     }
 
-    // Marquer comme scanné
     await pool.query(
       `UPDATE billets SET qr_scanne = true, qr_scanne_le = NOW() WHERE id = $1`,
       [b.id]
@@ -600,4 +850,4 @@ async function scannerBillet(req, res) {
   }
 }
 
-module.exports = { planTrajet, verrouillerSiege, prolongerVerrou, payer, scannerBillet };
+module.exports = { planTrajet, verrouillerSiege, prolongerVerrou, payer, venteGuichet, scannerBillet };

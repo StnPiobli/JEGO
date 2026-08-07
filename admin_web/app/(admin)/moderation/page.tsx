@@ -1,32 +1,61 @@
 "use client";
-// ⚠️ DEMO — Supprimer/Conserver/Ignorer retirent la ligne (état local) + navigateur de date.
+// PRÊT À BRANCHER — file de modération des commentaires signalés.
+// Routes attendues :
+//   GET /api/admin/moderation?date=YYYY-MM-DD
+//     → { commentaires: [{ id, texte, auteur, agence, motif, color, primaryDanger }] }
+//   PUT /api/admin/moderation/:id  body { action: "supprimer" | "conserver" | "ignorer" }
 
-import { useState } from "react";
-import { Panel, Badge, BtnMini, ToastDemo } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { Panel, Badge, BtnMini, Toast } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
 
 type Commentaire = {
-  id: number; texte: string; auteur: string; agence: string;
+  id: string; texte: string; auteur: string; agence: string;
   motif: string; color: "red" | "amber" | "grey"; primaryDanger: boolean;
 };
 
-const initial: Commentaire[] = [
-  { id: 1, texte: "« Chauffeur imb*** roulait comme un fou, plus jamais cette agence »", auteur: "Franck M.", agence: "Nuit Express", motif: "Filtre automatique", color: "red", primaryDanger: true },
-  { id: 2, texte: "« Bus toujours en retard, agence à éviter »", auteur: "Aïcha B.", agence: "Rapid'Bus Cameroun", motif: "Signalé par l'agence", color: "amber", primaryDanger: false },
-  { id: 3, texte: "« Numéro de téléphone du chauffeur : 6XX XXX XXX, contactez-le direct »", auteur: "Jean D.", agence: "Touristique Express", motif: "Filtre automatique — données perso", color: "red", primaryDanger: true },
-  { id: 4, texte: "« Service correct mais siège 12B cassé »", auteur: "Marc A.", agence: "Général Voyages", motif: "Signalé — faux positif probable", color: "grey", primaryDanger: false },
-];
-
 export default function ModerationPage() {
-  const [commentaires, setCommentaires] = useState(initial);
+  const [commentaires, setCommentaires] = useState<Commentaire[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [date, setDate] = useState(new Date());
 
-  function traiter(id: number, action: string) {
-    setCommentaires((prev) => prev.filter((c) => c.id !== id));
-    setToast(`Commentaire ${action.toLowerCase()} (démo)`);
-    setTimeout(() => setToast(null), 2000);
+  useEffect(() => {
+    let annule = false;
+    async function charger() {
+      setChargement(true);
+      try {
+        // BRANCHEMENT :
+        // const res = await apiFetch(`/api/admin/moderation?date=${date.toISOString().slice(0, 10)}`);
+        // if (!annule) setCommentaires(res.commentaires || []);
+        if (!annule) setCommentaires([]);
+        if (!annule) setErreur(null);
+      } catch (e) {
+        if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger la file de modération.");
+      } finally {
+        if (!annule) setChargement(false);
+      }
+    }
+    charger();
+    return () => { annule = true; };
+  }, [date]);
+
+  async function traiter(id: string, action: string) {
+    try {
+      // BRANCHEMENT :
+      // await apiFetch(`/api/admin/moderation/${id}`, {
+      //   method: "PUT",
+      //   body: JSON.stringify({ action: action.toLowerCase() }),
+      // });
+      setCommentaires((prev) => prev.filter((c) => c.id !== id));
+      setToast(`Commentaire ${action.toLowerCase()}`);
+      setTimeout(() => setToast(null), 2000);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Erreur lors du traitement.");
+      setTimeout(() => setToast(null), 3000);
+    }
   }
 
   return (
@@ -34,18 +63,20 @@ export default function ModerationPage() {
       <div className="flex items-baseline justify-between mb-5">
         <div>
           <h1 className="font-display text-[22px] tracking-tight">Modération</h1>
-          <div className="text-ink-soft text-[13px] mt-0.5">{commentaires.length} commentaire(s) signalé(s) — démo</div>
+          <div className="text-ink-soft text-[13px] mt-0.5">
+            {chargement ? "Chargement…" : `${commentaires.length} commentaire(s) signalé(s)`}
+          </div>
         </div>
-        <HistoriqueButton label="Historique de modération" entrees={[
-          { heure: "09:45", action: "Commentaire supprimé — données personnelles", auteur: "s.piobli" },
-          { heure: "hier 20:12", action: "Commentaire conservé — signalement rejeté", auteur: "s.piobli" },
-        ]} />
+        <HistoriqueButton label="Historique de modération" entrees={[]} />
       </div>
       <div className="mb-4"><DateNav date={date} onChange={setDate} /></div>
 
       <Panel>
-        {commentaires.length === 0 ? (
+        {erreur && <p className="px-[18px] py-4 text-[13px] text-red font-medium">{erreur}</p>}
+        {!chargement && commentaires.length === 0 && !erreur ? (
           <div className="px-5 py-10 text-center text-ink-soft text-[13px]">File de modération vide — tout a été traité</div>
+        ) : chargement ? (
+          <div className="px-5 py-10 text-center text-ink-soft text-[13px]">Chargement…</div>
         ) : (
           <div className="max-h-[420px] overflow-y-auto">
 <table className="w-full">
@@ -71,7 +102,7 @@ export default function ModerationPage() {
 </div>
         )}
       </Panel>
-      <ToastDemo message={toast} />
+      <Toast message={toast} />
     </div>
   );
 }

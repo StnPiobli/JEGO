@@ -1,94 +1,114 @@
 "use client";
-// ⚠️ DEMO — trajets, passagers, signalements factices. Aucune vue agrégée
-// par trajet (passagers + moyens de paiement) n'a été vérifiée côté backend.
+// BRANCHÉ SUR LE VRAI BACKEND — vue globale billets & trajets, toutes agences.
+//   GET /api/admin/trajets?date=YYYY-MM-DD
+//   GET /api/admin/trajets/resume?date=YYYY-MM-DD
+//
+// Le "trajet associé" d'un passager est le tronçon qu'il a réellement
+// réservé : sur une ligne à arrêts, tous les passagers d'un même bus ne
+// font pas le même segment.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Panel, Badge, ExpandableCard, BtnMini } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type Passager = {
   nom: string; tel: string; siege: string;
   vente: "app" | "site";
-  paiement: string | null; // null si vente sur site
+  paiement: string | null; // null si vente au guichet
   origine: "Acheté" | "Billet cadeau";
-  trajetAssocie: string; // tronçon réellement réservé, un trajet à arrêts peut vendre plusieurs tronçons séparément
+  trajetAssocie: string; // tronçon réellement réservé
 };
 
 type Signalement = { passager: string; motif: string; heure: string };
 
 type Trajet = {
-  id: number; trajet: string; agence: string; depart: string; arrivee: string;
+  id: string; trajet: string; agence: string; depart: string; arrivee: string;
   occ: string; statut: string; color: "green" | "amber" | "grey";
   app: number; site: number;
   signalements: Signalement[];
   passagers: Passager[];
 };
 
-const trajets: Trajet[] = [
-  {
-    id: 401, trajet: "Douala → Loum → Yaoundé", agence: "Touristique Express", depart: "07h00", arrivee: "12h30",
-    occ: "29/32", statut: "En cours", color: "green", app: 22, site: 7,
-    signalements: [],
-    passagers: [
-      { nom: "Jean Dupont", tel: "+237 6 77 xx xx 12", siege: "4A", vente: "app", paiement: "MTN Mobile Money", origine: "Acheté", trajetAssocie: "Douala → Yaoundé" },
-      { nom: "Sandrine Kamga", tel: "+237 6 82 xx xx 07", siege: "4B", vente: "app", paiement: "Orange Money", origine: "Billet cadeau", trajetAssocie: "Douala → Loum" },
-      { nom: "Passager guichet", tel: "—", siege: "7C", vente: "site", paiement: null, origine: "Acheté", trajetAssocie: "Loum → Yaoundé" },
-    ],
-  },
-  {
-    id: 402, trajet: "Yaoundé → Bertoua", agence: "Nuit Express", depart: "21h00", arrivee: "02h15",
-    occ: "18/32", statut: "Retard déclaré +45min", color: "amber", app: 12, site: 6,
-    signalements: [
-      { passager: "Aïcha Bello", motif: "Chauffeur roule trop vite", heure: "21h40" },
-      { passager: "Anonyme", motif: "Bus non climatisé", heure: "21h52" },
-      { passager: "Franck Mbida", motif: "Chauffeur roule trop vite", heure: "22h05" },
-    ],
-    passagers: [
-      { nom: "Aïcha Bello", tel: "+237 6 90 xx xx 45", siege: "2A", vente: "app", paiement: "MTN Mobile Money", origine: "Acheté", trajetAssocie: "Yaoundé → Bertoua" },
-      { nom: "Franck Mbida", tel: "+237 6 55 xx xx 88", siege: "2B", vente: "app", paiement: "Orange Money", origine: "Acheté", trajetAssocie: "Yaoundé → Bertoua" },
-      { nom: "Passager guichet", tel: "—", siege: "9D", vente: "site", paiement: null, origine: "Acheté", trajetAssocie: "Yaoundé → Bertoua" },
-    ],
-  },
-  {
-    id: 403, trajet: "Bafoussam → Douala", agence: "Voyages Étoile du Sud", depart: "06h30", arrivee: "11h00",
-    occ: "—", statut: "À venir", color: "grey", app: 0, site: 0,
-    signalements: [],
-    passagers: [],
-  },
-];
+type Detail = { label: string; valeur: string };
+type Resume = {
+  programmes7j: string; tauxRemplissage: string;
+  agencesProgrammeCourt: string; trajetsRetardes: string;
+  detailProgrammes: Detail[]; detailRemplissage: Detail[];
+  detailProgrammeCourt: Detail[]; detailRetardes: Detail[];
+};
+
+const resumeVide: Resume = {
+  programmes7j: "—", tauxRemplissage: "—", agencesProgrammeCourt: "—", trajetsRetardes: "—",
+  detailProgrammes: [], detailRemplissage: [], detailProgrammeCourt: [], detailRetardes: [],
+};
 
 type Tri = "recent" | "ancien";
+
+function TableDetail({ lignes }: { lignes: Detail[] }) {
+  if (lignes.length === 0) return <div className="text-[11px] text-ink-soft">Aucun détail disponible</div>;
+  return (
+    <table className="w-full text-[12px]"><tbody>
+      {lignes.map((l) => (
+        <tr key={l.label}><td className="py-1">{l.label}</td><td className="py-1 text-right font-mono">{l.valeur}</td></tr>
+      ))}
+    </tbody></table>
+  );
+}
 
 export default function BilletsPage() {
   const [date, setDate] = useState(new Date());
   const [tri, setTri] = useState<Tri>("recent");
-  const [depliés, setDepliés] = useState<Set<number>>(new Set());
-  const [signalementsOuvert, setSignalementsOuvert] = useState<number | null>(null);
+  const [depliés, setDepliés] = useState<Set<string>>(new Set());
+  const [signalementsOuvert, setSignalementsOuvert] = useState<string | null>(null);
+  const [trajets, setTrajets] = useState<Trajet[]>([]);
+  const [resume, setResume] = useState<Resume>(resumeVide);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
 
-  function toggleDeplier(id: number) {
+  useEffect(() => {
+    let annule = false;
+    async function charger() {
+      setChargement(true);
+      try {
+        const iso = date.toISOString().slice(0, 10);
+        const res = await apiFetch(`/api/admin/trajets?date=${iso}`);
+        if (!annule) setTrajets(res.trajets || []);
+        const r = await apiFetch(`/api/admin/trajets/resume?date=${iso}`);
+        if (!annule) { setResume({ ...resumeVide, ...r }); setErreur(null); }
+      } catch (e) {
+        if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les trajets.");
+      } finally {
+        if (!annule) setChargement(false);
+      }
+    }
+    charger();
+    return () => { annule = true; };
+  }, [date]);
+
+  function toggleDeplier(id: string) {
     setDepliés((prev) => {
       const copie = new Set(prev);
-      copie.has(id) ? copie.delete(id) : copie.add(id);
+      if (copie.has(id)) copie.delete(id); else copie.add(id);
       return copie;
     });
   }
 
   const trajetsTries = [...trajets].sort((a, b) =>
-    tri === "recent" ? b.id - a.id : a.id - b.id
+    tri === "recent" ? b.id.localeCompare(a.id) : a.id.localeCompare(b.id)
   );
+
+  const trajetOuvert = trajets.find((t) => t.id === signalementsOuvert);
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-5">
         <div>
-          <h1 className="font-display text-[22px] tracking-tight">Billets & trajets</h1>
-          <div className="text-ink-soft text-[13px] mt-0.5">Vue globale, toutes agences — démo</div>
+          <h1 className="font-display text-[22px] tracking-tight">Billets &amp; trajets</h1>
+          <div className="text-ink-soft text-[13px] mt-0.5">Vue globale, toutes agences</div>
         </div>
-        <HistoriqueButton entrees={[
-          { heure: "09:30", action: "Retard déclaré — Nuit Express, Yaoundé→Bertoua", auteur: "système" },
-          { heure: "07:00", action: "Trajet démarré — Touristique Express, Douala→Yaoundé", auteur: "système" },
-        ]} />
+        <HistoriqueButton entrees={[]} />
       </div>
 
       <div className="flex items-center justify-between mb-4">
@@ -99,28 +119,20 @@ export default function BilletsPage() {
         <DateNav date={date} onChange={setDate} />
       </div>
 
+      {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
+
       <div className="grid grid-cols-4 gap-3.5 mb-4">
-        <ExpandableCard num="341" label="Trajets programmés — 7 prochains jours" delta={{ text: "6% vs semaine dernière", up: true }}>
-          <table className="w-full text-[12px]"><tbody>
-            <tr><td className="py-1">Douala → Yaoundé</td><td className="py-1 text-right font-mono">48 trajets</td></tr>
-            <tr><td className="py-1">Yaoundé → Bertoua</td><td className="py-1 text-right font-mono">21 trajets</td></tr>
-          </tbody></table>
+        <ExpandableCard num={resume.programmes7j} label="Trajets programmés — 7 prochains jours">
+          <TableDetail lignes={resume.detailProgrammes} />
         </ExpandableCard>
-        <ExpandableCard num="78%" label="Taux de remplissage moyen" delta={{ text: "3% vs semaine dernière", up: true }}>
-          <div className="text-[11px] text-ink-soft">
-            <b>Vendus via l&apos;app JEGO :</b> 254 (67%) · <b>vendus au guichet :</b> 125 (33%)
-            <div className="mt-0.5 italic">Le guichet ne compte pas dans le revenu JEGO (pas de commission).</div>
-          </div>
+        <ExpandableCard num={resume.tauxRemplissage} label="Taux de remplissage moyen">
+          <TableDetail lignes={resume.detailRemplissage} />
         </ExpandableCard>
-        <ExpandableCard num="18" label="Agences avec programme < 2 semaines ⚠️" delta={{ text: "2 de plus que la semaine dernière", up: false }}>
-          <table className="w-full text-[12px]"><tbody>
-            <tr><td className="py-1">Général Voyages</td><td className="py-1 text-right font-mono">9 jours restants</td></tr>
-          </tbody></table>
+        <ExpandableCard num={resume.agencesProgrammeCourt} label="Agences avec programme < 2 semaines ⚠️">
+          <TableDetail lignes={resume.detailProgrammeCourt} />
         </ExpandableCard>
-        <ExpandableCard num="6" label="Trajets retardés aujourd'hui" delta={{ text: "1 de moins qu'hier", up: true }}>
-          <table className="w-full text-[12px]"><tbody>
-            <tr><td className="py-1">Nuit Express — Yaoundé→Bertoua</td><td className="py-1 text-right font-mono">+45 min</td></tr>
-          </tbody></table>
+        <ExpandableCard num={resume.trajetsRetardes} label="Trajets retardés aujourd'hui">
+          <TableDetail lignes={resume.detailRetardes} />
         </ExpandableCard>
       </div>
 
@@ -186,17 +198,27 @@ export default function BilletsPage() {
             </div>
           </Panel>
         ))}
+        {!chargement && trajets.length === 0 && !erreur && (
+          <Panel>
+            <div className="px-5 py-10 text-center text-ink-soft text-[13px]">Aucun trajet pour cette date</div>
+          </Panel>
+        )}
+        {chargement && (
+          <Panel>
+            <div className="px-5 py-10 text-center text-ink-soft text-[13px]">Chargement…</div>
+          </Panel>
+        )}
       </div>
 
-      {signalementsOuvert !== null && (
+      {trajetOuvert && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setSignalementsOuvert(null)}>
           <div className="bg-paper rounded-2xl shadow-card p-6 w-[420px]" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-3">
-              <h3 className="font-display text-[15px] font-semibold">Signalements — {trajets.find((t) => t.id === signalementsOuvert)?.trajet}</h3>
+              <h3 className="font-display text-[15px] font-semibold">Signalements — {trajetOuvert.trajet}</h3>
               <button onClick={() => setSignalementsOuvert(null)} className="text-ink-soft text-xs">✕</button>
             </div>
             <div className="space-y-2 max-h-[280px] overflow-y-auto">
-              {trajets.find((t) => t.id === signalementsOuvert)?.signalements.map((s, i) => (
+              {trajetOuvert.signalements.map((s, i) => (
                 <div key={i} className="border border-line rounded-lg px-3 py-2 text-[12.5px]">
                   <div className="flex justify-between"><b>{s.passager}</b><span className="text-ink-soft font-mono text-[11px]">{s.heure}</span></div>
                   <div className="text-ink-soft mt-0.5">{s.motif}</div>
@@ -206,10 +228,6 @@ export default function BilletsPage() {
           </div>
         </div>
       )}
-
-      <div className="text-[11px] text-ink-soft mt-3">
-        ⚠️ Signalements — démo. La route existante (<code>signalementRoutes.js</code>) gère l&apos;ouverture, mais aucune vue agrégée par trajet pour l&apos;admin n&apos;a été vérifiée côté backend.
-      </div>
     </div>
   );
 }

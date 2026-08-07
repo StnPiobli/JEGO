@@ -1,40 +1,74 @@
 "use client";
-// ⚠️ DEMO — chiffres factices, aucune table de sessions n'existe côté backend.
+// PRÊT À BRANCHER — statistiques d'activité utilisateurs.
+// Aucune table de sessions/analytics n'existe côté backend aujourd'hui :
+// il faudra la créer avant que cette page affiche autre chose que des tirets.
+// Routes attendues :
+//   GET /api/admin/activite?periode=24h|7j|30j
+//     → { actifs, inscrits, nouvelles, connexions, deconnexions, retention,
+//         deltaActifs, deltaNouvelles }
+//   GET /api/admin/activite/evenements?date=YYYY-MM-DD
+//     → { evenements: [{ id, heure, evenement, nom, tel, email, ville }] }
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Panel, StatCard, Badge } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
 
 type Periode = "24h" | "7j" | "30j";
 
-const donnees: Record<Periode, { actifs: string; inscrits: string; nouvelles: string; connexions: string; deconnexions: string; retention: string; deltaActifs: string; deltaNouvelles: string }> = {
-  "24h": { actifs: "312", inscrits: "4 218", nouvelles: "18", connexions: "540", deconnexions: "498", retention: "68%", deltaActifs: "+4%", deltaNouvelles: "+12%" },
-  "7j": { actifs: "1 840", inscrits: "4 218", nouvelles: "96", connexions: "3 210", deconnexions: "3 040", retention: "61%", deltaActifs: "+9%", deltaNouvelles: "+7%" },
-  "30j": { actifs: "3 512", inscrits: "4 218", nouvelles: "410", connexions: "14 800", deconnexions: "14 100", retention: "54%", deltaActifs: "+15%", deltaNouvelles: "+22%" },
+type Stats = {
+  actifs: string; inscrits: string; nouvelles: string;
+  connexions: string; deconnexions: string; retention: string;
+  deltaActifs?: string; deltaNouvelles?: string;
 };
 
-const evenements = [
-  { id: 8341, heure: "10:42", evenement: "Inscription", nom: "Sandrine K.", tel: "+237 6 82 xx xx 07", email: "s.kamga@gmail.com", ville: "Douala" },
-  { id: 8340, heure: "10:38", evenement: "Connexion", nom: "Jean Dupont", tel: "+237 6 77 xx xx 12", email: "j.dupont@gmail.com", ville: "—" },
-  { id: 8339, heure: "10:35", evenement: "Déconnexion", nom: "Aïcha Bello", tel: "+237 6 90 xx xx 45", email: "aicha.bello@yahoo.fr", ville: "—" },
-  { id: 8338, heure: "10:29", evenement: "Inscription", nom: "Paul N.", tel: "+237 6 71 xx xx 90", email: "paul.n@outlook.com", ville: "Yaoundé" },
-  { id: 8337, heure: "10:20", evenement: "Connexion", nom: "Franck Mbida", tel: "+237 6 55 xx xx 88", email: "f.mbida@outlook.com", ville: "—" },
-];
+type Evenement = {
+  id: string; heure: string; evenement: string;
+  nom: string; tel: string; email: string; ville: string;
+};
+
+const statsVides: Stats = {
+  actifs: "—", inscrits: "—", nouvelles: "—",
+  connexions: "—", deconnexions: "—", retention: "—",
+};
 
 export default function ActivitePage() {
   const [periode, setPeriode] = useState<Periode>("7j");
   const [date, setDate] = useState(new Date());
-  const d = donnees[periode];
+  const [stats, setStats] = useState<Stats>(statsVides);
+  const [evenements, setEvenements] = useState<Evenement[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  useEffect(() => {
+    let annule = false;
+    async function charger() {
+      setChargement(true);
+      try {
+        // BRANCHEMENT :
+        // const res = await apiFetch(`/api/admin/activite?periode=${periode}`);
+        // if (!annule) setStats(res);
+        // const ev = await apiFetch(`/api/admin/activite/evenements?date=${date.toISOString().slice(0, 10)}`);
+        // if (!annule) setEvenements(ev.evenements || []);
+        if (!annule) { setStats(statsVides); setEvenements([]); setErreur(null); }
+      } catch (e) {
+        if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les statistiques.");
+      } finally {
+        if (!annule) setChargement(false);
+      }
+    }
+    charger();
+    return () => { annule = true; };
+  }, [periode, date]);
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-5">
         <div>
-          <h1 className="font-display text-[22px] tracking-tight">Utilisateurs & activité</h1>
-          <div className="text-ink-soft text-[13px] mt-0.5">Démo — aucune table de sessions/analytics n&apos;existe encore côté backend</div>
+          <h1 className="font-display text-[22px] tracking-tight">Utilisateurs &amp; activité</h1>
+          <div className="text-ink-soft text-[13px] mt-0.5">Connexions, inscriptions et taux de retour</div>
         </div>
-        <HistoriqueButton entrees={[{ heure: "maintenant", action: "Consultation des statistiques", auteur: "s.piobli" }]} />
+        <HistoriqueButton entrees={[]} />
       </div>
 
       <div className="flex items-center justify-between mb-4">
@@ -48,27 +82,28 @@ export default function ActivitePage() {
         <DateNav date={date} onChange={setDate} />
       </div>
 
+      {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
+
       <div className="grid grid-cols-3 gap-3.5 mb-4">
-        <StatCard num={d.actifs} label={`Utilisateurs actifs (${periode})`} delta={{ text: d.deltaActifs + " vs période précédente", up: true }} />
-        <StatCard num={d.inscrits} label="Total de comptes inscrits" />
-        <StatCard num={d.nouvelles} label={`Nouvelles inscriptions (${periode})`} delta={{ text: d.deltaNouvelles + " vs période précédente", up: true }} />
+        <StatCard num={stats.actifs} label={`Utilisateurs actifs (${periode})`} delta={stats.deltaActifs ? { text: stats.deltaActifs + " vs période précédente", up: true } : undefined} />
+        <StatCard num={stats.inscrits} label="Total de comptes inscrits" />
+        <StatCard num={stats.nouvelles} label={`Nouvelles inscriptions (${periode})`} delta={stats.deltaNouvelles ? { text: stats.deltaNouvelles + " vs période précédente", up: true } : undefined} />
       </div>
       <div className="grid grid-cols-3 gap-3.5 mb-4">
-        <StatCard num={d.connexions} label={`Connexions (${periode})`} />
-        <StatCard num={d.deconnexions} label={`Déconnexions / fins de session (${periode})`} />
-        <StatCard num={d.retention} label="Taux de retour (utilisateurs revenus)" />
+        <StatCard num={stats.connexions} label={`Connexions (${periode})`} />
+        <StatCard num={stats.deconnexions} label={`Déconnexions / fins de session (${periode})`} />
+        <StatCard num={stats.retention} label="Taux de retour (utilisateurs revenus)" />
       </div>
 
       <Panel title="Derniers événements">
         <div className="max-h-[420px] overflow-y-auto">
 <table className="w-full">
           <thead>
-            <tr>{["ID", "Heure", "Événement", "Utilisateur", "Téléphone", "Email", "Ville"].map((h) => <th key={h} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}</th>)}</tr>
+            <tr>{["Heure", "Événement", "Utilisateur", "Téléphone", "Email", "Ville"].map((h) => <th key={h} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}</th>)}</tr>
           </thead>
           <tbody>
             {evenements.map((e) => (
               <tr key={e.id} className="border-t border-line">
-                <td className="px-[18px] py-2.5 text-[12px] font-mono text-ink-soft">#{e.id}</td>
                 <td className="px-[18px] py-2.5 text-[13px] font-mono">{date.toLocaleDateString("fr-FR")} {e.heure}</td>
                 <td className="px-[18px] py-2.5"><Badge color={e.evenement === "Inscription" ? "green" : e.evenement === "Connexion" ? "amber" : "grey"}>{e.evenement}</Badge></td>
                 <td className="px-[18px] py-2.5 text-[13px]">{e.nom}</td>
@@ -77,6 +112,12 @@ export default function ActivitePage() {
                 <td className="px-[18px] py-2.5 text-[12.5px] text-ink-soft">{e.ville}</td>
               </tr>
             ))}
+            {!chargement && evenements.length === 0 && !erreur && (
+              <tr><td colSpan={6} className="px-[18px] py-6 text-center text-ink-soft text-[12.5px]">Aucun événement pour cette date</td></tr>
+            )}
+            {chargement && (
+              <tr><td colSpan={6} className="px-[18px] py-6 text-center text-ink-soft text-[12.5px]">Chargement…</td></tr>
+            )}
           </tbody>
         </table>
 </div>

@@ -2,29 +2,26 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import LayoutAgence from '../../components/LayoutAgence';
 import { VILLES } from '../../villes';
 import { todayInputDate } from '../../lib/date';
+import { apiFetch } from '../../lib/api';
 
 /**
- * Formulaire d'ajout d'un trajet. La ligne (ville depart/arrivee) est
- * creee A LA VOLEE ici, pas choisie parmi des lignes prefaites -- une
- * fois creee, POST /api/lignes puis POST /api/trajets avec le ligne_id
- * obtenu (2 appels enchaines, voir TODO). Villes reelles verifiees en
- * base (50 codes, table villes) -- pas de texte libre.
+ * Formulaire d'ajout d'un trajet. La ligne (ville depart/arrivee, points
+ * intermediaires, prix par tronçon) est creee A LA VOLEE ici via
+ * POST /api/lignes, puis le trajet via POST /api/trajets avec le
+ * ligne_id obtenu (2 appels enchaines). Branche sur le vrai backend --
+ * plus de simulation.
  *
- * DEUX PARTIES EN FACADE, sans aucune colonne/route backend derriere :
- * 1. Heure par arret + sous-trajets auto (ex: Douala-Loum-Yaounde devrait
- *    aussi apparaitre comme "Loum -> Yaounde" cote recherche voyageur).
- *    La table lignes n'a qu'un arrets TEXT[] simple (noms), aucune heure,
- *    aucune logique de sous-trajet, aucun partage de sieges/prix par
- *    segment. Decision assumee ce soir : construire quand meme la
- *    facade, sans logique reelle.
- * 2. Prix bagage supplementaire / supplement siege premium par trajet :
- *    aucun champ n'existe encore en base pour ca (bug backend deja
- *    connu : suppBagage credite margeJego au lieu de l'agence, et les
- *    champs de config bagages n'existent nulle part).
+ * Bus et chauffeurs viennent maintenant de GET /api/bus et
+ * GET /api/chauffeurs (listes reelles de l'agence), plus de demo.
+ *
+ * Reste en facade, sans colonne backend derriere : le prix bagage
+ * supplementaire et le supplement siege premium par defaut de ce
+ * formulaire (ces valeurs se configurent aujourd'hui au moment de
+ * l'achat du billet, pas au niveau du trajet).
  */
 
 const categories = [
@@ -34,22 +31,14 @@ const categories = [
   { valeur: 'nuit', libelle: 'Nuit' },
 ] as const;
 
-const busDemo = [
-  { id: 'b1', libelle: 'Confort Express 01 (2+2, 40 places)' },
-  { id: 'b2', libelle: 'Confort 02 (2+2, 32 places)' },
-  { id: 'b3', libelle: 'Express 03 (2+2, 29 places)' },
-];
-
-// Meme liste que Chauffeurs -- a terme, un vrai appel API partage.
-const chauffeursDemo = [
-  { id: 'c1', nom: "Paul Eto'o" },
-  { id: 'c2', nom: 'Andre Nkeng' },
-];
+type Bus = { id: string; nom: string; type_bus: string; disposition: string; nombre_sieges: string | number };
+type Chauffeur = { id: string; nom: string; prenom: string; statut: string };
 
 type Arret = { ville: string; heure: string; lieuPriseEnCharge: string };
 
 export default function NouveauTrajet() {
   const params = useSearchParams();
+  const router = useRouter();
   const dupliquer = params.get('dupliquer') === '1';
 
   // Ligne (creee a la volee)
@@ -57,8 +46,30 @@ export default function NouveauTrajet() {
   const [villeArrivee, setVilleArrivee] = useState('');
   const [avecArrets, setAvecArrets] = useState(false);
   const [arrets, setArrets] = useState<Arret[]>([{ ville: '', heure: '', lieuPriseEnCharge: '' }]);
-  // (distanceKm retiré — remplacé par le prix par tronçon)
   const [prixCombinaisons, setPrixCombinaisons] = useState<Record<string, string>>({});
+
+  // Bus et chauffeurs reels de l'agence
+  const [busListe, setBusListe] = useState<Bus[]>([]);
+  const [chauffeursListe, setChauffeursListe] = useState<Chauffeur[]>([]);
+  const [chargementListes, setChargementListes] = useState(true);
+
+  useEffect(() => {
+    async function charger() {
+      try {
+        const [resBus, resChauffeurs] = await Promise.all([
+          apiFetch('/api/bus'),
+          apiFetch('/api/chauffeurs'),
+        ]);
+        setBusListe(resBus.bus || []);
+        setChauffeursListe((resChauffeurs.chauffeurs || []).filter((c: Chauffeur) => c.statut === 'actif'));
+      } catch {
+        setErreur('Impossible de charger tes bus et chauffeurs. Recharge la page.');
+      } finally {
+        setChargementListes(false);
+      }
+    }
+    charger();
+  }, []);
 
   function nomVille(code: string) {
     return VILLES.find((v) => v.code === code)?.nom || code || '...';
@@ -89,10 +100,10 @@ export default function NouveauTrajet() {
   }, [villeDepart, villeArrivee, avecArrets, arrets]);
 
   const combinaisons = useMemo(() => {
-    const resultats: { cle: string; depart: string; arrivee: string }[] = [];
+    const resultats: { cle: string; depart: string; arrivee: string; ordreDepart: number; ordreArrivee: number }[] = [];
     for (let i = 0; i < pointsOrdonnes.length; i++) {
       for (let j = i + 1; j < pointsOrdonnes.length; j++) {
-        resultats.push({ cle: `${i}-${j}`, depart: pointsOrdonnes[i], arrivee: pointsOrdonnes[j] });
+        resultats.push({ cle: `${i}-${j}`, depart: pointsOrdonnes[i], arrivee: pointsOrdonnes[j], ordreDepart: i, ordreArrivee: j });
       }
     }
     return resultats;
@@ -113,11 +124,10 @@ export default function NouveauTrajet() {
   const [dateDepart, setDateDepart] = useState(todayInputDate());
   const [heureDepart, setHeureDepart] = useState('');
   const [heureArrivee, setHeureArrivee] = useState('');
-  // (prixBase retiré — remplacé par le prix par combinaison)
   const [categorie, setCategorie] = useState<typeof categories[number]['valeur']>('standard');
   const [distributionNourriture, setDistributionNourriture] = useState(false);
 
-  // Tarifs additionnels (facade totale)
+  // Tarifs additionnels (facade -- aucun champ backend sur trajets pour ça)
   const [prixBagage, setPrixBagage] = useState('1000');
   const [supplementPremium, setSupplementPremium] = useState('1500');
 
@@ -168,28 +178,77 @@ export default function NouveauTrajet() {
       return;
     }
 
+    // Le prix du segment complet (premier point -> dernier point) est
+    // obligatoire côté backend -- sans lui, aucun trajet sur cette ligne
+    // ne pourra être recherché ni réservé.
+    const dernierOrdre = pointsOrdonnes.length - 1;
+    const prixSegmentComplet = prixCombinaison(`0-${dernierOrdre}`);
+    if (!prixSegmentComplet || Number(prixSegmentComplet) <= 0) {
+      setErreur(`Le prix du trajet complet (${nomVille(villeDepart)} → ${nomVille(villeArrivee)}) est obligatoire.`);
+      return;
+    }
+
     setEnregistrement(true);
 
-    // TODO (branchement backend, voir mémoire projet pour la spec complète) :
-    //
-    // 1. POST /api/lignes
-    //    { ville_depart, ville_arrivee, est_direct: !avecArrets,
-    //      arrets: avecArrets ? arrets.map(a => ({ville: a.ville, lieu_prise_en_charge: a.lieuPriseEnCharge})) : null }
-    //    -> recupere ligne.id
-    //    (Note : les heures par arret et la generation de sous-trajets
-    //    de recherche -- ex "Loum -> Yaounde" -- n'ont AUCUNE route/
-    //    colonne backend. Rien a envoyer pour ca, purement visuel ici.)
-    //
-    // 2. POST /api/trajets
-    //    { ligne_id, bus_id: busId, date_depart: dateDepart,
-    //      heure_depart: heureDepart, heure_arrivee_estimee: heureArrivee,
-    //      prix_par_combinaison: prixCombinaisons, categorie }
-    //    (prixBagage / supplementPremium / distributionNourriture : aucun
-    //    champ backend existant, rien a envoyer -- facade uniquement)
+    try {
+      // 1. Créer la ligne, avec ses points et ses prix par tronçon.
+      const points = pointsOrdonnes.map((ville, i) => {
+        let lieu = '';
+        if (i === 0) lieu = pointDepart;
+        else if (i === dernierOrdre) lieu = pointArrivee;
+        else lieu = arrets[i - 1]?.lieuPriseEnCharge || '';
+        return { ville, lieu_prise_en_charge: lieu || null };
+      });
 
-    await new Promise((r) => setTimeout(r, 700));
-    setEnregistrement(false);
-    setErreur('Creation non branchee pour l\'instant (interface uniquement).');
+      const troncons_prix = Object.entries(prixCombinaisons)
+        .filter(([, valeur]) => valeur && Number(valeur) > 0)
+        .map(([cle, valeur]) => {
+          const [ordreDepart, ordreArrivee] = cle.split('-').map(Number);
+          return { ordre_depart: ordreDepart, ordre_arrivee: ordreArrivee, prix: Number(valeur) };
+        });
+
+      const resultatLigne = await apiFetch('/api/lignes', {
+        method: 'POST',
+        body: JSON.stringify({
+          ville_depart: villeDepart,
+          ville_arrivee: villeArrivee,
+          est_direct: !avecArrets,
+          points,
+          troncons_prix,
+        }),
+      });
+      const ligneId = resultatLigne.ligne.id;
+
+      // 2. Créer le trajet sur cette ligne. prix_base = prix du segment
+      // complet (fallback historique, notamment lu par escrow/rapports).
+      const resultatTrajet = await apiFetch('/api/trajets', {
+        method: 'POST',
+        body: JSON.stringify({
+          ligne_id: ligneId,
+          bus_id: busId,
+          date_depart: dateDepart,
+          heure_depart: heureDepart,
+          heure_arrivee_estimee: heureArrivee,
+          prix_base: Number(prixSegmentComplet),
+          categorie,
+        }),
+      });
+
+      // L'assignation du chauffeur est une route séparée (PUT /:id/chauffeur),
+      // pas un champ accepté à la création -- deuxième appel si renseigné.
+      if (chauffeurId) {
+        await apiFetch(`/api/trajets/${resultatTrajet.trajet.id}/chauffeur`, {
+          method: 'PUT',
+          body: JSON.stringify({ chauffeur_id: chauffeurId }),
+        });
+      }
+
+      router.push('/trajets');
+
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Erreur lors de la création du trajet.');
+      setEnregistrement(false);
+    }
   }
 
   return (
@@ -235,13 +294,8 @@ export default function NouveauTrajet() {
             </div>
           </div>
 
-          {/* Points de prise en charge -- facade */}
+          {/* Points de prise en charge */}
           <div>
-            <div className="rounded-xl bg-purple/8 border border-purple/20 p-3 mb-3">
-              <p className="text-[11px] text-ink-soft">
-                Facade : aucune colonne backend pour ces indications (ni sur lignes, ni sur trajets).
-              </p>
-            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-ink-soft mb-1.5">
@@ -286,10 +340,10 @@ export default function NouveauTrajet() {
             {avecArrets && (
               <div className="mt-3 space-y-3">
                 <div className="rounded-xl bg-purple/8 border border-purple/20 p-3">
-                  <p className="text-xs text-ink font-semibold">Facade uniquement</p>
-                  <p className="text-[11px] text-ink-soft mt-1">
-                    Aucune heure par arret ni sous-trajet de recherche (ex : &quot;Loum → Yaounde&quot;) n&apos;est
-                    reellement gere cote backend. Visuel seulement ce soir.
+                  <p className="text-[11px] text-ink-soft">
+                    L&apos;heure indiquée par arrêt est purement indicative pour toi -- elle n&apos;est
+                    pas encore affichée au voyageur. La ville et le lieu de prise en charge de
+                    chaque arrêt sont eux bien enregistrés et utilisés en recherche.
                   </p>
                 </div>
 
@@ -342,10 +396,12 @@ export default function NouveauTrajet() {
             <label className="block text-xs font-semibold text-ink-soft mb-1.5">Prix par combinaison (FCFA)</label>
             <div className="rounded-xl bg-purple/8 border border-purple/20 p-3 mb-3">
               <p className="text-[11px] text-ink-soft">
-                Démo — chaque combinaison a son propre prix, fixé librement (pas une somme
-                automatique des tronçons). N&apos;importe quel arrêt peut être point de départ ou
-                d&apos;arrivée pour un client, avec disponibilité calculée par chevauchement de
-                sièges. Aucune colonne backend pour ça pour l&apos;instant.
+                Chaque combinaison a son propre prix, fixé librement (pas une somme automatique
+                des tronçons). N&apos;importe quel arrêt peut être point de départ ou d&apos;arrivée
+                pour un client, avec disponibilité calculée par chevauchement de sièges. Le prix du
+                trajet complet ({villeDepart && villeArrivee ? `${nomVille(villeDepart)} → ${nomVille(villeArrivee)}` : 'départ → arrivée'})
+                est <span className="font-semibold text-ink">obligatoire</span> ; les autres combinaisons sont optionnelles
+                (laisse vide si tu ne veux pas vendre ce segment séparément).
               </p>
             </div>
             {combinaisons.length === 0 || !villeDepart || !villeArrivee ? (
@@ -378,11 +434,21 @@ export default function NouveauTrajet() {
             <select
               value={busId}
               onChange={(e) => { setBusId(e.target.value); setErreur(null); }}
-              className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
+              disabled={chargementListes}
+              className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors disabled:opacity-60"
             >
-              <option value="">Choisir un bus...</option>
-              {busDemo.map((b) => <option key={b.id} value={b.id}>{b.libelle}</option>)}
+              <option value="">{chargementListes ? 'Chargement...' : 'Choisir un bus...'}</option>
+              {busListe.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nom} ({b.disposition}, {b.nombre_sieges} places)
+                </option>
+              ))}
             </select>
+            {!chargementListes && busListe.length === 0 && (
+              <p className="text-[11px] text-ink-soft mt-1.5">
+                Aucun bus dans ta flotte. <Link href="/flotte/nouveau" className="text-green-700 font-semibold hover:underline">Ajoute-en un</Link> d&apos;abord.
+              </p>
+            )}
           </div>
 
           <div>
@@ -390,11 +456,19 @@ export default function NouveauTrajet() {
             <select
               value={chauffeurId}
               onChange={(e) => { setChauffeurId(e.target.value); setErreur(null); }}
-              className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
+              disabled={chargementListes}
+              className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors disabled:opacity-60"
             >
-              <option value="">Choisir un chauffeur...</option>
-              {chauffeursDemo.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              <option value="">{chargementListes ? 'Chargement...' : 'Choisir un chauffeur...'}</option>
+              {chauffeursListe.map((c) => (
+                <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
+              ))}
             </select>
+            {!chargementListes && chauffeursListe.length === 0 && (
+              <p className="text-[11px] text-ink-soft mt-1.5">
+                Aucun chauffeur actif. <Link href="/chauffeurs" className="text-green-700 font-semibold hover:underline">Ajoute-en un</Link> ou laisse ce champ vide pour l&apos;assigner plus tard.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

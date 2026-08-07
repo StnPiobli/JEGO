@@ -27,16 +27,10 @@ type Litige = {
   trajet_nom?: string; trajet_date?: string;
 };
 
-const demoLitiges: Litige[] = [
-  { id: "demo-1", numero: "LIT-DEMO-001", motif: "Conduite dangereuse", description: "Le chauffeur roulait dangereusement, dépassements répétés.", statut: "ouvert", niveau: 1, reponse_agence: null, cree_le: new Date(Date.now() - 26 * 3600 * 1000).toISOString(), nom_agence: "Touristique Express", nom_voyageur: "Dupont", prenom_voyageur: "Jean", telephone_voyageur: "+237 6 77 xx xx 12", email_voyageur: "j.dupont@gmail.com", trajet_nom: "Douala → Yaoundé", trajet_date: "15 jan. 2026, 07h00" },
-  { id: "demo-2", numero: "LIT-DEMO-002", motif: "Retard sans annonce", description: "Bus parti avec 1h30 de retard sans annonce.", statut: "en_cours", niveau: 2, reponse_agence: "Retard annoncé dans l'app 20 min avant.", cree_le: new Date(Date.now() - 10 * 3600 * 1000).toISOString(), nom_agence: "Nuit Express", nom_voyageur: "Bello", prenom_voyageur: "Aïcha", telephone_voyageur: "+237 6 90 xx xx 45", email_voyageur: "aicha.bello@yahoo.fr", trajet_nom: "Yaoundé → Bertoua", trajet_date: "15 jan. 2026, 21h00" },
-  { id: "demo-3", numero: "LIT-DEMO-003", motif: "Bagage endommagé", description: "Valise abîmée à l'arrivée.", statut: "ouvert", niveau: 1, reponse_agence: null, cree_le: new Date(Date.now() - 3 * 3600 * 1000).toISOString(), nom_agence: "Général Voyages", nom_voyageur: "Mbida", prenom_voyageur: "Franck", telephone_voyageur: "+237 6 55 xx xx 88", email_voyageur: "f.mbida@outlook.com", trajet_nom: "Douala → Kribi", trajet_date: "14 jan. 2026, 15h30" },
-];
 
 export default function LitigesPage() {
   const [litiges, setLitiges] = useState<Litige[]>([]);
   const [chargement, setChargement] = useState(true);
-  const [modeDemo, setModeDemo] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [date, setDate] = useState(new Date());
   const [ouvertId, setOuvertId] = useState<string | number | null>(null);
@@ -49,11 +43,10 @@ export default function LitigesPage() {
     setErreur(null);
     try {
       const data = await apiFetch("/api/litiges/admin/tous");
-      setLitiges(data.litiges);
-      setModeDemo(false);
-    } catch {
-      setLitiges(demoLitiges);
-      setModeDemo(true);
+      setLitiges(data.litiges || []);
+    } catch (err) {
+      setLitiges([]);
+      setErreur(err instanceof Error ? err.message : "Impossible de charger les litiges.");
     } finally {
       setChargement(false);
     }
@@ -76,12 +69,14 @@ export default function LitigesPage() {
     const decisionTexte = `En faveur de ${camp === "agence" ? "l'agence" : "du client"}. Raison communiquée au perdant : ${commentaire}`;
     setEnvoiEnCours(l.id);
     try {
-      if (modeDemo) {
-        setLitiges((prev) => prev.filter((x) => x.id !== l.id));
-      } else {
-        await apiFetch(`/api/litiges/${l.id}/decision`, { method: "PUT", body: JSON.stringify({ decision: decisionTexte }) });
-        await charger();
-      }
+      await apiFetch(`/api/litiges/${l.id}/decision`, {
+        method: "PUT",
+        body: JSON.stringify({
+          decision: decisionTexte,
+          gagnant: camp === "agence" ? "agence" : "voyageur",
+        }),
+      });
+      await charger();
       setOuvertId(null);
       setCamp(null);
       setCommentaire("");
@@ -100,14 +95,10 @@ export default function LitigesPage() {
           <h1 className="font-display text-[22px] tracking-tight">Litiges</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">{litiges.length} litige(s) — tous arrivent directement ici pour arbitrage</div>
         </div>
-        <HistoriqueButton label="Historique des décisions" entrees={[
-          { heure: "11:20", action: "LIT-0065 tranché en faveur du client", auteur: "s.piobli" },
-          { heure: "hier 09:10", action: "LIT-0058 tranché en faveur de l'agence", auteur: "s.piobli" },
-        ]} />
+        <HistoriqueButton label="Historique des décisions" entrees={[]} />
       </div>
       <div className="mb-4"><DateNav date={date} onChange={setDate} /></div>
 
-      {modeDemo && <div className="text-xs font-semibold text-amber bg-amber-bg rounded-lg px-3 py-2 mb-4">Mode démo — backend injoignable, litiges factices</div>}
       {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
 
       {chargement ? (

@@ -1,13 +1,17 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import ThemeToggle from "./ThemeToggle";
+import { apiFetch, getMembre, clearSession, initialesMembre, type Membre } from "@/lib/api";
+
+type CleBadge = "agences" | "litiges" | "moderation";
 
 type NavItem = {
   label: string;
   href?: string;
-  badge?: number;
+  badge?: CleBadge;
   locked?: "later" | "todo"; // "later" = différé (choix), "todo" = pas encore spécifié
 };
 
@@ -29,14 +33,14 @@ const groups: NavGroup[] = [
   {
     label: "Opérations",
     items: [
-      { label: "Agences", href: "/agences", badge: 3 },
+      { label: "Agences", href: "/agences", badge: "agences" },
       { label: "Voyageurs", href: "/voyageurs" },
       { label: "Points JEGO", href: "/points" },
       { label: "Billets & trajets", href: "/billets" },
-      { label: "Litiges", href: "/litiges", badge: 5 },
+      { label: "Litiges", href: "/litiges", badge: "litiges" },
       { label: "Finances", href: "/finances" },
       { label: "Configuration des frais", href: "/frais" },
-      { label: "Modération", href: "/moderation", badge: 4 },
+      { label: "Modération", href: "/moderation", badge: "moderation" },
     ],
   },
   {
@@ -64,8 +68,48 @@ const groups: NavGroup[] = [
   },
 ];
 
+/** Compteurs réels affichés en pastille. 0 = pas de pastille affichée. */
+type Compteurs = Record<CleBadge, number>;
+const compteursVides: Compteurs = { agences: 0, litiges: 0, moderation: 0 };
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [membre, setMembre] = useState<Membre | null>(null);
+  const [compteurs, setCompteurs] = useState<Compteurs>(compteursVides);
+
+  useEffect(() => {
+    setMembre(getMembre());
+  }, []);
+
+  useEffect(() => {
+    let annule = false;
+    async function charger() {
+      try {
+        // Agences en attente et litiges ouverts : routes réelles existantes.
+        const [ag, lit] = await Promise.allSettled([
+          apiFetch("/api/admin/agences-en-attente"),
+          apiFetch("/api/litiges/admin/tous"),
+        ]);
+        if (annule) return;
+        setCompteurs({
+          agences: ag.status === "fulfilled" ? (ag.value.agences?.length ?? 0) : 0,
+          litiges: lit.status === "fulfilled" ? (lit.value.litiges?.length ?? 0) : 0,
+          // BRANCHEMENT : GET /api/admin/moderation → { commentaires: [...] }
+          moderation: 0,
+        });
+      } catch {
+        if (!annule) setCompteurs(compteursVides);
+      }
+    }
+    charger();
+    return () => { annule = true; };
+  }, [pathname]);
+
+  function seDeconnecter() {
+    clearSession();
+    router.replace("/login");
+  }
 
   return (
     <aside className="bg-green-900 text-on-dark px-4 py-7 flex flex-col sticky top-0 h-screen overflow-y-auto w-[248px] shrink-0">
@@ -88,6 +132,7 @@ export default function Sidebar() {
           {group.items.map((item) => {
             const active = item.href && pathname === item.href;
             const isLocked = !!item.locked;
+            const valeurBadge = item.badge ? compteurs[item.badge] : 0;
             const content = (
               <div
                 className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13.5px] mb-0.5 transition-colors ${
@@ -104,9 +149,9 @@ export default function Sidebar() {
                   }`}
                 />
                 {item.label}
-                {item.badge && (
+                {valeurBadge > 0 && (
                   <span className="ml-auto text-[10.5px] font-bold bg-red text-white rounded-full px-1.5">
-                    {item.badge}
+                    {valeurBadge}
                   </span>
                 )}
                 {item.locked === "later" && <span className="ml-auto text-[10px]">🔒</span>}
@@ -129,13 +174,24 @@ export default function Sidebar() {
           <ThemeToggle />
         </div>
         <div className="mt-2 pt-3.5 border-t border-white/10 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold">
-            SP
+          <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold shrink-0">
+            {initialesMembre(membre)}
           </div>
-          <div className="text-[12.5px]">
-            <b className="block text-[13px]">Stéphane P.</b>
-            <span className="text-white/50 text-[11px]">Super Admin</span>
+          <div className="text-[12.5px] min-w-0">
+            <b className="block text-[13px] truncate">
+              {membre ? `${membre.prenom} ${membre.nom}` : "—"}
+            </b>
+            <span className="text-white/50 text-[11px]">
+              {membre && String(membre.niveau) === "0" ? "Super Admin" : membre ? `Niveau ${membre.niveau}` : ""}
+            </span>
           </div>
+          <button
+            onClick={seDeconnecter}
+            title="Se déconnecter"
+            className="ml-auto text-white/50 hover:text-white text-[11px] font-semibold shrink-0"
+          >
+            Quitter
+          </button>
         </div>
       </div>
     </aside>

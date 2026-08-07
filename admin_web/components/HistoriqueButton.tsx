@@ -1,20 +1,17 @@
 "use client";
 // Bouton "Historique" réutilisable — le contenu (entrees) est fourni par
 // chaque page pour rester pertinent (pas le même historique générique partout).
-// ⚠️ Toujours démo : aucune page n'a de vraie table de log détaillé en base.
+// PRÊT À BRANCHER : passer les entrées chargées depuis le backend. Tant
+// qu'aucune route de journal n'existe, les pages passent un tableau vide.
 
 import { useState } from "react";
 import DateNav from "./DateNav";
 
 export type EntreeHistorique = { heure: string; action: string; auteur: string };
 
-const entreesParDefaut: EntreeHistorique[] = [
-  { heure: "09:14", action: "Consultation de la page", auteur: "s.piobli" },
-];
-
 export default function HistoriqueButton({
   label = "Historique",
-  entrees = entreesParDefaut,
+  entrees = [],
 }: {
   label?: string;
   entrees?: EntreeHistorique[];
@@ -44,9 +41,9 @@ export default function HistoriqueButton({
                 {e.action} <span className="text-ink-soft">— {e.auteur}</span>
               </div>
             ))}
-          </div>
-          <div className="text-[10.5px] text-ink-soft mt-3 pt-2 border-t border-line">
-            Démo — aucun journal détaillé n&apos;existe encore pour cette page côté backend
+            {entrees.length === 0 && (
+              <div className="text-[12.5px] text-ink-soft py-2">Aucune entrée pour cette date.</div>
+            )}
           </div>
         </div>
       )}

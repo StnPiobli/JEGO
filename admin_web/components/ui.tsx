@@ -61,10 +61,12 @@ export function BtnMini({
   children,
   variant = "default",
   onClick,
+  disabled = false,
 }: {
   children: React.ReactNode;
   variant?: "default" | "primary" | "danger" | "danger-primary";
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   const map: Record<string, string> = {
     default: "border border-green-500 text-green-700 bg-transparent",
@@ -75,7 +77,10 @@ export function BtnMini({
   return (
     <button
       onClick={onClick}
-      className={`text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 ${map[variant]}`}
+      disabled={disabled}
+      className={`text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 ${map[variant]} ${
+        disabled ? "opacity-40 cursor-not-allowed" : ""
+      }`}
     >
       {children}
     </button>
@@ -122,9 +127,8 @@ export function LockedPage({
   );
 }
 
-// Bandeau de confirmation démo — pas de backend, juste un retour visuel
-// pour que chaque action ait un effet visible pendant les tests.
-export function ToastDemo({ message }: { message: string | null }) {
+// Bandeau de confirmation — retour visuel après une action réussie ou échouée.
+export function Toast({ message }: { message: string | null }) {
   if (!message) return null;
   return (
     <div className="fixed bottom-6 right-6 bg-green-700 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl shadow-card z-50">

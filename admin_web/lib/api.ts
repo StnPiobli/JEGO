@@ -18,10 +18,20 @@ export function clearSession() {
   localStorage.removeItem("jego_admin_membre");
 }
 
-export function getMembre(): { id: number; nom: string; prenom: string; niveau: string } | null {
+export type Membre = { id: string; nom: string; prenom: string; niveau: number | string };
+
+export function getMembre(): Membre | null {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem("jego_admin_membre");
   return raw ? JSON.parse(raw) : null;
+}
+
+/** Initiales du membre connecté, pour l'avatar de la barre latérale. */
+export function initialesMembre(membre: Membre | null): string {
+  if (!membre) return "?";
+  const p = (membre.prenom || "").trim()[0] ?? "";
+  const n = (membre.nom || "").trim()[0] ?? "";
+  return (p + n).toUpperCase() || "?";
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}) {

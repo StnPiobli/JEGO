@@ -4,10 +4,10 @@ const {
   creerBus, listerBus, voirPlanBus,
   marquerToilettes, marquerAbime, reactiverSieges, marquerPremium
 } = require('../controllers/busController');
-const { authentifier } = require('../middleware/auth');
+const { authentifier, verifierAgenceActive } = require('../middleware/auth');
 
 // Gestion des bus
-router.post('/', authentifier, creerBus);
+router.post('/', authentifier, verifierAgenceActive, creerBus);
 router.get('/', authentifier, listerBus);
 router.get('/:id/plan', authentifier, voirPlanBus);
 

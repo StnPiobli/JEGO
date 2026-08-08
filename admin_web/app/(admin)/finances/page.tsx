@@ -1,19 +1,20 @@
 "use client";
-// PRÊT À BRANCHER — finances (commissionnement, remboursements, revenu JEGO).
-// Routes attendues :
+// BRANCHÉ SUR LE VRAI BACKEND — finances.
 //   GET /api/admin/finances/resume?date=YYYY-MM-DD
-//     → { revenuMois, revenuJour, commissionMoyenne, remboursementsEnCours,
-//         detailRevenuMois: [{ label, valeur }], detailRevenuJour: [...],
-//         detailRemboursements: [...] }
-//   GET /api/admin/finances/serie?jours=7   → { serie: [{ jour, valeur }] }
+//   GET /api/admin/finances/serie?jours=7
 //   GET /api/admin/finances/transactions?date=YYYY-MM-DD
-//     → { transactions: [{ id, client, agence, paye, verse, frais, marge, ref }] }
+//
+// Le revenu JEGO vient de escrow.montant_jego : déjà net des frais Mobile
+// Money et des réductions en points appliquées au moment du paiement.
+// La commission moyenne est celle RÉELLEMENT constatée sur les 30 derniers
+// jours (marge / prix agence), pas le taux théorique de la grille.
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Panel, ExpandableCard, StatCard, Toast } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type PointSerie = { jour: string; valeur: number };
 type Detail = { label: string; valeur: string };
@@ -23,6 +24,7 @@ type Transaction = {
 };
 type Resume = {
   revenuMois: string; revenuJour: string; commissionMoyenne: string; remboursementsEnCours: string;
+  billetsMois?: string;
   detailRevenuMois: Detail[]; detailRevenuJour: Detail[]; detailRemboursements: Detail[];
 };
 
@@ -45,6 +47,9 @@ function TableDetail({ lignes }: { lignes: Detail[] }) {
 export default function FinancesPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [date, setDate] = useState(new Date());
+  // Mois choisi indépendamment du jour : on consulte souvent le revenu d'un
+  // mois entier sans vouloir changer la journée affichée en dessous.
+  const [mois, setMois] = useState(() => new Date().toISOString().slice(0, 7));
   const [resume, setResume] = useState<Resume>(resumeVide);
   const [serie, setSerie] = useState<PointSerie[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -53,20 +58,30 @@ export default function FinancesPage() {
 
   const max = useMemo(() => Math.max(...serie.map((s) => s.valeur), 1), [serie]);
 
+  const libelleMois = useMemo(() => {
+    const [a, m] = mois.split("-");
+    return new Date(Number(a), Number(m) - 1, 1)
+      .toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  }, [mois]);
+
+  // "aujourd'hui" seulement si c'est vraiment aujourd'hui, sinon la date lue.
+  const libelleJour = useMemo(() => {
+    const auj = new Date().toDateString() === date.toDateString();
+    return auj ? "aujourd'hui" : date.toLocaleDateString("fr-FR");
+  }, [date]);
+
   useEffect(() => {
     let annule = false;
     async function charger() {
       setChargement(true);
       try {
-        // BRANCHEMENT :
-        // const iso = date.toISOString().slice(0, 10);
-        // const r = await apiFetch(`/api/admin/finances/resume?date=${iso}`);
-        // if (!annule) setResume(r);
-        // const s = await apiFetch("/api/admin/finances/serie?jours=7");
-        // if (!annule) setSerie(s.serie || []);
-        // const t = await apiFetch(`/api/admin/finances/transactions?date=${iso}`);
-        // if (!annule) setTransactions(t.transactions || []);
-        if (!annule) { setResume(resumeVide); setSerie([]); setTransactions([]); setErreur(null); }
+        const iso = date.toISOString().slice(0, 10);
+        const r = await apiFetch(`/api/admin/finances/resume?date=${iso}&mois=${mois}`);
+        if (!annule) setResume({ ...resumeVide, ...r });
+        const serieRes = await apiFetch(`/api/admin/finances/serie?jours=7&date=${iso}`);
+        if (!annule) setSerie(serieRes.serie || []);
+        const t = await apiFetch(`/api/admin/finances/transactions?date=${iso}`);
+        if (!annule) { setTransactions(t.transactions || []); setErreur(null); }
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les finances.");
       } finally {
@@ -75,7 +90,7 @@ export default function FinancesPage() {
     }
     charger();
     return () => { annule = true; };
-  }, [date]);
+  }, [date, mois]);
 
   return (
     <div>
@@ -86,15 +101,31 @@ export default function FinancesPage() {
         </div>
         <HistoriqueButton label="Historique financier" entrees={[]} />
       </div>
-      <div className="mb-4"><DateNav date={date} onChange={setDate} /></div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <DateNav date={date} onChange={setDate} />
+        <label className="flex items-center gap-2 text-[12px] text-ink-soft">
+          Mois analysé
+          <input
+            type="month"
+            value={mois}
+            onChange={(e) => setMois(e.target.value)}
+            className="px-2.5 py-1.5 border border-line rounded-lg text-xs bg-transparent"
+          />
+        </label>
+      </div>
 
       {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
 
       <div className="grid grid-cols-4 gap-3.5 mb-4">
-        <ExpandableCard num={resume.revenuMois} label="Revenu net JEGO — mois en cours">
-          <TableDetail lignes={resume.detailRevenuMois} />
+        <ExpandableCard num={resume.revenuMois} label={`Revenu net JEGO — ${libelleMois}`}>
+          <TableDetail
+            lignes={[
+              ...(resume.billetsMois ? [{ label: "Billets vendus", valeur: resume.billetsMois }] : []),
+              ...resume.detailRevenuMois,
+            ]}
+          />
         </ExpandableCard>
-        <ExpandableCard num={resume.revenuJour} label="Revenu net — aujourd'hui">
+        <ExpandableCard num={resume.revenuJour} label={`Revenu net — ${libelleJour}`}>
           <TableDetail lignes={resume.detailRevenuJour} />
         </ExpandableCard>
         <StatCard num={resume.commissionMoyenne} label="Commission moyenne appliquée" />
@@ -104,7 +135,7 @@ export default function FinancesPage() {
       </div>
 
       <div className="grid grid-cols-[1.4fr_1fr] gap-4">
-        <Panel title="Revenu net — évolution 7 jours">
+        <Panel title={`Revenu net — 7 jours jusqu'au ${date.toLocaleDateString("fr-FR")}`}>
           <div className="px-[18px] py-4">
             {serie.length === 0 ? (
               <div className="h-[160px] flex items-center justify-center text-ink-soft text-[12.5px]">

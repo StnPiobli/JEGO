@@ -5,8 +5,8 @@ const {
   listerParametres, modifierParametre,
   listerVoyageurs, modifierStatutVoyageur,
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
-  listerAgences,
-  listerTrajetsAdmin, resumeTrajetsAdmin
+  listerTrajetsAdmin, resumeTrajetsAdmin,
+  resumeFinances, serieFinances, transactionsFinances
 } = require('../controllers/adminController');
 
 // Accès simple admin, sans permission RBAC dédiée — cohérent avec la
@@ -17,6 +17,11 @@ function adminSeul(req, res, next) {
   }
   next();
 }
+const {
+  listerAgencesAdmin, documentsAgence, telechargerDocument, statuerDocument,
+  demanderPieces, listerDemandesPieces, cloreDemandePieces,
+  envoyerMessageAgence, rappelProgrammation, desactiverAgence
+} = require('../controllers/agenceAdminController');
 const { authentifier, verifierPermission } = require('../middleware/auth');
 
 router.post('/connexion', connexion);
@@ -30,8 +35,17 @@ router.put('/parametres/:cle', authentifier, verifierPermission('modifier_parame
 router.get('/voyageurs', authentifier, adminSeul, listerVoyageurs);
 router.put('/voyageurs/:id/statut', authentifier, adminSeul, modifierStatutVoyageur);
 
-// Agences (liste filtrable — distincte de la file de validation)
-router.get('/agences', authentifier, adminSeul, listerAgences);
+// Agences — liste filtrable, distincte de la file de validation
+router.get('/agences', authentifier, adminSeul, listerAgencesAdmin);
+router.get('/agences/:id/documents', authentifier, adminSeul, documentsAgence);
+router.get('/agences/:id/documents/:docId/fichier', authentifier, adminSeul, telechargerDocument);
+router.put('/agences/:id/documents/:docId', authentifier, adminSeul, statuerDocument);
+router.post('/agences/:id/demande-pieces', authentifier, adminSeul, demanderPieces);
+router.get('/agences/:id/demandes-pieces', authentifier, adminSeul, listerDemandesPieces);
+router.put('/agences/:id/demandes-pieces/:demandeId/clore', authentifier, adminSeul, cloreDemandePieces);
+router.post('/agences/:id/message', authentifier, adminSeul, envoyerMessageAgence);
+router.post('/agences/:id/rappel', authentifier, adminSeul, rappelProgrammation);
+router.put('/agences/:id/desactiver', authentifier, adminSeul, desactiverAgence);
 
 // Configuration des frais
 router.get('/frais', authentifier, adminSeul, listerFrais);
@@ -42,5 +56,10 @@ router.delete('/frais/derogations/:id', authentifier, adminSeul, supprimerDeroga
 // Billets & trajets (vue globale toutes agences)
 router.get('/trajets', authentifier, adminSeul, listerTrajetsAdmin);
 router.get('/trajets/resume', authentifier, adminSeul, resumeTrajetsAdmin);
+
+// Finances
+router.get('/finances/resume', authentifier, adminSeul, resumeFinances);
+router.get('/finances/serie', authentifier, adminSeul, serieFinances);
+router.get('/finances/transactions', authentifier, adminSeul, transactionsFinances);
 
 module.exports = router;

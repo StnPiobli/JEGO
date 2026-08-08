@@ -751,11 +751,176 @@ async function resumeTrajetsAdmin(req, res) {
   }
 }
 
+// ═══════════════════════════════════════════════════
+// FINANCES — cartes de résumé
+// Le revenu JEGO vient de escrow.montant_jego (déjà net des frais MoMo et
+// des réductions points au moment du paiement). Un billet vendu au guichet
+// ne rapporte rien à JEGO tant qu'aucune commission n'est prélevée dessus.
+// ═══════════════════════════════════════════════════
+async function resumeFinances(req, res) {
+  try {
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+    // Le mois peut être choisi indépendamment du jour consulté (format
+    // YYYY-MM). Sans paramètre, on prend le mois du jour affiché.
+    const moisRef = req.query.mois ? `${req.query.mois}-01` : jour;
+
+    const mois = await pool.query(
+      `SELECT COALESCE(SUM(e.montant_jego), 0) AS revenu,
+              COUNT(*) AS billets
+       FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       WHERE DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)
+         AND b.statut IN ('confirme', 'utilise')`,
+      [moisRef]
+    );
+
+    const detailMois = await pool.query(
+      `SELECT a.nom AS label, SUM(e.montant_jego)::text || ' F' AS valeur
+       FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       JOIN agences a ON a.id = b.agence_id
+       WHERE DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)
+         AND b.statut IN ('confirme', 'utilise')
+       GROUP BY a.nom ORDER BY SUM(e.montant_jego) DESC LIMIT 5`,
+      [moisRef]
+    );
+
+    const dujour = await pool.query(
+      `SELECT COALESCE(SUM(e.montant_jego), 0) AS revenu,
+              COUNT(*) AS billets,
+              COALESCE(SUM(e.montant_agence), 0) AS verse_agences
+       FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       WHERE b.cree_le::date = $1::date
+         AND b.statut IN ('confirme', 'utilise')`,
+      [jour]
+    );
+
+    // Commission moyenne réellement constatée : marge JEGO rapportée au
+    // prix agence, pas le taux théorique de la grille.
+    const commission = await pool.query(
+      `SELECT COALESCE(ROUND(AVG(b.marge_jego::numeric / NULLIF(b.prix_agence, 0) * 100), 1), 0) AS taux
+       FROM billets b
+       WHERE b.statut IN ('confirme', 'utilise')
+         AND b.cree_le >= $1::date - INTERVAL '30 days'`,
+      [jour]
+    );
+
+    const remboursements = await pool.query(
+      `SELECT COALESCE(SUM(montant), 0) AS total, COUNT(*) AS nb
+       FROM remboursements WHERE statut = 'en_attente'`
+    );
+
+    const detailRemboursements = await pool.query(
+      `SELECT motif AS label,
+              SUM(montant)::text || ' F (' || COUNT(*) || ')' AS valeur
+       FROM remboursements WHERE statut = 'en_attente'
+       GROUP BY motif ORDER BY SUM(montant) DESC`
+    );
+
+    const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' F';
+
+    res.json({
+      revenuMois: fmt(mois.rows[0].revenu),
+      revenuJour: fmt(dujour.rows[0].revenu),
+      commissionMoyenne: commission.rows[0].taux + '%',
+      remboursementsEnCours: fmt(remboursements.rows[0].total),
+      billetsMois: String(mois.rows[0].billets),
+      detailRevenuMois: detailMois.rows,
+      detailRevenuJour: [
+        { label: 'Billets vendus', valeur: String(dujour.rows[0].billets) },
+        { label: 'Versé aux agences', valeur: fmt(dujour.rows[0].verse_agences) },
+      ],
+      detailRemboursements: detailRemboursements.rows,
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// FINANCES — série pour le graphe (revenu net par jour)
+// Génère TOUS les jours de la période, même ceux sans vente, sinon le
+// graphe saute les jours vides et devient trompeur.
+// ═══════════════════════════════════════════════════
+async function serieFinances(req, res) {
+  try {
+    const jours = Math.min(parseInt(req.query.jours) || 7, 90);
+    // La série se termine à la date consultée, pas à aujourd'hui : sinon le
+    // graphe reste figé pendant que le reste de la page suit la navigation.
+    const fin = req.query.date || new Date().toISOString().slice(0, 10);
+
+    const resultat = await pool.query(
+      `SELECT
+          j.jour,
+          EXTRACT(DOW FROM j.jour)::int AS num_jour,
+          COALESCE(SUM(e.montant_jego), 0)::int AS valeur
+       FROM GENERATE_SERIES($2::date - ($1::int - 1), $2::date, '1 day') AS j(jour)
+       LEFT JOIN billets b ON b.cree_le::date = j.jour AND b.statut IN ('confirme', 'utilise')
+       LEFT JOIN escrow e ON e.billet_id = b.id
+       GROUP BY j.jour ORDER BY j.jour ASC`,
+      [jours, fin]
+    );
+
+    // Libellés en français : TO_CHAR suit la locale du serveur PostgreSQL
+    // (souvent en anglais), ce qui donnait "Sat/Sun" sur une interface FR.
+    const joursFr = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+    res.json({
+      serie: resultat.rows.map((r) => ({
+        jour: joursFr[r.num_jour],
+        date: r.jour,
+        valeur: r.valeur,
+      }))
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// FINANCES — transactions du jour
+// ═══════════════════════════════════════════════════
+async function transactionsFinances(req, res) {
+  try {
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+
+    const resultat = await pool.query(
+      `SELECT
+          b.id, b.numero,
+          v.prenom || ' ' || v.nom AS client,
+          a.nom AS agence,
+          e.montant_total AS paye,
+          e.montant_agence AS verse,
+          e.frais_momo AS frais,
+          e.montant_jego AS marge,
+          COALESCE(p.reference_momo, b.numero) AS ref
+       FROM billets b
+       JOIN escrow e ON e.billet_id = b.id
+       JOIN voyageurs v ON v.id = b.voyageur_id
+       JOIN agences a ON a.id = b.agence_id
+       LEFT JOIN paiements p ON p.billet_id = b.id AND p.type = 'paiement'
+       WHERE b.cree_le::date = $1::date
+         AND b.statut IN ('confirme', 'utilise')
+       ORDER BY b.cree_le DESC`,
+      [jour]
+    );
+
+    res.json({ transactions: resultat.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
   listerVoyageurs, modifierStatutVoyageur,
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
   listerAgences,
-  listerTrajetsAdmin, resumeTrajetsAdmin
+  listerTrajetsAdmin, resumeTrajetsAdmin,
+  resumeFinances, serieFinances, transactionsFinances
 };

@@ -10,7 +10,12 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// express.json() doit laisser passer les envois de fichiers : la route
+// de téléversement lit le flux multipart brut elle-même.
+app.use((req, res, next) => {
+  if ((req.headers['content-type'] || '').startsWith('multipart/form-data')) return next();
+  express.json()(req, res, next);
+});
 app.use('/api/voyageurs', require('./routes/voyageurRoutes'));
 app.use('/api/agences', require('./routes/agenceRoutes'));
 app.use('/api/bus', require('./routes/busRoutes'));

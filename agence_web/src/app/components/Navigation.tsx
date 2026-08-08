@@ -17,6 +17,7 @@ const liens = [
   { href: '/chauffeurs', label: 'Chauffeurs' },
   { href: '/reservations', label: 'Reservations' },
   { href: '/paiements', label: 'Paiements' },
+  { href: '/documents', label: 'Documents' },
   { href: '/incidents', label: 'Incidents / Litiges' },
   { href: '/discussion', label: 'Discussion' },
 ];

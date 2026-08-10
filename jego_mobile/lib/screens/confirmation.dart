@@ -1,8 +1,6 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/billets_store.dart';
-import '../config/donnees_demo.dart';
 import '../config/reservation.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
@@ -26,17 +24,14 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
 
   Reservation get r => widget.reservation;
 
-  // Revele les sieges attribues automatiquement (mode auto), sinon garde le choix.
+  /// Sièges effectivement attribués.
+  ///
+  /// Même en mode automatique, les places ont été choisies parmi les
+  /// sièges réellement libres du bus avant le paiement : il n'y a
+  /// donc plus rien à « révéler », on affiche ce qui a été payé.
   List<int> _siegesReveles(
       Map<String, dynamic> offre, List<int> choisis, bool auto) {
-    if (!auto) return choisis;
-    final plan = DonneesDemo.planSieges(offre['id'] as int);
-    final libres = plan
-        .where((s) => s['statut'] == 'disponible')
-        .map((s) => s['numero'] as int)
-        .toList();
-    libres.shuffle(Random(offre['id'] as int));
-    return libres.take(r.passagers).toList()..sort();
+    return choisis;
   }
 
   @override

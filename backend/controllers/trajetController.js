@@ -427,4 +427,127 @@ async function annulerTrajet(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet, declarerRetard };
+
+// ═══════════════════════════════════════════════════
+// LISTER LES PASSAGERS D'UN TRAJET (agence)
+//
+// Alimente la page « Réservations » du portail agence : qui monte,
+// à quel siège, à quel arrêt il embarque et descend, et s'il est
+// déjà monté à bord (QR scanné).
+// ═══════════════════════════════════════════════════
+async function passagersTrajet(req, res) {
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+    const trajetId = req.params.id;
+
+    const trajet = await pool.query(
+      `SELECT t.id, t.date_depart, t.heure_depart, t.statut,
+              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' || to_char(t.heure_depart, 'HH24MI') || '-' || UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
+              b.nom AS nom_bus,
+              (SELECT COUNT(*) FROM sieges s WHERE s.bus_id = b.id AND s.statut = 'disponible') AS capacite
+       FROM trajets t
+       JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
+       JOIN bus b ON b.id = t.bus_id
+       WHERE t.id = $1 AND t.agence_id = $2`,
+      [trajetId, req.utilisateur.id]
+    );
+    if (trajet.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable dans votre agence' });
+    }
+
+    const passagers = await pool.query(
+      `SELECT b.id, b.numero, b.statut, b.source_vente, b.qr_scanne,
+              b.prix_total_client, b.supplement_bagage, b.est_flexible,
+              b.point_embarquement_ordre, b.point_debarquement_ordre,
+              s.numero AS siege,
+              v.nom, v.prenom, v.telephone,
+              pe.ville AS ville_embarquement, pd.ville AS ville_debarquement
+       FROM billets b
+       JOIN sieges s ON s.id = b.siege_id
+       JOIN voyageurs v ON v.id = b.voyageur_id
+       JOIN trajets t ON t.id = b.trajet_id
+       LEFT JOIN ligne_points pe ON pe.ligne_id = t.ligne_id AND pe.ordre = b.point_embarquement_ordre
+       LEFT JOIN ligne_points pd ON pd.ligne_id = t.ligne_id AND pd.ordre = b.point_debarquement_ordre
+       WHERE b.trajet_id = $1 AND b.statut IN ('confirme', 'utilise')
+       ORDER BY s.numero`,
+      [trajetId]
+    );
+
+    res.json({
+      trajet: trajet.rows[0],
+      nombre_passagers: passagers.rows.length,
+      passagers: passagers.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// VERSEMENTS REÇUS PAR L'AGENCE (escrow)
+//
+// Alimente la page « Paiements » : ce que l'agence a réellement
+// touché, ce qui est encore retenu, et ce qui a été remboursé.
+// ═══════════════════════════════════════════════════
+async function versementsAgence(req, res) {
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+    const agenceId = req.utilisateur.id;
+
+    const resume = await pool.query(
+      `SELECT
+         COALESCE(SUM(e.montant_agence) FILTER (WHERE e.statut = 'verse'), 0)     AS deja_verse,
+         COALESCE(SUM(e.montant_agence) FILTER (WHERE e.statut = 'retenu'), 0)    AS en_attente,
+         COALESCE(SUM(e.montant_agence) FILTER (WHERE e.statut = 'rembourse'), 0) AS rembourse,
+         COALESCE(SUM(e.montant_jego), 0)                                         AS commission_jego,
+         COUNT(*)                                                                 AS nombre_billets
+       FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       WHERE b.agence_id = $1`,
+      [agenceId]
+    );
+
+    // Détail par trajet : c'est ainsi que l'argent est réellement
+    // versé (un versement par trajet, 6 h après l'arrivée).
+    const parTrajet = await pool.query(
+      `SELECT t.id AS trajet_id,
+              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' || to_char(t.heure_depart, 'HH24MI') || '-' || UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero,
+              t.date_depart, t.heure_depart,
+              t.versement_escrow_le,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
+              COUNT(e.id) AS nombre_billets,
+              COALESCE(SUM(e.montant_agence), 0) AS montant_agence,
+              COALESCE(SUM(e.montant_jego), 0)   AS commission_jego,
+              COALESCE(SUM(e.frais_momo), 0)     AS frais_momo,
+              BOOL_AND(e.statut = 'verse')       AS entierement_verse,
+              MAX(e.verse_le)                    AS verse_le
+       FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       JOIN trajets t ON t.id = b.trajet_id
+       JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
+       WHERE b.agence_id = $1
+       GROUP BY t.id, t.date_depart, t.heure_depart,
+                t.versement_escrow_le, vd.nom_affiche, va.nom_affiche
+       ORDER BY t.date_depart DESC, t.heure_depart DESC
+       LIMIT 100`,
+      [agenceId]
+    );
+
+    res.json({ resume: resume.rows[0], versements: parTrajet.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet, declarerRetard, passagersTrajet, versementsAgence };

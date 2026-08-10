@@ -10,7 +10,7 @@ class EcranSecurite extends StatelessWidget {
       titre: 'Securite',
       icone: Icons.lock_outline_rounded,
       description:
-          'Ces reglages ne sont pas encore connectes a un vrai systeme de securite (demo).',
+          'Ces réglages ne sont pas encore actifs.',
       items: [
         ItemToggleGenerique(Icons.fingerprint_rounded, 'Deverrouillage biometrique'),
         ItemToggleGenerique(Icons.shield_rounded, 'Verification en 2 etapes'),

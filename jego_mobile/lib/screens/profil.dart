@@ -22,8 +22,8 @@ import 'wallet.dart';
 class EcranProfil extends StatelessWidget {
   const EcranProfil({super.key});
 
-  /// Points JEGO en demo. Au branchement : solde reel du voyageur.
-  static const int pointsDemo = 1200;
+  /// Solde réel de points JEGO, tenu par le serveur.
+  static int get pointsJego => Session.pointsFidelite;
 
   /// Fonds d'avatar JEGO proposes (degrades). Index stocke dans Session.
   static const List<List<Color>> fondsAvatar = [
@@ -758,7 +758,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                           size: 14, color: JegoTheme.etoile),
                       const SizedBox(width: 4),
                       Text(
-                        '${_fmtPoints(EcranProfil.pointsDemo)} ${Strings.t('profil_points')}',
+                        '${_fmtPoints(EcranProfil.pointsJego)} ${Strings.t('profil_points')}',
                         style: const TextStyle(
                             color: JegoTheme.texteSecondaire,
                             fontSize: 12.5,

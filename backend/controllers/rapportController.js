@@ -1,16 +1,14 @@
 const pool = require('../config/database');
+const { genererPdfRapportAgence, genererPdfRapportJego } = require('../utils/pdfRapport');
 
 // ═══════════════════════════════════════════════════
 // RAPPORT AGENCE (agence connectée, période libre)
 // ═══════════════════════════════════════════════════
-async function rapportAgence(req, res) {
-  try {
-    const agenceId = req.utilisateur.id;
-    const { date_debut, date_fin } = req.query;
-
-    if (!date_debut || !date_fin) {
-      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
-    }
+// Calcule les données du rapport agence. Partagé par la sortie JSON
+// et la sortie PDF : une seule source de vérité, aucun risque de voir
+// les deux formats diverger.
+async function calculerRapportAgence(agenceId, date_debut, date_fin) {
+  {
 
     const billets = await pool.query(
       `SELECT COUNT(*) AS nb_billets,
@@ -49,7 +47,7 @@ async function rapportAgence(req, res) {
       [agenceId, date_debut, date_fin]
     );
 
-    res.json({
+    return {
       periode: { debut: date_debut, fin: date_fin },
       ventes: {
         nombre_billets: parseInt(billets.rows[0].nb_billets),
@@ -67,10 +65,55 @@ async function rapportAgence(req, res) {
         nombre_avis: parseInt(avis.rows[0].nb_avis)
       },
       litiges: parseInt(litiges.rows[0].nb_litiges)
-    });
+    };
+  }
+}
 
+// ═══════════════════════════════════════════════════
+// RAPPORT AGENCE — sortie JSON
+// ═══════════════════════════════════════════════════
+async function rapportAgence(req, res) {
+  try {
+    const { date_debut, date_fin } = req.query;
+    if (!date_debut || !date_fin) {
+      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
+    }
+    const donnees = await calculerRapportAgence(req.utilisateur.id, date_debut, date_fin);
+    res.json(donnees);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// RAPPORT AGENCE — sortie PDF
+// ═══════════════════════════════════════════════════
+async function rapportAgencePdf(req, res) {
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+    const { date_debut, date_fin } = req.query;
+    if (!date_debut || !date_fin) {
+      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
+    }
+
+    const agenceId = req.utilisateur.id;
+    const donnees = await calculerRapportAgence(agenceId, date_debut, date_fin);
+
+    const infoAgence = await pool.query('SELECT nom FROM agences WHERE id = $1', [agenceId]);
+    const nomAgence = infoAgence.rows[0]?.nom || 'Agence';
+
+    const nomFichier = `JEGO_rapport_${nomAgence.replace(/[^a-zA-Z0-9]/g, '_')}_${date_debut}_${date_fin}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomFichier}"`);
+
+    const doc = genererPdfRapportAgence(donnees, nomAgence);
+    doc.pipe(res);
+    doc.end();
+
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 }
 
@@ -78,15 +121,9 @@ async function rapportAgence(req, res) {
 // RAPPORT JEGO GLOBAL (admin) — période libre + classement
 // agences par rentabilité + comparaison période précédente
 // ═══════════════════════════════════════════════════
-async function rapportJego(req, res) {
-  try {
-    if (req.utilisateur.type !== 'admin') {
-      return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
-    }
-    const { date_debut, date_fin } = req.query;
-    if (!date_debut || !date_fin) {
-      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
-    }
+// Calcule les données du rapport global. Partagé JSON / PDF.
+async function calculerRapportJego(date_debut, date_fin) {
+  {
 
     // Calcul de la période précédente, de même durée, pour comparaison
     const dureeJours = Math.round((new Date(date_fin) - new Date(date_debut)) / 86400000) + 1;
@@ -156,7 +193,7 @@ async function rapportJego(req, res) {
       [date_debut, date_fin]
     );
 
-    res.json({
+    return {
       periode: { debut: date_debut, fin: date_fin, jours: dureeJours },
       periode_comparee: { debut: debutPrecStr, fin: finPrecStr },
       finances: {
@@ -184,11 +221,55 @@ async function rapportJego(req, res) {
         nombre_billets: parseInt(a.nb_billets),
         marge_generee_jego: parseInt(a.marge_generee)
       }))
-    });
+    };
+  }
+}
 
+// ═══════════════════════════════════════════════════
+// RAPPORT JEGO GLOBAL — sortie JSON
+// ═══════════════════════════════════════════════════
+async function rapportJego(req, res) {
+  try {
+    if (req.utilisateur.type !== 'admin') {
+      return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
+    }
+    const { date_debut, date_fin } = req.query;
+    if (!date_debut || !date_fin) {
+      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
+    }
+    const donnees = await calculerRapportJego(date_debut, date_fin);
+    res.json(donnees);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
-module.exports = { rapportAgence, rapportJego };
+// ═══════════════════════════════════════════════════
+// RAPPORT JEGO GLOBAL — sortie PDF
+// ═══════════════════════════════════════════════════
+async function rapportJegoPdf(req, res) {
+  try {
+    if (req.utilisateur.type !== 'admin') {
+      return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
+    }
+    const { date_debut, date_fin } = req.query;
+    if (!date_debut || !date_fin) {
+      return res.status(400).json({ error: 'date_debut et date_fin sont obligatoires (format YYYY-MM-DD)' });
+    }
+
+    const donnees = await calculerRapportJego(date_debut, date_fin);
+
+    const nomFichier = `JEGO_rapport_global_${date_debut}_${date_fin}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomFichier}"`);
+
+    const doc = genererPdfRapportJego(donnees);
+    doc.pipe(res);
+    doc.end();
+
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { rapportAgence, rapportAgencePdf, rapportJego, rapportJegoPdf };

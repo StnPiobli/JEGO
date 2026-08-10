@@ -10,7 +10,7 @@ class EcranConfidentialite extends StatelessWidget {
       titre: 'Confidentialite',
       icone: Icons.privacy_tip_outlined,
       description:
-          'Controle de ce que JEGO partage ou non (demo, non connecte a un vrai systeme de permissions).',
+          'Contrôle de ce que JEGO partage ou non. Ces réglages ne sont pas encore actifs.',
       items: [
         ItemToggleGenerique(Icons.location_on_outlined, 'Partager ma position pendant le trajet',
             valeurInitiale: true),

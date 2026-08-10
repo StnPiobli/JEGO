@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
-import { todayInputDate, addDaysToInput } from '../lib/date';
+import { todayInputDate } from '../lib/date';
+import { apiFetch } from '../lib/api';
 
 type Incident = {
   id: string;
@@ -18,17 +19,18 @@ type Incident = {
 };
 
 const AUJOURDHUI = todayInputDate();
-const HIER = addDaysToInput(AUJOURDHUI, -1);
-const DEMAIN = addDaysToInput(AUJOURDHUI, 1);
 
-const INCIDENTS_DEMO: Incident[] = [
-  { id: 'I1', numeroVoyage: 'JG-260727-0700-DLYDE', date: AUJOURDHUI, heureSignalement: '06:42', heureDepart: '07:00', type: 'panne', statut: 'ouvert', trajet: 'Douala → Yaounde', description: 'Probleme moteur signale avant le depart.' },
-  { id: 'I2', numeroVoyage: 'JG-260727-0700-DLYDE', date: AUJOURDHUI, heureSignalement: '07:06', heureDepart: '07:00', type: 'retard', statut: 'en_cours', trajet: 'Douala → Yaounde', description: 'Depart retarde pendant la verification technique.' },
-  { id: 'I3', numeroVoyage: 'JG-260727-0700-DLYDE', date: AUJOURDHUI, heureSignalement: '08:18', heureDepart: '07:00', type: 'autre', statut: 'ouvert', trajet: 'Douala → Yaounde', description: 'Climatisation faible signalee dans le dernier rang.' },
-  { id: 'I4', numeroVoyage: 'JG-260727-1400-YDE-DLA', date: AUJOURDHUI, heureSignalement: '14:21', heureDepart: '14:00', type: 'retard', statut: 'en_cours', trajet: 'Yaounde → Douala', description: 'Retard lie au trafic a la sortie de Yaounde.' },
-  { id: 'I5', numeroVoyage: 'JG-260726-0900-DLA-BFM', date: HIER, heureSignalement: '09:37', heureDepart: '09:00', type: 'fraude', statut: 'resolu', trajet: 'Douala → Bafoussam', description: 'Tentative de faux embarquement detectee et bloquee.' },
-  { id: 'I6', numeroVoyage: 'JG-260728-0630-DLA-BFM', date: DEMAIN, heureSignalement: '06:10', heureDepart: '06:30', type: 'retard', statut: 'ouvert', trajet: 'Douala → Bafoussam', description: 'Attente d un chauffeur remplaçant.' },
-];
+// Correspondance entre les catégories de signalement du backend et
+// les types affichés dans le portail.
+const TYPE_PAR_CATEGORIE: Record<string, Incident['type']> = {
+  exces_vitesse: 'autre',
+  conduite_dangereuse: 'accident',
+  comportement_inapproprie: 'autre',
+  panne_technique: 'panne',
+  arret_prolonge: 'retard',
+  fausse_arrivee: 'fraude',
+  autre: 'autre',
+};
 
 const libellesType: Record<Incident['type'], string> = { retard: 'Retard', panne: 'Panne', accident: 'Accident', fraude: 'Fraude', autre: 'Autre' };
 const stylesType: Record<Incident['type'], string> = {
@@ -39,13 +41,57 @@ const stylesStatut: Record<Incident['statut'], string> = { ouvert: 'bg-red/10 te
 
 export default function IncidentsPage() {
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  // Signalements réellement déposés par les passagers pendant les
+  // trajets de l'agence. L'identité des passagers n'est jamais
+  // transmise : un signalement doit pouvoir être fait sans crainte.
+  const charger = useCallback(async () => {
+    setChargement(true);
+    setErreur(null);
+    try {
+      const rep = await apiFetch('/api/signalements/mon-agence');
+      const lignes = (rep.signalements || []) as Record<string, unknown>[];
+      setIncidents(
+        lignes.map((sig) => {
+          const creeLe = new Date(String(sig.cree_le));
+          const heureSignalement = Number.isNaN(creeLe.getTime())
+            ? '--:--'
+            : `${String(creeLe.getHours()).padStart(2, '0')}:${String(creeLe.getMinutes()).padStart(2, '0')}`;
+          const statutTrajet = String(sig.statut_trajet ?? '');
+          return {
+            id: String(sig.id),
+            numeroVoyage: String(sig.numero_voyage ?? ''),
+            date: String(sig.date_depart ?? '').split('T')[0],
+            heureSignalement,
+            heureDepart: String(sig.heure_depart ?? '').slice(0, 5),
+            type: TYPE_PAR_CATEGORIE[String(sig.categorie)] ?? 'autre',
+            // Un trajet terminé clôt de fait le signalement ; un trajet
+            // en cours signifie que la situation est encore vivante.
+            statut: statutTrajet === 'termine' ? 'resolu' : (statutTrajet === 'en_cours' ? 'en_cours' : 'ouvert'),
+            trajet: `${sig.depart ?? ''} → ${sig.arrivee ?? ''}`,
+            description: String(sig.commentaire ?? 'Signalement sans commentaire.'),
+          } as Incident;
+        }),
+      );
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'Chargement impossible');
+    } finally {
+      setChargement(false);
+    }
+  }, []);
+
+  useEffect(() => { charger(); }, [charger]);
+
   const [filtreType, setFiltreType] = useState<'tous' | Incident['type']>('tous');
   const [filtreStatut, setFiltreStatut] = useState<'tous' | Incident['statut']>('tous');
   const [groupesOuverts, setGroupesOuverts] = useState<Set<string>>(new Set());
   const [recherche, setRecherche] = useState('');
 
   const groupes = useMemo(() => {
-    const filtres = INCIDENTS_DEMO.filter((incident) =>
+    const filtres = incidents.filter((incident) =>
       incident.date === dateChoisie &&
       (filtreType === 'tous' || incident.type === filtreType) &&
       (filtreStatut === 'tous' || incident.statut === filtreStatut),
@@ -59,16 +105,16 @@ export default function IncidentsPage() {
       map.get(incident.numeroVoyage)!.incidents.push(incident);
     });
     return Array.from(map.values());
-  }, [dateChoisie, filtreType, filtreStatut]);
+  }, [incidents, dateChoisie, filtreType, filtreStatut]);
 
   const resultatsRecherche = useMemo(() => {
     const terme = recherche.trim().toLowerCase();
     if (!terme) return [] as Incident[];
-    return INCIDENTS_DEMO.filter((incident) => [
+    return incidents.filter((incident) => [
       incident.numeroVoyage, incident.date, incident.heureSignalement, incident.heureDepart, incident.trajet, incident.description,
       libellesType[incident.type], libellesStatut[incident.statut],
     ].join(' ').toLowerCase().includes(terme));
-  }, [recherche]);
+  }, [incidents, recherche]);
 
   function toggle(id: string) {
     setGroupesOuverts((prev) => { const copie = new Set(prev); copie.has(id) ? copie.delete(id) : copie.add(id); return copie; });

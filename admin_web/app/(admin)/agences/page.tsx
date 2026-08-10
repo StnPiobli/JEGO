@@ -449,7 +449,7 @@ export default function AgencesPage() {
         if (!doc) return null;
         // Le fichier est servi par une route protégée : le token voyage en
         // paramètre car un <iframe> ne peut pas porter d'en-tête Authorization.
-        const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/admin/agences/${agenceConsultee}/documents/${doc.id}/fichier?token=${encodeURIComponent(getToken() || "")}`;
+        const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}/api/admin/agences/${agenceConsultee}/documents/${doc.id}/fichier?token=${encodeURIComponent(getToken() || "")}`;
         return (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setDocumentOuvert(null)}>
             <div className="bg-paper rounded-2xl shadow-card p-6 w-[720px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>

@@ -136,4 +136,49 @@ async function signaler(req, res) {
   }
 }
 
-module.exports = { signaler };
+
+// ═══════════════════════════════════════════════════
+// SIGNALEMENTS REÇUS PAR L'AGENCE (page Incidents)
+//
+// Regroupe par trajet ce que les passagers ont signalé en cours de
+// route. L'agence voit le nombre et la nature des signalements, mais
+// jamais l'identité des passagers : un signalement doit pouvoir être
+// fait sans crainte de représailles.
+// ═══════════════════════════════════════════════════
+async function signalementsAgence(req, res) {
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+
+    const resultat = await pool.query(
+      `SELECT s.id, s.categorie, s.commentaire, s.cree_le, s.trajet_id,
+              t.date_depart, t.heure_depart, t.statut AS statut_trajet,
+              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' ||
+              to_char(t.heure_depart, 'HH24MI') || '-' ||
+              UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero_voyage,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
+              c.nom AS nom_chauffeur, c.prenom AS prenom_chauffeur,
+              (SELECT COUNT(*) FROM signalements s2
+               WHERE s2.trajet_id = s.trajet_id AND s2.categorie = s.categorie)
+                AS signalements_meme_categorie
+       FROM signalements s
+       JOIN trajets t ON t.id = s.trajet_id
+       JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
+       LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
+       WHERE t.agence_id = $1
+       ORDER BY s.cree_le DESC
+       LIMIT 200`,
+      [req.utilisateur.id]
+    );
+
+    res.json({ nombre: resultat.rows.length, signalements: resultat.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { signaler, signalementsAgence };

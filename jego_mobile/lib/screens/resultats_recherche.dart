@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import '../config/api.dart';
-import '../config/donnees_demo.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import 'detail_trajet.dart';
@@ -19,6 +18,7 @@ class EcranResultatsRecherche extends StatefulWidget {
 
 class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
   bool _chargement = true;
+  String? _erreur;
   List<Map<String, dynamic>> _aller = [];
   List<Map<String, dynamic>> _retour = [];
   bool _phaseRetour = false; // false = on choisit l'aller, true = le retour
@@ -107,18 +107,48 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
     return liste;
   }
 
+  /// Interroge le vrai backend. L'aller et le retour sont deux
+  /// recherches distinctes : le retour inverse les villes et utilise
+  /// la date de retour.
   Future<void> _charger() async {
-    setState(() => _chargement = true);
-    if (ApiConfig.modeDemo) {
-      await Future.delayed(const Duration(milliseconds: 1000));
+    setState(() {
+      _chargement = true;
+      _erreur = null;
+    });
+
+    final depart = widget.params['ville_depart'] ?? '';
+    final arrivee = widget.params['ville_arrivee'] ?? '';
+    final date = widget.params['date'] ?? '';
+
+    try {
+      final aller = await ApiService.rechercherTrajets(
+        villeDepart: depart,
+        villeArrivee: arrivee,
+        date: date,
+      );
+
+      List<Map<String, dynamic>> retour = [];
+      final dateRetour = widget.params['date_retour'] ?? '';
+      if (_estAllerRetour && dateRetour.isNotEmpty) {
+        retour = await ApiService.rechercherTrajets(
+          villeDepart: arrivee,
+          villeArrivee: depart,
+          date: dateRetour,
+        );
+      }
+
       if (!mounted) return;
       setState(() {
-        _aller = _filtrer(DonneesDemo.offres
-            .map((o) => Map<String, dynamic>.from(o))
-            .toList());
-        _retour = _filtrer(DonneesDemo.offresRetour
-            .map((o) => Map<String, dynamic>.from(o))
-            .toList());
+        _aller = _filtrer(aller);
+        _retour = _filtrer(retour);
+        _chargement = false;
+      });
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erreur = e.message;
+        _aller = [];
+        _retour = [];
         _chargement = false;
       });
     }
@@ -325,7 +355,42 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
             Expanded(
               child: _chargement
                   ? _squelettes()
-                  : offres.isEmpty
+                  : _erreur != null
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.wifi_off_rounded,
+                                    size: 38, color: JegoTheme.texteSecondaire),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _erreur!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: JegoTheme.texteSecondaire,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                TextButton.icon(
+                                  onPressed: _charger,
+                                  icon: const Icon(Icons.refresh_rounded,
+                                      size: 18, color: JegoTheme.vert),
+                                  label: const Text(
+                                    'Réessayer',
+                                    style: TextStyle(
+                                      color: JegoTheme.vert,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : offres.isEmpty
                       ? Center(
                           child: Text(
                             Strings.t('resultats_aucun'),

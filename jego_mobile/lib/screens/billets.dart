@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:printing/printing.dart';
 import '../config/billets_store.dart';
+import '../config/session.dart';
 import '../config/format_date.dart';
 import '../config/pdf_billet.dart';
 import '../config/pdf_telechargement.dart';
@@ -21,6 +22,14 @@ class EcranBillets extends StatefulWidget {
 
 class _EcranBilletsState extends State<EcranBillets> {
   int _section = 0; // 0 = valides, 1 = passes
+
+  @override
+  void initState() {
+    super.initState();
+    // Les billets affichés viennent du serveur : on les charge à
+    // l'ouverture de l'onglet pour refléter l'état réel du compte.
+    if (Session.connecte.value) BilletsStore.charger();
+  }
 
   List<List<Map<String, dynamic>>> _grouper(
       List<Map<String, dynamic>> billets) {

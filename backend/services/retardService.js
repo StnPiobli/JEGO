@@ -79,17 +79,21 @@ async function appliquerBaremeRetard(client, trajetId) {
         [b.id, b.voyageur_id, montant, pourcentage, reference]
       );
       billetsRembourses++;
-      // [SIMULATION] Remboursement Mobile Money + notification
-    }
 
-    await creerNotification({
-      destinataire_type: 'voyageur',
-      destinataire_id: b.voyageur_id,
-      type: 'remboursement',
-      titre: 'Remboursement pour retard',
-      contenu: `Votre trajet a eu ${retardMinutes} min de retard. Vous êtes remboursé à hauteur de ${pourcentage}% (${montant} FCFA).`,
-      canal: 'push'
-    });
+      // La notification part pour CHAQUE passager remboursé, avec son
+      // propre montant. Elle était auparavant placée hors de cette
+      // boucle : elle référençait alors des variables inexistantes et
+      // faisait échouer toute déclaration d'arrivée d'un trajet en
+      // retard de 2 h ou plus.
+      await creerNotification({
+        destinataire_type: 'voyageur',
+        destinataire_id: b.voyageur_id,
+        type: 'remboursement',
+        titre: 'Remboursement pour retard',
+        contenu: `Votre trajet a eu ${retardMinutes} min de retard. Vous êtes remboursé à hauteur de ${pourcentage}% (${montant} FCFA).`,
+        canal: 'push'
+      });
+    }
 
   }
 

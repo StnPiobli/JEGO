@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
-import '../config/comptes_chauffeurs.dart';
+import '../config/api.dart';
 import '../config/session.dart';
 import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
@@ -122,6 +122,7 @@ class _VueConnexionState extends State<_VueConnexion> {
   final _cIdentifiant = TextEditingController(); // telephone OU email
   final _cMdp = TextEditingController();
   bool _mdpVisible = false;
+  bool _enCours = false;
   String? _erreur;
 
   @override
@@ -131,55 +132,81 @@ class _VueConnexionState extends State<_VueConnexion> {
     super.dispose();
   }
 
-  void _connecter() {
+  /// Connexion réelle contre le backend.
+  ///
+  /// Le compte voyageur et le compte chauffeur s'authentifient tous
+  /// deux par téléphone. On tente d'abord le compte voyageur ; si les
+  /// identifiants n'y correspondent pas, on essaie le compte
+  /// chauffeur avant de conclure à une erreur.
+  Future<void> _connecter() async {
+    if (_enCours) return;
+
     final id = _cIdentifiant.text.trim();
     if (id.isEmpty || _cMdp.text.isEmpty) {
       setState(() => _erreur = Strings.t('erreur_champs_requis'));
       return;
     }
 
-    // Compte chauffeur reconnu : espace chauffeur direct, aucune
-    // session voyageur n'est ouverte dans ce cas.
-    if (estCompteChauffeur(id)) {
-      if (!motDePasseChauffeurValide(id, _cMdp.text)) {
-        setState(() => _erreur = 'Mot de passe incorrect.');
-        return;
-      }
-      final compte = comptesChauffeurs[id]!;
-      SessionChauffeur.connecter(nom: compte['nom']!, agence: compte['agence']!);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
-      );
+    final estTel = RegExp(r'^\+?[0-9 ]{8,15}$').hasMatch(id);
+    if (!estTel) {
+      setState(() => _erreur =
+          'Connectez-vous avec votre numéro de téléphone.');
       return;
     }
 
-    final estEmail = id.contains('@');
-    final estTel = RegExp(r'^\+?[0-9 ]{8,15}$').hasMatch(id);
-    if (!estEmail && !estTel) {
-      setState(() => _erreur = Strings.t('erreur_identifiant'));
+    setState(() {
+      _erreur = null;
+      _enCours = true;
+    });
+
+    try {
+      await ApiService.connecter(telephone: id, motDePasse: _cMdp.text);
+      if (!mounted) return;
+      setState(() => _enCours = false);
+      Navigator.of(context).pop(true);
       return;
+    } on ErreurApi catch (eVoyageur) {
+      // Identifiants inconnus côté voyageur : peut-être un chauffeur.
+      try {
+        final rep = await ApiService.connecterChauffeur(
+          telephone: id,
+          motDePasse: _cMdp.text,
+        );
+        final c = rep['chauffeur'] ?? {};
+        SessionChauffeur.connecter(
+          nom: (c['nom'] ?? '').toString(),
+          prenom: (c['prenom'] ?? '').toString(),
+          telephone: (c['telephone'] ?? id).toString(),
+          token: rep['token']?.toString(),
+          chauffeurId: c['id']?.toString(),
+        );
+        if (!mounted) return;
+        setState(() => _enCours = false);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
+        );
+        return;
+      } on ErreurApi catch (eChauffeur) {
+        if (!mounted) return;
+        setState(() {
+          _enCours = false;
+          // On affiche le message le plus parlant : un compte
+          // désactivé doit être signalé comme tel, pas confondu
+          // avec un mot de passe erroné.
+          _erreur = eChauffeur.statut == 403
+              ? eChauffeur.message
+              : eVoyageur.message;
+        });
+      }
     }
-    setState(() => _erreur = null);
-    // MODE DEMO. Au branchement : POST ApiConfig.connexion.
-    Session.ouvrir(
-      pNom: 'Demo',
-      pPrenom: 'Voyageur',
-      pTelephone: estTel ? id : '',
-      pEmail: estEmail ? id : 'demo@jego.cm',
-    );
-    Navigator.of(context).pop(true);
   }
 
+  /// La connexion par Google / Facebook / Apple n'est pas encore
+  /// raccordée côté serveur. Tant qu'elle ne l'est pas, on le dit
+  /// clairement au lieu d'ouvrir une session qui n'existe pas.
   void _connexionSociale(String fournisseur) {
-    // MODE DEMO : connecte (ou cree le compte) directement.
-    // Au branchement : OAuth Google / Facebook / Apple.
-    Session.ouvrir(
-      pNom: 'Demo',
-      pPrenom: fournisseur,
-      pTelephone: '',
-      pEmail: 'demo@$fournisseur.jego.cm',
-    );
-    Navigator.of(context).pop(true);
+    setState(() => _erreur =
+        'La connexion $fournisseur arrive bientôt. Utilisez votre numéro de téléphone pour le moment.');
   }
 
   @override
@@ -402,6 +429,7 @@ class _VueInscription extends StatefulWidget {
 
 class _VueInscriptionState extends State<_VueInscription> {
   int _etape = 0; // 0..3
+  bool _enCours = false;
   static const int nbEtapes = 4;
 
   // Etape 1 : identite
@@ -506,23 +534,58 @@ class _VueInscriptionState extends State<_VueInscription> {
     }
   }
 
-  void _suivant() {
+  Future<void> _suivant() async {
+    if (_enCours) return;
     if (!_etapeValide()) {
       setState(() => _erreur = _messageErreur());
       return;
     }
     setState(() => _erreur = null);
+
     if (_etape < nbEtapes - 1) {
       setState(() => _etape++);
-    } else {
-      // MODE DEMO. Au branchement : POST ApiConfig.inscription.
-      Session.ouvrir(
-        pNom: _cNom.text.trim(),
-        pPrenom: _cPrenom.text.trim(),
-        pTelephone: '${_paysTel.indicatif}${_cTel.text.trim()}',
-        pEmail: _cEmail.text.trim(),
+      return;
+    }
+
+    // Dernière étape : création réelle du compte côté serveur.
+    final naissance = _dateNaissance;
+    if (naissance == null) {
+      setState(() {
+        _etape = 0;
+        _erreur = 'Renseignez votre date de naissance.';
+      });
+      return;
+    }
+
+    setState(() => _enCours = true);
+    final telephone = '${_paysTel.indicatif}${_cTel.text.trim()}';
+
+    try {
+      await ApiService.inscrire(
+        nom: _cNom.text.trim(),
+        prenom: _cPrenom.text.trim(),
+        dateNaissance:
+            '${naissance.year.toString().padLeft(4, '0')}-${naissance.month.toString().padLeft(2, '0')}-${naissance.day.toString().padLeft(2, '0')}',
+        lieuNaissance: _cLieuNaissance.text.trim(),
+        telephone: telephone,
+        email: _cEmail.text.trim(),
+        motDePasse: _cMdp.text,
+        contactUrgence: _cUrgenceTel.text.trim().isEmpty
+            ? null
+            : '${_paysUrgence.indicatif}${_cUrgenceTel.text.trim()}',
       );
+      if (!mounted) return;
+      setState(() => _enCours = false);
       Navigator.of(context).pop(true);
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _enCours = false;
+        _erreur = e.message;
+        // Un conflit (téléphone ou email déjà pris) concerne l'étape
+        // des coordonnées : on y ramène l'utilisateur.
+        if (e.statut == 409) _etape = 1;
+      });
     }
   }
 

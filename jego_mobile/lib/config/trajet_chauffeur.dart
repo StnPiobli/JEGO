@@ -1,16 +1,92 @@
-/// Trajets assignes au chauffeur, sur plusieurs semaines. Fixes en dur
-/// faute de backend qui assignerait reellement les trajets -- au
-/// branchement, ceci viendra de la table trajets/affectations cote
-/// serveur, filtree par chauffeur connecte.
+import 'api.dart';
+import 'session_chauffeur.dart';
+
+/// Trajets réellement assignés au chauffeur connecté.
+///
+/// Les données proviennent de la table `trajets` côté serveur,
+/// filtrées par chauffeur : plus aucun trajet n'est fabriqué dans
+/// l'application. L'interface publique (`tous`, `prochain`,
+/// `historique`, `dateHeure`…) est conservée à l'identique pour que
+/// les écrans chauffeur existants continuent de fonctionner sans
+/// modification.
 class TrajetChauffeur {
-  static final List<Map<String, dynamic>> tous = _genererTrajets();
+  /// Trajets chargés depuis le serveur.
+  static List<Map<String, dynamic>> tous = [];
+
+  static bool chargement = false;
+  static String? erreur;
+
+  /// Charge (ou recharge) les trajets du chauffeur connecté.
+  static Future<void> charger() async {
+    final token = SessionChauffeur.token;
+    if (token == null) {
+      tous = [];
+      erreur = 'Session expirée. Reconnectez-vous.';
+      return;
+    }
+
+    chargement = true;
+    erreur = null;
+    try {
+      final brut = await ApiService.trajetsChauffeur(token);
+      tous = brut.map<Map<String, dynamic>>(_convertir).toList()
+        ..sort((a, b) => dateHeure(a).compareTo(dateHeure(b)));
+      // Le serveur fait foi sur ce qui est terminé.
+      _termines
+        ..clear()
+        ..addAll(tous
+            .where((t) => t['statut'] == 'termine')
+            .map((t) => '${t['reference']}'));
+    } on ErreurApi catch (e) {
+      erreur = e.message;
+      tous = [];
+    } finally {
+      chargement = false;
+    }
+  }
+
+  /// Traduit un trajet du serveur vers la forme attendue par les
+  /// écrans chauffeur déjà en place.
+  static Map<String, dynamic> _convertir(Map<String, dynamic> t) {
+    final date = DateTime.tryParse('${t['date_depart']}') ?? DateTime.now();
+
+    String heure(dynamic v) {
+      if (v == null) return '--:--';
+      final s = v.toString();
+      return s.length >= 5 ? s.substring(0, 5) : s;
+    }
+
+    final arrets = ((t['arrets'] as List?) ?? [])
+        .map((a) => a is Map ? '${a['nom_affiche'] ?? a['ville'] ?? ''}' : '$a')
+        .where((a) => a.isNotEmpty)
+        .toList();
+
+    return {
+      // Identifiant serveur : indispensable pour déclarer départ,
+      // arrivée et passages aux arrêts.
+      'id': t['id'],
+      'date': DateTime(date.year, date.month, date.day),
+      'ville_depart': t['depart_affiche'] ?? '',
+      'ville_arrivee': t['arrivee_affiche'] ?? '',
+      'point_depart': t['lieu_embarquement'] ?? t['depart_affiche'] ?? '',
+      'point_arrivee': t['arrivee_affiche'] ?? '',
+      'arrets': arrets,
+      'heure_depart': heure(t['heure_depart']),
+      'heure_arrivee': heure(t['heure_arrivee_estimee']),
+      'bus': t['nom_bus'] ?? '',
+      'capacite': int.tryParse('${t['capacite'] ?? 0}') ?? 0,
+      'places_reservees': int.tryParse('${t['places_reservees'] ?? 0}') ?? 0,
+      'statut': t['statut'] ?? 'programme',
+      'reference': '${t['numero'] ?? t['id']}',
+    };
+  }
 
   static final Set<String> _termines = {};
   static void marquerTermine(String reference) => _termines.add(reference);
   static bool estTermine(String reference) => _termines.contains(reference);
 
-  /// Retard cumule en minutes, par reference de trajet. Chaque nouveau
-  /// signalement s'ajoute au precedent -- le message envoye montre
+  /// Retard cumulé en minutes, par référence de trajet. Chaque nouveau
+  /// signalement s'ajoute au précédent — le message envoyé montre
   /// toujours le total, pas seulement le dernier ajout.
   static final Map<String, int> _retardsCumules = {};
   static int retardCumule(String reference) => _retardsCumules[reference] ?? 0;
@@ -20,71 +96,36 @@ class TrajetChauffeur {
     return total;
   }
 
-  /// Nombre de billets scannes, par reference de trajet -- persiste
-  /// meme apres que le trajet soit marque termine (visible dans
-  /// l'historique), contrairement a un simple compteur local d'ecran.
+  /// Nombre de billets scannés, par référence de trajet.
   static final Map<String, int> _billetsScannes = {};
   static int billetsScannes(String reference) => _billetsScannes[reference] ?? 0;
   static void incrementerScan(String reference) {
     _billetsScannes[reference] = (_billetsScannes[reference] ?? 0) + 1;
   }
 
-  static List<Map<String, dynamic>> _genererTrajets() {
-    final aujourdhui = DateTime.now();
-    final debut = DateTime(aujourdhui.year, aujourdhui.month, aujourdhui.day);
-
-    const decalagesJours = [
-      0, 2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28, 30,
-      33, 35, 37, 40, 42, 44, 47, 49, 51, 54,
-    ];
-    const villes = [
-      ['Douala', 'Yaounde', 'Gare routiere Bonaberi', 'Gare routiere Mvan', ['Loum']],
-      ['Yaounde', 'Douala', 'Gare routiere Mvan', 'Gare routiere Bonaberi', ['Loum']],
-      ['Douala', 'Bafoussam', 'Gare routiere Bonaberi', 'Gare routiere Centrale', ['Nkongsamba']],
-      ['Bafoussam', 'Douala', 'Gare routiere Centrale', 'Gare routiere Bonaberi', ['Nkongsamba']],
-    ];
-    const heuresDepart = ['06:30', '07:00', '09:15', '14:00', '16:30'];
-    const dureesHeures = [4, 5, 3, 6];
-    const bus = ['Confort 01', 'Confort 02', 'Express 03'];
-    const capacites = [40, 32, 29];
-
-    return List.generate(decalagesJours.length, (i) {
-      final date = debut.add(Duration(days: decalagesJours[i]));
-      final couple = villes[i % villes.length];
-      final capacite = capacites[i % capacites.length];
-      final hd = heuresDepart[i % heuresDepart.length].split(':');
-      final depart = DateTime(date.year, date.month, date.day, int.parse(hd[0]), int.parse(hd[1]));
-      final arrivee = depart.add(Duration(hours: dureesHeures[i % dureesHeures.length]));
-      return {
-        'date': date,
-        'ville_depart': couple[0],
-        'ville_arrivee': couple[1],
-        'point_depart': couple[2],
-        'point_arrivee': couple[3],
-        'arrets': couple[4],
-        'heure_depart': heuresDepart[i % heuresDepart.length],
-        'heure_arrivee':
-            '${arrivee.hour.toString().padLeft(2, '0')}:${arrivee.minute.toString().padLeft(2, '0')}',
-        'bus': bus[i % bus.length],
-        'capacite': capacite,
-        'places_reservees': (capacite * 0.7).round() + (i % 4),
-        'reference':
-            'TRJ-${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}-${(i + 1).toString().padLeft(3, '0')}',
-      };
-    });
+  /// Identifiant serveur d'un trajet, à partir de sa référence.
+  static String? idDepuisReference(String reference) {
+    for (final t in tous) {
+      if ('${t['reference']}' == reference) return '${t['id']}';
+    }
+    return null;
   }
 
   static DateTime dateHeure(Map<String, dynamic> t) {
-    final d = t['date'] as DateTime;
-    final h = (t['heure_depart'] as String).split(':');
-    return DateTime(d.year, d.month, d.day, int.parse(h[0]), int.parse(h[1]));
+    final d = t['date'] as DateTime? ?? DateTime.now();
+    final brut = '${t['heure_depart'] ?? '00:00'}';
+    final h = brut.split(':');
+    final heures = h.isNotEmpty ? int.tryParse(h[0]) ?? 0 : 0;
+    final minutes = h.length > 1 ? int.tryParse(h[1]) ?? 0 : 0;
+    return DateTime(d.year, d.month, d.day, heures, minutes);
   }
 
   static Map<String, dynamic>? get prochain {
     final maintenant = DateTime.now();
     final futurs = tous.where((t) {
       if (_termines.contains(t['reference'])) return false;
-      return dateHeure(t).isAfter(maintenant) || _memeJour(dateHeure(t), maintenant);
+      return dateHeure(t).isAfter(maintenant) ||
+          _memeJour(dateHeure(t), maintenant);
     }).toList()
       ..sort((a, b) => dateHeure(a).compareTo(dateHeure(b)));
     return futurs.isEmpty ? null : futurs.first;
@@ -95,7 +136,8 @@ class TrajetChauffeur {
 
   static Map<String, dynamic>? trajetDuJour(DateTime jour) {
     for (final t in tous) {
-      final d = t['date'] as DateTime;
+      final d = t['date'] as DateTime?;
+      if (d == null) continue;
       if (d.year == jour.year && d.month == jour.month && d.day == jour.day) {
         return t;
       }
@@ -106,7 +148,8 @@ class TrajetChauffeur {
   static List<Map<String, dynamic>> get historique {
     final maintenant = DateTime.now();
     final passes = tous.where((t) {
-      return _termines.contains(t['reference']) || dateHeure(t).isBefore(maintenant);
+      return _termines.contains(t['reference']) ||
+          dateHeure(t).isBefore(maintenant);
     }).toList()
       ..sort((a, b) => dateHeure(b).compareTo(dateHeure(a)));
     return passes;

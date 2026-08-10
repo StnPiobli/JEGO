@@ -1,45 +1,133 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../config/donnees_demo.dart';
+import '../config/api.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 
 /// Fiche publique de l'agence, consultee par le voyageur :
 /// note generale, notes par critere, commentaires moderes, badge Certifiee JEGO.
-class EcranFicheAgence extends StatelessWidget {
-  final int agenceId;
+class EcranFicheAgence extends StatefulWidget {
+  /// Identifiant serveur de l'agence (UUID).
+  final String agenceId;
   const EcranFicheAgence({super.key, required this.agenceId});
 
   @override
-  Widget build(BuildContext context) {
-    final agence = DonneesDemo.agences[agenceId];
+  State<EcranFicheAgence> createState() => _EcranFicheAgenceState();
+}
 
-    if (agence == null) {
+class _EcranFicheAgenceState extends State<EcranFicheAgence> {
+  bool _chargement = true;
+  String? _erreur;
+  Map<String, dynamic> _agence = {};
+  List<Map<String, dynamic>> _avis = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _charger();
+  }
+
+  /// Charge la fiche et les avis réels. Les moyennes par critère sont
+  /// recalculées à partir des avis effectivement déposés : aucune note
+  /// n'est inventée, une agence sans avis affiche « Pas encore d'avis ».
+  Future<void> _charger() async {
+    setState(() {
+      _chargement = true;
+      _erreur = null;
+    });
+    try {
+      final rep = await ApiService.avisDeLAgence(widget.agenceId);
+      if (!mounted) return;
+      setState(() {
+        _agence = Map<String, dynamic>.from(rep['agence'] ?? {});
+        _avis = ((rep['avis'] as List?) ?? [])
+            .map<Map<String, dynamic>>((a) => Map<String, dynamic>.from(a))
+            .toList();
+        _chargement = false;
+      });
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erreur = e.message;
+        _chargement = false;
+      });
+    }
+  }
+
+  /// Moyenne d'un critère sur les avis réellement déposés.
+  double? _moyenne(String cle) {
+    final valeurs = _avis
+        .map((a) => double.tryParse('${a[cle]}'))
+        .whereType<double>()
+        .toList();
+    if (valeurs.isEmpty) return null;
+    return valeurs.reduce((a, b) => a + b) / valeurs.length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_chargement) {
+      return Scaffold(
+        backgroundColor: JegoTheme.fond,
+        appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
+        body: const Center(
+          child: CircularProgressIndicator(color: JegoTheme.vert),
+        ),
+      );
+    }
+
+    if (_erreur != null) {
       return Scaffold(
         backgroundColor: JegoTheme.fond,
         appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
         body: Center(
-          child: Text(
-            'Agence introuvable',
-            style: TextStyle(color: JegoTheme.texteSecondaire),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _erreur!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: JegoTheme.texteSecondaire),
+                ),
+                const SizedBox(height: 14),
+                TextButton(
+                  onPressed: _charger,
+                  child: const Text('Réessayer',
+                      style: TextStyle(
+                          color: JegoTheme.vert, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    final commentaires = (agence['commentaires'] as List?) ?? [];
-    final certifiee = agence['certifiee'] == true;
-    final noteGenerale = (agence['note_generale'] as num).toDouble();
+    final agence = _agence;
+    final commentaires = _avis
+        .where((a) => '${a['commentaire'] ?? ''}'.trim().isNotEmpty)
+        .map((a) => {
+              'auteur': a['voyageur_prenom'] ?? 'Voyageur',
+              'note': double.tryParse('${a['note_globale']}') ?? 0.0,
+              'texte': a['commentaire'],
+              'date': a['cree_le'],
+            })
+        .toList();
+    final certifiee = agence['badge_certifie'] == true;
+    final noteGenerale =
+        double.tryParse('${agence['note_moyenne'] ?? 0}') ?? 0.0;
 
     final criteres = <_DonneeCritere>[
       _DonneeCritere(Icons.room_service_rounded, Strings.t('critere_service'),
-          agence['note_service']),
+          _moyenne('note_service') ?? 0),
       _DonneeCritere(Icons.speed_rounded, Strings.t('critere_conduite'),
-          agence['note_conduite']),
+          _moyenne('note_conduite') ?? 0),
       _DonneeCritere(Icons.schedule_rounded, Strings.t('critere_horaires'),
-          agence['note_horaires']),
+          _moyenne('note_horaires') ?? 0),
       _DonneeCritere(Icons.airline_seat_recline_extra_rounded,
-          Strings.t('critere_confort'), agence['note_confort']),
+          Strings.t('critere_confort'), _moyenne('note_confort') ?? 0),
     ];
 
     return Scaffold(

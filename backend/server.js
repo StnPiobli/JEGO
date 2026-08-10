@@ -33,6 +33,7 @@ app.use('/api/programmation', require('./routes/programmationRoutes'));
 app.use('/api/litiges', require('./routes/litigeRoutes'));
 app.use('/api/rapports', require('./routes/rapportRoutes'));
 app.use('/api/groupes', require('./routes/groupeRoutes'));
+app.use('/api/denonciations', require('./routes/denonciationRoutes'));
 const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
 
 // Route de test

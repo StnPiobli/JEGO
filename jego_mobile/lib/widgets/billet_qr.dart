@@ -1,5 +1,5 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/format_date.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
@@ -249,9 +249,15 @@ class BilletCarre extends StatelessWidget {
                               ),
                               child: Column(
                                 children: [
-                                  CustomPaint(
-                                    size: const Size(84, 84),
-                                    painter: QrPainter('$codeQr'),
+                                  // VRAI QR code, réellement scannable
+                                  // par le chauffeur : il encode la
+                                  // chaîne signée par le serveur.
+                                  QrImageView(
+                                    data: '$codeQr',
+                                    version: QrVersions.auto,
+                                    size: 84,
+                                    backgroundColor: Colors.white,
+                                    errorCorrectionLevel: QrErrorCorrectLevel.M,
                                   ),
                                   const SizedBox(height: 4),
                                   Row(
@@ -616,9 +622,15 @@ class BilletCarre extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CustomPaint(
-                    size: const Size(260, 260),
-                    painter: QrPainter(code)),
+                QrImageView(
+                  data: code,
+                  version: QrVersions.auto,
+                  size: 260,
+                  backgroundColor: Colors.white,
+                  // Correction haute : un écran rayé ou peu lumineux
+                  // reste lisible par le scanner du chauffeur.
+                  errorCorrectionLevel: QrErrorCorrectLevel.H,
+                ),
                 const SizedBox(height: 16),
                 Text(Strings.t('billet_qr_presenter'),
                     textAlign: TextAlign.center,
@@ -698,43 +710,3 @@ class _LignePointillee extends StatelessWidget {
   }
 }
 
-/// Pseudo-QR deterministe (demo). Vrai QR via qr_flutter au branchement.
-class QrPainter extends CustomPainter {
-  final String donnee;
-  QrPainter(this.donnee);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const n = 21;
-    final cell = size.width / n;
-    final p = Paint()..color = JegoTheme.texte;
-    final rnd = Random(donnee.hashCode);
-    for (var y = 0; y < n; y++) {
-      for (var x = 0; x < n; x++) {
-        if (_estRepere(x, y, n)) continue;
-        if (rnd.nextBool()) {
-          canvas.drawRect(
-              Rect.fromLTWH(x * cell, y * cell, cell, cell), p);
-        }
-      }
-    }
-    _repere(canvas, 0, 0, cell, p);
-    _repere(canvas, (n - 7) * cell, 0, cell, p);
-    _repere(canvas, 0, (n - 7) * cell, cell, p);
-  }
-
-  bool _estRepere(int x, int y, int n) =>
-      (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7);
-
-  void _repere(Canvas canvas, double x, double y, double cell, Paint p) {
-    canvas.drawRect(Rect.fromLTWH(x, y, cell * 7, cell * 7), p);
-    final blanc = Paint()..color = Colors.white;
-    canvas.drawRect(
-        Rect.fromLTWH(x + cell, y + cell, cell * 5, cell * 5), blanc);
-    canvas.drawRect(
-        Rect.fromLTWH(x + cell * 2, y + cell * 2, cell * 3, cell * 3), p);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

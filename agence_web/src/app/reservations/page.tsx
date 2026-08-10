@@ -1,15 +1,17 @@
 'use client';
 
-// ⚠️ DEMO COMPLÈTE — aucune route backend pour lister les réservations d'une
-// agence n'existe. Champs volontairement limités à ce qui concerne l'agence :
-// options supp. = uniquement bagage/premium (pas les options internes JEGO),
-// montant = net perçu par l'agence (pas le prix payé par le client, qui
-// inclut la commission JEGO et les frais annexes).
+// Données réelles du backend.
+//
+// Champs volontairement limités à ce qui concerne l'agence :
+// options supp. = uniquement bagage/premium (pas les options internes
+// JEGO), montant = net perçu par l'agence (pas le prix payé par le
+// client, qui inclut la commission JEGO et les frais annexes).
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
-import { todayInputDate, addDaysToInput } from '../lib/date';
+import { todayInputDate } from '../lib/date';
+import { apiFetch } from '../lib/api';
 
 type Passager = {
   id: string;
@@ -28,35 +30,6 @@ type TrajetAvecPassagers = {
 };
 
 const AUJOURDHUI = todayInputDate();
-const DEMAIN = addDaysToInput(AUJOURDHUI, 1);
-
-const trajetsDemo: TrajetAvecPassagers[] = [
-  {
-    id: 't1', numeroVoyage: 'JG-260727-0700-DLYDE', date: AUJOURDHUI, heure: '07:00', heureArrivee: '11:30', trajet: 'Douala → Loum → Yaounde',
-    capacite: 32, demarre: true,
-    passagers: [
-      { id: 'p1', nom: 'Jean Dupont', telephone: '+237 6 78 12 34 56', email: 'jean.dupont@gmail.com', siege: '5A', montantAgence: 3720, statut: 'embarque', optionsSupp: ['Bagage supplementaire'], trajetAssocie: 'Douala → Yaounde' },
-      { id: 'p2', nom: 'Marie Fotso', telephone: '+237 6 90 45 67 89', email: 'marie.fotso@yahoo.fr', siege: '12B', montantAgence: 1200, statut: 'embarque', optionsSupp: [], trajetAssocie: 'Douala → Loum' },
-      { id: 'p3', nom: 'Sarah Mballa', telephone: '+237 6 55 23 89 01', email: 'sarah.mballa@gmail.com', siege: '8D', montantAgence: 2600, statut: 'confirme', optionsSupp: ['Premium'], trajetAssocie: 'Loum → Yaounde' },
-      { id: 'p7', nom: 'Franck Mbida', telephone: '+237 6 61 22 33 44', email: 'franck.mbida@gmail.com', siege: '12A', montantAgence: 1200, statut: 'confirme', optionsSupp: [], trajetAssocie: 'Douala → Loum' },
-    ],
-  },
-  {
-    id: 't2', numeroVoyage: 'JG-260727-1400-YDEDLA', date: AUJOURDHUI, heure: '14:00', heureArrivee: '18:15', trajet: 'Yaounde → Douala',
-    capacite: 32, demarre: false,
-    passagers: [
-      { id: 'p4', nom: 'Paul Nkeng', telephone: '+237 6 99 11 22 33', email: 'paul.nkeng@outlook.com', siege: '3C', montantAgence: 3906, statut: 'annule', optionsSupp: [], trajetAssocie: 'Yaounde → Douala' },
-      { id: 'p5', nom: 'Eric Tabi', telephone: '+237 6 77 88 99 00', email: 'eric.tabi@gmail.com', siege: '2A', montantAgence: 2976, statut: 'confirme', optionsSupp: [], trajetAssocie: 'Yaounde → Douala' },
-    ],
-  },
-  {
-    id: 't3', numeroVoyage: 'JG-260728-0900-DLABFM', date: DEMAIN, heure: '09:00', heureArrivee: '13:00', trajet: 'Douala → Bafoussam',
-    capacite: 30, demarre: false,
-    passagers: [
-      { id: 'p6', nom: 'Aline Ngo', telephone: '+237 6 88 44 55 66', email: 'aline.ngo@gmail.com', siege: '4B', montantAgence: 3255, statut: 'confirme', optionsSupp: ['Bagage supplementaire', 'Premium'], trajetAssocie: 'Douala → Bafoussam' },
-    ],
-  },
-];
 
 const stylesStatut = { confirme: 'bg-green-700/10 text-green-700', embarque: 'bg-ink/10 text-ink', annule: 'bg-red/10 text-red' };
 const libellesStatut = { confirme: 'Confirme', embarque: 'Embarque', annule: 'Annule' };
@@ -65,18 +38,91 @@ export default function Reservations() {
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
   const [ouverts, setOuverts] = useState<Set<string>>(new Set());
   const [recherche, setRecherche] = useState('');
+  const [tousLesTrajets, setTousLesTrajets] = useState<TrajetAvecPassagers[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
 
-  const trajetsDuJour = useMemo(() => trajetsDemo.filter((t) => t.date === dateChoisie), [dateChoisie]);
+  // Charge les trajets de l'agence, puis la liste des passagers de
+  // chacun. La recherche globale portant sur toutes les dates, on
+  // récupère l'ensemble une seule fois.
+  const charger = useCallback(async () => {
+    setChargement(true);
+    setErreur(null);
+    try {
+      const rep = await apiFetch('/api/trajets');
+      const bruts = (rep.trajets || []) as Record<string, unknown>[];
+
+      const complets = await Promise.all(
+        bruts.map(async (t) => {
+          const id = String(t.id);
+          let passagers: Passager[] = [];
+          let capacite = 0;
+          try {
+            const detail = await apiFetch(`/api/trajets/${id}/passagers`);
+            capacite = Number(detail.trajet?.capacite) || 0;
+            passagers = ((detail.passagers || []) as Record<string, unknown>[]).map((p) => {
+              const options: Passager['optionsSupp'] = [];
+              if (Number(p.supplement_bagage) > 0) options.push('Bagage supplementaire');
+              const segment = `${p.ville_embarquement ?? ''} → ${p.ville_debarquement ?? ''}`;
+              return {
+                id: String(p.numero ?? p.id),
+                nom: `${p.prenom ?? ''} ${p.nom ?? ''}`.trim(),
+                telephone: String(p.telephone ?? ''),
+                email: '',
+                siege: String(p.siege ?? ''),
+                // Net perçu par l'agence, hors commission JEGO.
+                montantAgence: Number(p.prix_agence ?? p.prix_total_client ?? 0),
+                statut: p.statut === 'annule' ? 'annule' : (p.qr_scanne ? 'embarque' : 'confirme'),
+                optionsSupp: options,
+                trajetAssocie: segment.trim() === '→' ? '' : segment,
+              } as Passager;
+            });
+          } catch {
+            // Un trajet dont les passagers sont inaccessibles reste
+            // affiché, avec une liste vide plutôt qu'une page en erreur.
+          }
+
+          const heure = String(t.heure_depart ?? '').slice(0, 5);
+          const heureArrivee = String(t.heure_arrivee_estimee ?? '').slice(0, 5);
+          const date = String(t.date_depart ?? '').split('T')[0];
+          return {
+            id,
+            numeroVoyage: `JG-${date.replaceAll('-', '').slice(2)}-${heure.replace(':', '')}`,
+            date,
+            heure,
+            heureArrivee,
+            trajet: `${t.ville_depart ?? ''} → ${t.ville_arrivee ?? ''}`,
+            capacite,
+            demarre: t.statut === 'en_cours',
+            passagers,
+          } as TrajetAvecPassagers;
+        }),
+      );
+
+      setTousLesTrajets(complets);
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'Chargement impossible');
+    } finally {
+      setChargement(false);
+    }
+  }, []);
+
+  useEffect(() => { charger(); }, [charger]);
+
+  const trajetsDuJour = useMemo(
+    () => tousLesTrajets.filter((t) => t.date === dateChoisie),
+    [tousLesTrajets, dateChoisie],
+  );
 
   const resultatsRecherche = useMemo(() => {
     const terme = recherche.trim().toLowerCase();
     if (!terme) return [] as { trajet: TrajetAvecPassagers; passager: Passager }[];
-    return trajetsDemo.flatMap((trajet) =>
+    return tousLesTrajets.flatMap((trajet) =>
       trajet.passagers
         .filter((p) => [trajet.date, trajet.heure, trajet.trajet, p.nom, p.email, p.telephone, p.siege, p.id, p.trajetAssocie, ...(p.optionsSupp || []), libellesStatut[p.statut]].join(' ').toLowerCase().includes(terme))
         .map((passager) => ({ trajet, passager })),
     );
-  }, [recherche]);
+  }, [recherche, tousLesTrajets]);
 
   function toggle(id: string) {
     setOuverts((prev) => { const copie = new Set(prev); copie.has(id) ? copie.delete(id) : copie.add(id); return copie; });
@@ -93,7 +139,12 @@ export default function Reservations() {
         <h1 className="text-[28px] font-extrabold text-ink mb-1">Reservations</h1>
         <p className="text-[13px] text-ink-soft mb-4">Par trajet — montants nets perçus par ton agence, options supplémentaires te concernant.</p>
 
-        <div className="rounded-2xl p-3 mb-6 bg-red/6 border border-red/20"><p className="text-[11px] text-ink-soft">Démo complète — aucune route backend pour lister les réservations d&apos;une agence n&apos;existe.</p></div>
+        {erreur && (
+          <div className="rounded-2xl p-3 mb-6 bg-red/6 border border-red/20">
+            <p className="text-[11px] text-red">{erreur}</p>
+            <button onClick={charger} className="text-[11px] font-bold text-green-700 mt-1">Réessayer</button>
+          </div>
+        )}
 
         <div className="bg-paper rounded-2xl border border-line p-4 mb-5">
           <label className="block text-[11px] font-semibold text-ink-soft mb-2">Recherche globale sur toutes les reservations</label>
@@ -131,7 +182,9 @@ export default function Reservations() {
 
         <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-6" />
 
-        {trajetsDuJour.length === 0 ? (
+        {chargement ? (
+          <div className="bg-paper rounded-2xl border border-line p-10 text-center"><p className="text-[13px] text-ink-soft">Chargement des réservations...</p></div>
+        ) : trajetsDuJour.length === 0 ? (
           <div className="bg-paper rounded-2xl border border-line p-10 text-center"><p className="text-[13px] text-ink-soft">Aucun trajet ce jour-la.</p></div>
         ) : (
           <div className="space-y-4">

@@ -10,7 +10,7 @@ class EcranPreferencesVoyage extends StatelessWidget {
       titre: 'Preferences de voyage',
       icone: Icons.tune_rounded,
       description:
-          'Ces preferences ne sont pas encore appliquees automatiquement a la recherche (demo).',
+          'Ces préférences ne sont pas encore appliquées automatiquement à la recherche.',
       items: [
         ItemToggleGenerique(Icons.event_seat_rounded, 'Preferer les sieges cote fenetre'),
         ItemToggleGenerique(Icons.ac_unit_rounded, 'Toujours filtrer sur la climatisation'),

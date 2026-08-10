@@ -16,7 +16,7 @@ async function planTrajet(req, res) {
     const trajetResult = await pool.query(
       `SELECT
           t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
-          t.prix_base, t.categorie, t.bus_id,
+          t.prix_base, t.categorie, t.bus_id, t.ligne_id,
           vd.nom_affiche AS depart_affiche,
           va.nom_affiche AS arrivee_affiche,
           b.nom AS nom_bus, b.disposition, b.type_bus,
@@ -58,6 +58,9 @@ async function planTrajet(req, res) {
     res.json({
       trajet: {
         id: trajet.id,
+        // Nécessaire au portail agence pour retrouver les tronçons
+        // vendables et leurs prix.
+        ligne_id: trajet.ligne_id,
         depart: trajet.depart_affiche,
         arrivee: trajet.arrivee_affiche,
         date_depart: trajet.date_depart,

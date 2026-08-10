@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../config/api.dart';
 import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
+import '../config/scan_hors_ligne.dart';
 import 'ecran_emploi_du_temps_chauffeur.dart';
 import 'ecran_historique_chauffeur.dart';
 import 'ecran_scan_billet.dart';
@@ -37,16 +39,30 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
   @override
   void initState() {
     super.initState();
-    // Rafraichit l'ecran toutes les 30s pour que les boutons se
-    // debloquent tout seuls a l'heure dite (depart, scan, retard),
-    // sans action de l'utilisateur. NB : ceci rafraichit l'AFFICHAGE
-    // (les seuils de temps), pas les donnees elles-memes -- sans vrai
-    // backend connecte, le nombre de reservations reste une valeur
-    // demo fixe, il ne bougera pas tout seul au fil des reservations
-    // reelles des voyageurs.
+    _rafraichir();
+
+    // Toutes les 30 s : on recharge les trajets depuis le serveur ET
+    // on rafraîchit l'affichage, pour que les boutons se débloquent
+    // à l'heure dite (départ, scan, retard) et que le nombre de
+    // passagers suive les réservations réelles.
     _timerActualisation = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
+      if (mounted) _rafraichir();
     });
+  }
+
+  /// Recharge les trajets réels du chauffeur, puis tente de
+  /// synchroniser les scans faits hors ligne.
+  Future<void> _rafraichir() async {
+    await TrajetChauffeur.charger();
+    if (!mounted) return;
+    setState(() {});
+
+    // Dès que le réseau revient, les billets scannés sans connexion
+    // remontent au serveur.
+    final bilan = await ScanHorsLigne.synchroniser();
+    if (mounted && (bilan['envoyes'] ?? 0) > 0) {
+      setState(() {});
+    }
   }
 
   @override
@@ -161,13 +177,39 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     if (confirme == true) onConfirme();
   }
 
+  /// Message d'erreur serveur affiché sous les actions du trajet.
+  String? _erreurAction;
+
   void _declarerDepart() {
+    final trajet = TrajetChauffeur.prochain;
+    if (trajet == null) return;
+
     _confirmer(
       icone: Icons.rocket_launch_rounded,
       couleur: JegoTheme.vert,
-      titre: 'Declarer le depart ?',
-      texte: 'Le scan de billets et toute la navigation seront geles jusqu\'a l\'arrivee.',
-      onConfirme: () => setState(() => _partiDeclare = true),
+      titre: 'Déclarer le départ ?',
+      texte:
+          'Le scan de billets et toute la navigation seront gelés jusqu\'à l\'arrivée.',
+      onConfirme: () async {
+        final token = SessionChauffeur.token;
+        final trajetId = '${trajet['id']}';
+        if (token == null) {
+          setState(() => _erreurAction = 'Session expirée. Reconnectez-vous.');
+          return;
+        }
+        try {
+          // Le serveur fait foi : il refuse un départ déclaré trop tôt.
+          await ApiService.declarerDepart(trajetId, token);
+          if (!mounted) return;
+          setState(() {
+            _partiDeclare = true;
+            _erreurAction = null;
+          });
+        } on ErreurApi catch (e) {
+          if (!mounted) return;
+          setState(() => _erreurAction = e.message);
+        }
+      },
     );
   }
 
@@ -419,16 +461,206 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     _confirmer(
       icone: Icons.check_circle_rounded,
       couleur: JegoTheme.vert,
-      titre: 'Declarer l\'arrivee ?',
-      texte: 'Le trajet sera marque termine. Le prochain trajet s\'affichera automatiquement.',
-      onConfirme: () {
-        TrajetChauffeur.marquerTermine('${trajet['reference']}');
-        setState(() {
-          _arriveDeclaree = false;
-          _partiDeclare = false;
-        });
+      titre: 'Déclarer l\'arrivée ?',
+      texte:
+          'Le trajet sera marqué terminé. Le prochain trajet s\'affichera automatiquement.',
+      onConfirme: () async {
+        final token = SessionChauffeur.token;
+        final trajetId = '${trajet['id']}';
+        if (token == null) {
+          setState(() => _erreurAction = 'Session expirée. Reconnectez-vous.');
+          return;
+        }
+        try {
+          await ApiService.declarerArrivee(trajetId, token);
+          TrajetChauffeur.marquerTermine('${trajet['reference']}');
+          if (!mounted) return;
+          setState(() {
+            _arriveDeclaree = false;
+            _partiDeclare = false;
+            _erreurAction = null;
+          });
+          // On recharge : le trajet suivant devient le prochain.
+          await _rafraichir();
+        } on ErreurApi catch (e) {
+          if (!mounted) return;
+          setState(() => _erreurAction = e.message);
+        }
       },
     );
+  }
+
+  /// Feuille de route : liste des points de la ligne, avec le nombre
+  /// de passagers qui montent et descendent à chacun. Le chauffeur y
+  /// déclare son passage aux arrêts intermédiaires — un passager qui
+  /// descend en cours de route voit alors son billet clos à cet
+  /// arrêt, sans attendre le terminus.
+  Future<void> _ouvrirArrets(Map<String, dynamic> trajet) async {
+    final token = SessionChauffeur.token;
+    final trajetId = '${trajet['id']}';
+    if (token == null) {
+      setState(() => _erreurAction = 'Session expirée. Reconnectez-vous.');
+      return;
+    }
+
+    List<Map<String, dynamic>> arrets;
+    try {
+      arrets = await ApiService.arretsTrajet(trajetId, token);
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() => _erreurAction = e.message);
+      return;
+    }
+    if (!mounted) return;
+
+    // Déclarée hors du builder : sinon elle serait remise à zéro à
+    // chaque reconstruction et le message d'erreur ne s'afficherait
+    // jamais.
+    String? erreurLocale;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, majFeuille) {
+          return Container(
+            margin: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: JegoTheme.fondCarte,
+              borderRadius: BorderRadius.circular(JegoTheme.rGrand),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Feuille de route',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(
+                  'Déclarez votre passage à chaque arrêt. Le terminus se déclare avec le bouton « Declarer arrivee ».',
+                  style: TextStyle(
+                      color: JegoTheme.texteSecondaire, fontSize: 12.5),
+                ),
+                const SizedBox(height: 14),
+                ...arrets.map((a) {
+                  final ordre = int.tryParse('${a['ordre']}') ?? 0;
+                  final dernier = ordre == arrets.length - 1;
+                  final declare = a['declare'] == true;
+                  final montent = int.tryParse('${a['montent'] ?? 0}') ?? 0;
+                  final descendent =
+                      int.tryParse('${a['descendent'] ?? 0}') ?? 0;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: declare
+                                ? JegoTheme.vert
+                                : JegoTheme.fond,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: JegoTheme.bordCarte),
+                          ),
+                          child: declare
+                              ? const Icon(Icons.check_rounded,
+                                  size: 16, color: Colors.white)
+                              : Text('$ordre',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800)),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('${a['nom_affiche'] ?? a['ville'] ?? ''}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14)),
+                              Text(
+                                '$montent montent · $descendent descendent',
+                                style: TextStyle(
+                                    color: JegoTheme.texteSecondaire,
+                                    fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (ordre > 0 && !dernier && !declare)
+                          BoutonTactile(
+                            onTap: () async {
+                              try {
+                                await ApiService.declarerArretIntermediaire(
+                                  trajetId: trajetId,
+                                  ordre: ordre,
+                                  token: token,
+                                );
+                                final frais = await ApiService.arretsTrajet(
+                                    trajetId, token);
+                                majFeuille(() {
+                                  arrets = frais;
+                                  erreurLocale = null;
+                                });
+                              } on ErreurApi catch (e) {
+                                majFeuille(() => erreurLocale = e.message);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: JegoTheme.vert,
+                                borderRadius: BorderRadius.circular(
+                                    JegoTheme.rPetit),
+                              ),
+                              child: const Text('Arrivé',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+                if (erreurLocale != null) ...[
+                  const SizedBox(height: 4),
+                  Text(erreurLocale!,
+                      style: const TextStyle(
+                          color: JegoTheme.danger, fontSize: 12)),
+                ],
+                const SizedBox(height: 6),
+                BoutonTactile(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: Container(
+                    width: double.infinity,
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: JegoTheme.fond,
+                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                      border: Border.all(color: JegoTheme.bordCarte),
+                    ),
+                    child: const Text('Fermer',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    if (mounted) _rafraichir();
   }
 
   void _scanner(Map<String, dynamic>? trajet) {
@@ -616,6 +848,15 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               const SizedBox(height: 10),
               _compteurScan(trajet),
             ],
+            if (_erreurAction != null) ...[
+              const SizedBox(height: 12),
+              // Erreur affichée sous les actions, en petit texte rouge.
+              Text(
+                _erreurAction!,
+                style: const TextStyle(
+                    color: JegoTheme.danger, fontSize: 12.5),
+              ),
+            ],
             const SizedBox(height: 20),
             _grosBouton(
               icone: Icons.rocket_launch_rounded,
@@ -639,6 +880,15 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               libelle: 'Signaler incident',
               couleur: JegoTheme.danger,
               onTap: _incidentBloque ? null : _signalerIncident,
+            ),
+            const SizedBox(height: 12),
+            _grosBouton(
+              icone: Icons.alt_route_rounded,
+              libelle: 'Feuille de route / arrêts',
+              couleur: JegoTheme.texte,
+              onTap: (_partiDeclare && trajet != null)
+                  ? () => _ouvrirArrets(trajet)
+                  : null,
             ),
             const SizedBox(height: 12),
             _grosBouton(

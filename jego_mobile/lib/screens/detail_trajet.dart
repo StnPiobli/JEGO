@@ -304,7 +304,7 @@ class EcranDetailTrajet extends StatelessWidget {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => EcranFicheAgence(
-                                agenceId: offre['agence_id'] as int),
+                                agenceId: '${offre['agence_id']}'),
                           ),
                         );
                       },

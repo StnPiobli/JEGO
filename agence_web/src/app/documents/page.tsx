@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import { apiFetch, getToken } from '../lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 const TYPES_SUGGERES = [
   'Registre de commerce',

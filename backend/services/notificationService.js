@@ -1,7 +1,21 @@
 const pool = require('../config/database');
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Resend n'est instancié que si une clé est réellement fournie.
+// Sans cette précaution, une clé absente faisait planter le serveur
+// entier au démarrage : l'envoi d'emails est utile, mais il ne doit
+// jamais empêcher la vente de billets. Les notifications restent
+// enregistrées en base dans tous les cas.
+let resend = null;
+if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.startsWith('re_')) {
+  try {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  } catch (err) {
+    console.error('⚠️ [Notification] Clé Resend invalide, emails désactivés :', err.message);
+  }
+} else {
+  console.warn('⚠️ [Notification] RESEND_API_KEY absente — les emails ne seront pas envoyés (les notifications restent enregistrées en base).');
+}
 
 // ═══════════════════════════════════════════════════
 // SERVICE : CRÉER UNE NOTIFICATION
@@ -27,6 +41,10 @@ async function creerNotification({ destinataire_type, destinataire_id, type, tit
 
   // Envoi réel uniquement pour le canal email
   if (canal === 'email') {
+    // Sans clé Resend configurée, on n'essaie pas d'envoyer : la
+    // notification reste consultable dans l'application.
+    if (!resend) return;
+
     try {
       const email = await recupererEmailDestinataire(destinataire_type, destinataire_id);
       if (!email) {

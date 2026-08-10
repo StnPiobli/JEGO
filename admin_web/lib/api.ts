@@ -1,7 +1,7 @@
-// Utilitaire d'appel au vrai backend Express (http://localhost:5000 par défaut).
+// Utilitaire d'appel au vrai backend Express (http://localhost:3000 par défaut).
 // Le token JWT est stocké en localStorage après connexion (voir app/login/page.tsx).
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

@@ -1,5 +1,5 @@
 // Utilitaire d'appel au vrai backend Express — identique à celui d'admin_web.
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

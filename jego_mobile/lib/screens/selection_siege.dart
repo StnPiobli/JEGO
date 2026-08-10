@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/billets_store.dart';
-import '../config/donnees_demo.dart';
+import '../config/api.dart';
 import '../config/reservation.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
@@ -38,23 +38,96 @@ class EcranSelectionSiege extends StatefulWidget {
 }
 
 class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
-  late List<Map<String, dynamic>> _sieges;
+  List<Map<String, dynamic>> _sieges = [];
   final Set<int> _choisis = {};
   bool _verrouActif = false;
   bool _modeAuto = false;
   bool _expire = false;
+  bool _chargement = true;
+  String? _erreurPlan;
 
   static const int dureeSoftLock = 5 * 60;
 
-  /// PRIX FICTIF (demo) — a remplacer par parametres_systeme.
+  /// Frais de choix de siège. Renseigné par le backend au moment du
+  /// paiement ; la valeur affichée ici n'est qu'une estimation, le
+  /// montant qui fait foi est celui calculé côté serveur.
   static const int fraisChoixSiege = 500;
 
-  int get _prixPremium => (widget.offre['prix_siege_premium'] ?? 0) as int;
+  /// Supplément premium réel du bus, renvoyé avec le plan.
+  int _supplementPremium = 0;
+  int get _prixPremium => _supplementPremium;
+
+  /// Correspondance numéro affiché -> identifiant serveur du siège.
+  /// Indispensable : le backend travaille en UUID, l'interface en
+  /// numéros de siège.
+  final Map<int, String> _idParNumero = {};
 
   @override
   void initState() {
     super.initState();
-    _sieges = DonneesDemo.planSieges(widget.offre['id'] as int);
+    _chargerPlan();
+  }
+
+  /// Charge le vrai plan du bus depuis le backend. La disponibilité
+  /// vient de la base : un siège déjà vendu est réellement indisponible.
+  Future<void> _chargerPlan() async {
+    setState(() {
+      _chargement = true;
+      _erreurPlan = null;
+    });
+    try {
+      final rep = await ApiService.planTrajet('${widget.offre['id']}');
+      final trajet = Map<String, dynamic>.from(rep['trajet'] ?? {});
+      final brut = (rep['sieges'] as List?) ?? [];
+
+      _idParNumero.clear();
+      final convertis = <Map<String, dynamic>>[];
+      for (final s in brut) {
+        final numero = int.tryParse('${s['numero']}') ?? 0;
+        if (s['id'] != null) _idParNumero[numero] = '${s['id']}';
+
+        // Traduction des statuts serveur vers ceux attendus par
+        // l'affichage déjà en place.
+        final dispo = '${s['disponibilite']}';
+        String statut;
+        switch (dispo) {
+          case 'disponible':
+            statut = 'disponible';
+            break;
+          case 'toilettes':
+            statut = 'toilette';
+            break;
+          case 'desactive':
+            statut = 'abime';
+            break;
+          default:
+            statut = 'vendu_ligne';
+        }
+
+        convertis.add({
+          'numero': numero,
+          'rangee': int.tryParse('${s['rangee']}') ?? 0,
+          'colonne': int.tryParse('${s['position']}') ?? 0,
+          'statut': statut,
+          'type': s['est_premium'] == true ? 'premium' : 'standard',
+          'position': '${s['type_position'] ?? 'couloir'}',
+        });
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _sieges = convertis;
+        _supplementPremium =
+            int.tryParse('${trajet['supplement_premium'] ?? 0}') ?? 0;
+        _chargement = false;
+      });
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erreurPlan = e.message;
+        _chargement = false;
+      });
+    }
   }
 
   @override
@@ -102,13 +175,34 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
       SoftLock.demarrer(dureeSoftLock);
     }
 
+    // Mode automatique : on attribue de vrais sièges libres du bus,
+    // pris dans le plan réel chargé depuis le serveur. Aucun numéro
+    // n'est inventé — sinon le paiement porterait sur une place qui
+    // n'existe pas ou qui est déjà vendue.
+    if (_modeAuto && _choisis.isEmpty) {
+      final libres = _sieges
+          .where(_estDisponible)
+          .map((s) => s['numero'] as int)
+          .toList()
+        ..sort();
+      _choisis.addAll(libres.take(widget.passagers));
+    }
+
     final siegesActuels = _choisis.toList()..sort();
+
+    // On mémorise l'identifiant serveur de chaque siège retenu :
+    // le paiement en a besoin pour réserver la bonne place.
+    final idsChoisis = <int, String>{
+      for (final n in siegesActuels)
+        if (_idParNumero[n] != null) n: _idParNumero[n]!,
+    };
 
     if (widget.offreSuivante != null) {
       final partielle = Reservation(
         offreAller: widget.offre,
         passagers: widget.passagers,
         siegesAller: siegesActuels,
+        idSiegesAller: idsChoisis,
         autoAller: _modeAuto,
         supplementsAller: _totalSupplements,
         villeAllerDepart: widget.villeDepart,
@@ -134,6 +228,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
       resa = widget.partielle!
         ..offreRetour = widget.offre
         ..siegesRetour = siegesActuels
+        ..idSiegesRetour = idsChoisis
         ..autoRetour = _modeAuto
         ..supplementsRetour = _totalSupplements;
     } else {
@@ -141,6 +236,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
         offreAller: widget.offre,
         passagers: widget.passagers,
         siegesAller: siegesActuels,
+        idSiegesAller: idsChoisis,
         autoAller: _modeAuto,
         supplementsAller: _totalSupplements,
         villeAllerDepart: widget.villeDepart,

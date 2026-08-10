@@ -16,6 +16,10 @@ router.get('/profil', authentifier, monProfil);
 // Documents de l'agence (téléversement depuis son espace)
 router.post('/documents', authentifier, televerserDocument);
 router.get('/documents', authentifier, mesDocuments);
+
+// Versements escrow reçus par l'agence (page Paiements du portail)
+const { versementsAgence } = require('../controllers/trajetController');
+router.get('/versements', authentifier, versementsAgence);
 router.delete('/documents/:id', authentifier, supprimerMonDocument);
 
 module.exports = router;

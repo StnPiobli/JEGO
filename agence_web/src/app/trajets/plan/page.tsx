@@ -1,20 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import LayoutAgence from '../../components/LayoutAgence';
 import TelephoneInput from '../../components/TelephoneInput';
-import { trajetsDemoAvecArrets, tousLesSousTrajets } from '../../lib/trajets-demo';
+import { apiFetch } from '../../lib/api';
 
 /**
- * Plan des sieges en temps reel pour un trajet donne. Interface seule.
- * Vente en physique : UN SEUL billet a la fois (aleatoire ou manuel,
- * meme flux) -- demande les infos du client, puis simule l'envoi d'un
- * mail de confirmation de reservation.
+ * Plan des sièges réel d'un trajet, alimenté par le serveur.
  *
- * Points confirmes/manquants cote backend, voir commentaires plus bas.
- * AUCUNE route "vendu en physique" n'existe nulle part.
+ * Vente au guichet : UN SEUL billet à la fois. Le siège est réellement
+ * réservé côté serveur, le billet est créé avec son QR signé, et le
+ * client reçoit sa confirmation. Le montant encaissé est calculé par
+ * le serveur — jamais par cette page.
  */
 
 type StatutVente = 'disponible' | 'vendu_en_ligne' | 'vendu_physique' | 'reserve' | 'indisponible';
@@ -29,23 +28,7 @@ type Siege = {
   statutVente: StatutVente;
 };
 
-function genererSiegesDemo(): Siege[] {
-  const sieges: Siege[] = [];
-  const lettres = ['A', 'B', 'C', 'D'];
-  const typesParPosition = ['fenetre_gauche', 'couloir_gauche', 'couloir_droit', 'fenetre_droite'];
-  const scenarios: StatutVente[] = ['vendu_en_ligne', 'vendu_physique', 'disponible', 'reserve', 'disponible', 'disponible', 'vendu_en_ligne', 'disponible'];
-  for (let rangee = 1; rangee <= 8; rangee++) {
-    for (let pos = 0; pos < 4; pos++) {
-      const idx = (rangee - 1) * 4 + pos;
-      sieges.push({
-        id: `s${idx}`, numero: `${rangee}${lettres[pos]}`, rangee, position: pos + 1,
-        type_position: typesParPosition[pos], est_premium: rangee <= 2,
-        statutVente: rangee === 8 && pos === 0 ? 'indisponible' : scenarios[idx % scenarios.length],
-      });
-    }
-  }
-  return sieges;
-}
+type Troncon = { valeur: string; libelle: string; ordreDepart: number; ordreArrivee: number; prix: number };
 
 const couleurs: Record<StatutVente, { bg: string; text: string; label: string }> = {
   disponible: { bg: 'bg-green-700', text: 'text-white', label: 'Disponible' },
@@ -55,18 +38,18 @@ const couleurs: Record<StatutVente, { bg: string; text: string; label: string }>
   indisponible: { bg: 'bg-line', text: 'text-ink-soft', label: 'Indisponible' },
 };
 
-// Le calcul des tronçons possibles se fait maintenant dynamiquement,
-// voir tousLesSousTrajets(trajetActuel) plus bas.
-
 export default function PlanSieges() {
   const params = useSearchParams();
   const trajetId = params.get('id');
-  const trajetActuel = trajetsDemoAvecArrets.find((t) => t.id === trajetId) || trajetsDemoAvecArrets[0];
-  const sousTrajetsPossibles = tousLesSousTrajets(trajetActuel);
 
-  const [sieges, setSieges] = useState<Siege[]>(genererSiegesDemo);
+  const [sieges, setSieges] = useState<Siege[]>([]);
+  const [sousTrajetsPossibles, setSousTrajetsPossibles] = useState<Troncon[]>([]);
   const [siegeAVendre, setSiegeAVendre] = useState<Siege | null>(null);
-  const [avertissement, setAvertissement] = useState(true);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [infoTrajet, setInfoTrajet] = useState('');
+  const [nomBus, setNomBus] = useState('');
 
   const [nomClient, setNomClient] = useState('');
   const [tronconChoisi, setTronconChoisi] = useState('');
@@ -74,6 +57,68 @@ export default function PlanSieges() {
   const [indicatifClient, setIndicatifClient] = useState('+237');
   const [emailClient, setEmailClient] = useState('');
   const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
+
+  // Charge le plan réel du bus et les tronçons vendables de la ligne.
+  const charger = useCallback(async () => {
+    if (!trajetId) {
+      setErreur('Aucun trajet indiqué.');
+      setChargement(false);
+      return;
+    }
+    setChargement(true);
+    setErreur(null);
+    try {
+      const plan = await apiFetch(`/api/reservations/trajets/${trajetId}/plan`);
+      const t = plan.trajet || {};
+      const date = String(t.date_depart ?? '').split('T')[0];
+      setInfoTrajet(`${t.depart ?? ''} → ${t.arrivee ?? ''} · ${date} · ${String(t.heure_depart ?? '').slice(0, 5)}`);
+      setNomBus(String(t.nom_bus ?? ''));
+      setSieges(
+        ((plan.sieges || []) as Record<string, unknown>[]).map((x) => {
+          const dispo = String(x.disponibilite);
+          let statutVente: StatutVente;
+          if (dispo === 'disponible') statutVente = 'disponible';
+          else if (dispo === 'pris') statutVente = 'vendu_en_ligne';
+          else statutVente = 'indisponible';
+          return {
+            id: String(x.id),
+            numero: String(x.numero),
+            rangee: Number(x.rangee) || 0,
+            position: Number(x.position) || 0,
+            type_position: String(x.type_position ?? ''),
+            est_premium: x.est_premium === true,
+            statutVente,
+          } as Siege;
+        }),
+      );
+
+      // Tronçons réellement vendables, avec le prix fixé par l'agence
+      // pour chaque combinaison (ce n'est pas la somme des tronçons).
+      const rep = await apiFetch('/api/lignes');
+      const lignes = (rep.lignes || []) as Record<string, unknown>[];
+      const ligne = lignes.find((l) =>
+        String(l.id) === String(plan.trajet?.ligne_id)) || lignes[0];
+      if (ligne) {
+        const points = (ligne.points || []) as Record<string, unknown>[];
+        const nomParOrdre = new Map<number, string>();
+        points.forEach((pt) => nomParOrdre.set(Number(pt.ordre), String(pt.ville)));
+        setSousTrajetsPossibles(
+          ((ligne.troncons_prix || []) as Record<string, unknown>[]).map((t) => {
+            const od = Number(t.ordre_depart);
+            const oa = Number(t.ordre_arrivee);
+            const libelle = `${nomParOrdre.get(od) ?? od} → ${nomParOrdre.get(oa) ?? oa}`;
+            return { valeur: `${od}-${oa}`, libelle, ordreDepart: od, ordreArrivee: oa, prix: Number(t.prix) || 0 };
+          }),
+        );
+      }
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'Chargement impossible');
+    } finally {
+      setChargement(false);
+    }
+  }, [trajetId]);
+
+  useEffect(() => { charger(); }, [charger]);
 
   const rangees = Array.from(new Set(sieges.map((s) => s.rangee))).sort((a, b) => a - b);
   const nbVendus = sieges.filter((s) => s.statutVente === 'vendu_en_ligne' || s.statutVente === 'vendu_physique').length;
@@ -92,11 +137,34 @@ export default function PlanSieges() {
     ouvrirVente(choisi);
   }
 
-  function confirmerVente() {
-    if (!siegeAVendre || !nomClient.trim() || !telClient.trim() || !tronconChoisi) return;
-    setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique' } : s)));
-    setEtapeVente('confirmation');
-    // FACADE : simule l'envoi d'un email de confirmation de reservation.
+  async function confirmerVente() {
+    if (!siegeAVendre || !nomClient.trim() || !telClient.trim() || !tronconChoisi || enCours) return;
+    const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
+    if (!troncon) return;
+
+    setEnCours(true);
+    setErreur(null);
+    try {
+      // Vente réelle : le serveur crée le billet, son QR signé, et
+      // calcule le montant à encaisser (prix agence + commission).
+      await apiFetch(`/api/reservations/trajets/${trajetId}/vente-guichet`, {
+        method: 'POST',
+        body: JSON.stringify({
+          siege_id: siegeAVendre.id,
+          nom_client: nomClient.trim(),
+          telephone_client: `${indicatifClient}${telClient.trim()}`,
+          email_client: emailClient.trim() || undefined,
+          point_embarquement_ordre: troncon.ordreDepart,
+          point_debarquement_ordre: troncon.ordreArrivee,
+        }),
+      });
+      setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique' } : s)));
+      setEtapeVente('confirmation');
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'La vente a échoué');
+    } finally {
+      setEnCours(false);
+    }
   }
 
   function fermerVente() {
@@ -114,7 +182,7 @@ export default function PlanSieges() {
         <div className="flex items-center justify-between mb-1">
           <div>
             <h1 className="text-2xl font-extrabold text-ink">Plan des sieges</h1>
-            <p className="text-[12px] text-ink-soft mt-0.5">{trajetActuel.numeroVoyage} · {trajetActuel.points.join(' → ')}</p>
+            <p className="text-[12px] text-ink-soft mt-0.5">{infoTrajet}</p>
           </div>
           <button
             onClick={selectionAleatoire}
@@ -123,20 +191,18 @@ export default function PlanSieges() {
             🎲 Vendre un siege au hasard
           </button>
         </div>
-        <p className="text-sm text-ink-soft mb-1">Douala → Yaounde · 26 juil 2026 · 07:00</p>
-        <p className="text-sm text-ink-soft mb-6">Confort Express 01</p>
+        <p className="text-sm text-ink-soft mb-6">{nomBus}</p>
 
-        {avertissement && (
-          <div className="rounded-2xl p-4 mb-6 bg-red/6 border border-red/20 flex items-start gap-3">
-            <span className="text-base shrink-0">⚠</span>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-ink">Ecran en facade</p>
-              <p className="text-sm text-ink-soft mt-0.5">
-                Aucune route backend &quot;vendu en physique&quot; n&apos;existe encore. L&apos;email de
-                confirmation est simule, rien n&apos;est reellement envoye.
-              </p>
-            </div>
-            <button onClick={() => setAvertissement(false)} className="text-ink-soft hover:text-ink-soft shrink-0">✕</button>
+        {chargement && (
+          <div className="rounded-2xl p-4 mb-6 bg-paper border border-line">
+            <p className="text-sm text-ink-soft">Chargement du plan du bus...</p>
+          </div>
+        )}
+
+        {erreur && (
+          <div className="rounded-2xl p-4 mb-6 bg-red/6 border border-red/20">
+            <p className="text-sm text-red">{erreur}</p>
+            <button onClick={charger} className="text-sm font-bold text-green-700 mt-1">Réessayer</button>
           </div>
         )}
 
@@ -212,7 +278,7 @@ export default function PlanSieges() {
                     <label className="block text-[10.5px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Trajet souhaité par le client</label>
                     <select value={tronconChoisi} onChange={(e) => setTronconChoisi(e.target.value)} className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm">
                       <option value="">Choisir le trajet...</option>
-                      {sousTrajetsPossibles.map((t) => <option key={t.label} value={t.label}>{t.label} — {t.prix} FCFA</option>)}
+                      {sousTrajetsPossibles.map((t) => <option key={t.valeur} value={t.valeur}>{t.libelle} — {t.prix} FCFA</option>)}
                     </select>
                   </div>
                   <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom du client" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />

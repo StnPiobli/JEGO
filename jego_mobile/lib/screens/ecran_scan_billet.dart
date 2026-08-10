@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../config/billets_store.dart';
-import '../config/session.dart';
+import '../config/api.dart';
+import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
+import '../config/scan_hors_ligne.dart';
 
-/// Scanner camera reel (mobile_scanner). Verifie le code lu contre les
-/// VRAIES reservations de l'app (BilletsStore) -- si tu scannes le QR
-/// d'un billet reellement reserve dans l'app, il est reconnu. Marque le
-/// billet comme "embarque" pour empecher un deuxieme scan valide.
+/// Scanner caméra réel (mobile_scanner).
+///
+/// Le code lu est envoyé au backend, qui vérifie la signature
+/// cryptographique du QR, son appartenance au trajet du chauffeur et
+/// le double passage.
+///
+/// HORS LIGNE : dans beaucoup de zones la connexion est intermittente.
+/// Si le serveur est injoignable, le QR est validé localement grâce à
+/// sa structure signée, le passager peut monter, et le scan est mis en
+/// file d'attente pour être synchronisé dès le retour du réseau.
 class EcranScanBillet extends StatefulWidget {
   final VoidCallback? onScanValide;
   const EcranScanBillet({super.key, this.onScanValide});
@@ -26,60 +33,89 @@ class _EcranScanBilletState extends State<EcranScanBillet> {
     super.dispose();
   }
 
-  void _onDetection(BarcodeCapture capture) {
+  Future<void> _onDetection(BarcodeCapture capture) async {
     if (_traitementEnCours) return;
     final valeurs = capture.barcodes.map((b) => b.rawValue).whereType<String>();
     if (valeurs.isEmpty) return;
 
     final code = valeurs.first;
     _traitementEnCours = true;
-    _controleur.stop();
+    await _controleur.stop();
 
-    _verifierEtAfficher(code);
+    await _verifierEtAfficher(code);
   }
 
-  void _verifierEtAfficher(String code) {
-    final billets = BilletsStore.billets.value;
-    Map<String, dynamic>? trouve;
-    for (final b in billets) {
-      if ('${b['code_qr']}' == code || '${b['num_resa']}' == code) {
-        trouve = b;
-        break;
-      }
-    }
-
+  Future<void> _verifierEtAfficher(String code) async {
     late Color couleur;
     late IconData icone;
     late String titre;
     late String sousTitre;
 
-    if (trouve == null) {
+    final token = SessionChauffeur.token;
+
+    if (token == null) {
       couleur = JegoTheme.danger;
       icone = Icons.cancel_rounded;
-      titre = 'Billet non reconnu';
-      sousTitre = 'Refuse l\'acces a bord.';
-    } else if (trouve['annule'] == true) {
-      couleur = JegoTheme.danger;
-      icone = Icons.cancel_rounded;
-      titre = 'Billet annule';
-      sousTitre = 'Ce billet a ete annule, refuse l\'acces.';
-    } else if (trouve['embarque'] == true) {
-      couleur = const Color(0xFFE6B84C);
-      icone = Icons.error_rounded;
-      titre = 'Billet deja utilise';
-      sousTitre = 'Ce passager est deja monte.';
+      titre = 'Session expirée';
+      sousTitre = 'Reconnectez-vous pour scanner les billets.';
     } else {
-      BilletsStore.mettreAJour('${trouve['id']}', {'embarque': true});
-      widget.onScanValide?.call();
-      final sieges = (trouve['sieges'] as List?)?.join(', ') ?? '';
-      final nomPassager = trouve['cadeau'] == true
-          ? '${trouve['cadeau_nom']}'
-          : '${Session.prenom ?? ''} ${Session.nom ?? ''}'.trim();
-      couleur = JegoTheme.vert;
-      icone = Icons.check_circle_rounded;
-      titre = 'Billet valide';
-      sousTitre = sieges.isEmpty ? nomPassager : '$nomPassager — Siege $sieges';
+      try {
+        final rep = await ApiService.scannerBillet(contenuQr: code, token: token);
+        final codeHttp = rep['code_http'] as int? ?? 0;
+
+        if (codeHttp == 200 && rep['valide'] == true) {
+          widget.onScanValide?.call();
+          final b = rep['billet'] ?? {};
+          couleur = JegoTheme.vert;
+          icone = Icons.check_circle_rounded;
+          titre = 'Billet valide';
+          final passager = '${b['nom_passager'] ?? ''}'.trim();
+          final siege = '${b['siege'] ?? b['siege_numero'] ?? ''}'.trim();
+          sousTitre = [
+            if (passager.isNotEmpty) passager,
+            if (siege.isNotEmpty) 'Siège $siege',
+          ].join(' — ');
+          if (sousTitre.isEmpty) sousTitre = 'Laissez monter le passager.';
+        } else if (codeHttp == 409) {
+          couleur = const Color(0xFFE6B84C);
+          icone = Icons.error_rounded;
+          titre = 'Billet déjà utilisé';
+          sousTitre = '${rep['error'] ?? 'Ce passager est déjà monté.'}';
+        } else {
+          couleur = JegoTheme.danger;
+          icone = Icons.cancel_rounded;
+          titre = 'Billet refusé';
+          sousTitre = '${rep['error'] ?? 'Refusez l\'accès à bord.'}';
+        }
+      } catch (_) {
+        // Serveur injoignable : on bascule en vérification hors ligne.
+        final horsLigne = ScanHorsLigne.verifierStructure(code);
+        if (horsLigne.valide && await ScanHorsLigne.dejaScanneLocalement(code)) {
+          // Même sans réseau, un billet déjà scanné sur cet appareil
+          // pendant ce trajet doit être signalé.
+          couleur = const Color(0xFFE6B84C);
+          icone = Icons.error_rounded;
+          titre = 'Billet déjà scanné';
+          sousTitre = 'Ce billet a déjà été présenté sur ce trajet.';
+        } else if (horsLigne.valide) {
+          await ScanHorsLigne.mettreEnAttente(code);
+          widget.onScanValide?.call();
+          couleur = JegoTheme.vert;
+          icone = Icons.wifi_off_rounded;
+          titre = 'Billet valide (hors ligne)';
+          sousTitre =
+              'Réseau indisponible. Le billet est conforme, laissez monter le passager. '
+              'Le scan sera synchronisé au retour du réseau.';
+        } else {
+          couleur = JegoTheme.danger;
+          icone = Icons.cancel_rounded;
+          titre = 'Billet non reconnu';
+          sousTitre = 'Ce code n\'est pas un billet JEGO. Refusez l\'accès.';
+        }
+      }
     }
+
+    if (!mounted) return;
 
     showModalBottomSheet(
       context: context,

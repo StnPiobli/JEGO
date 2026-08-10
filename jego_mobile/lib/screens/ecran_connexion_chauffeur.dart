@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import '../config/api.dart';
 import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
 import 'ecran_accueil_chauffeur.dart';
 
-/// DEMO : accepte n'importe quel identifiant/mot de passe -- au
-/// branchement, verification reelle des identifiants crees par
-/// l'agence (le chauffeur ne peut jamais s'inscrire lui-meme).
+/// Connexion du chauffeur, vérifiée par le serveur.
+///
+/// Les comptes sont créés par l'agence : un chauffeur ne peut jamais
+/// s'inscrire lui-même, et l'agence ne connaît jamais son mot de
+/// passe (elle peut seulement lui en faire renvoyer un provisoire).
 class EcranConnexionChauffeur extends StatefulWidget {
   const EcranConnexionChauffeur({super.key});
 
@@ -18,15 +21,47 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
   final _ctrlMdp = TextEditingController();
   String? _erreur;
 
-  void _connecter() {
-    if (_ctrlIdentifiant.text.trim().isEmpty || _ctrlMdp.text.trim().isEmpty) {
-      setState(() => _erreur = 'Entre ton identifiant et ton mot de passe.');
+  bool _enCours = false;
+
+  Future<void> _connecter() async {
+    if (_enCours) return;
+    final tel = _ctrlIdentifiant.text.trim();
+    if (tel.isEmpty || _ctrlMdp.text.trim().isEmpty) {
+      setState(() => _erreur = 'Entrez votre numéro et votre mot de passe.');
       return;
     }
-    SessionChauffeur.connecter(nom: 'Paul', agence: 'Touristique Express');
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
-    );
+
+    setState(() {
+      _enCours = true;
+      _erreur = null;
+    });
+
+    try {
+      final rep = await ApiService.connecterChauffeur(
+        telephone: tel,
+        motDePasse: _ctrlMdp.text,
+      );
+      final c = rep['chauffeur'] ?? {};
+      SessionChauffeur.connecter(
+        nom: '${c['nom'] ?? ''}',
+        prenom: '${c['prenom'] ?? ''}',
+        telephone: '${c['telephone'] ?? tel}',
+        token: rep['token']?.toString(),
+        chauffeurId: c['id']?.toString(),
+        agence: c['nom_agence']?.toString(),
+      );
+      if (!mounted) return;
+      setState(() => _enCours = false);
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
+      );
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _enCours = false;
+        _erreur = e.message;
+      });
+    }
   }
 
   @override

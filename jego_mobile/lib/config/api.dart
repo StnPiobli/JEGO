@@ -1,14 +1,11 @@
-/// Configuration centrale de l'API JEGO.
-class ApiConfig {
-  /// true = donnees fictives locales, aucun appel reseau.
-  /// false = appels reels vers le backend (branchement ulterieur).
-  static const bool modeDemo = true;
-
-  static const String baseUrl = 'http://10.0.2.2:3000';
-
-  // ---- ROUTES — a remplir au moment du branchement ----
-  static const String rechercheTrajets = '$baseUrl/api/trajets/recherche';
-  static const String profilAgence = '$baseUrl/api/agences'; // + /:id
-  static const String inscription = '$baseUrl/api/auth/inscription';
-  static const String connexion = '$baseUrl/api/auth/connexion';
-}
+/// Configuration de l'API JEGO.
+///
+/// Le contenu réel vit désormais dans `api_service.dart`, qui contient
+/// à la fois la configuration (ApiConfig) et les appels réseau
+/// (ApiService). Ce fichier est conservé pour que les écrans qui
+/// importent déjà `config/api.dart` continuent de fonctionner sans
+/// modification d'import.
+///
+/// Il n'existe plus aucun mode de données fictives : tous les écrans
+/// parlent au vrai backend.
+export 'api_service.dart' show ApiConfig, ApiService, ErreurApi;

@@ -1,5 +1,11 @@
-/// Donnees de la reservation en cours, transportees dans tout le tunnel.
-/// Prix FICTIFS (demo) — a remplacer par parametres_systeme au branchement.
+import 'session.dart';
+
+/// Données de la réservation en cours, transportées dans tout le
+/// tunnel d'achat.
+///
+/// Les montants affichés ici servent à informer le voyageur pendant
+/// le parcours ; le montant qui fait foi est celui calculé par le
+/// backend au moment du paiement.
 class Reservation {
   Map<String, dynamic> offreAller;
   Map<String, dynamic>? offreRetour;
@@ -30,6 +36,11 @@ class Reservation {
   int pointsReduction; // reduction en FCFA appliquee
   int pointsConsommes; // nb de points utilises
 
+  /// Identifiants serveur des sièges choisis (numéro affiché -> UUID).
+  /// Le backend raisonne en UUID, l'interface en numéros de siège.
+  Map<int, String> idSiegesAller;
+  Map<int, String> idSiegesRetour;
+
   // Villes et dates (pour l'affichage du billet)
   String villeAllerDepart;
   String villeAllerArrivee;
@@ -58,11 +69,15 @@ class Reservation {
     List<String>? cadeauTelRetour,
     this.pointsReduction = 0,
     this.pointsConsommes = 0,
+    Map<int, String>? idSiegesAller,
+    Map<int, String>? idSiegesRetour,
     this.villeAllerDepart = '',
     this.villeAllerArrivee = '',
     this.dateAllerAffichee = '',
     this.dateRetourAffichee = '',
-  })  : bagagesAller = bagagesAller ?? List.filled(passagers, 0),
+  })  : idSiegesAller = idSiegesAller ?? <int, String>{},
+        idSiegesRetour = idSiegesRetour ?? <int, String>{},
+        bagagesAller = bagagesAller ?? List.filled(passagers, 0),
         bagagesRetour = bagagesRetour ?? List.filled(passagers, 0),
         flexibleAller = flexibleAller ?? List.filled(passagers, false),
         flexibleRetour = flexibleRetour ?? List.filled(passagers, false),
@@ -88,10 +103,14 @@ class Reservation {
     return buf.toString();
   }
 
-  // Prix FICTIFS (demo)
+  // Barème indicatif affiché pendant le parcours. Le montant qui
+  // fait foi est celui calculé par le serveur au paiement.
   static const int prixBagage = 1000; // FCFA / bagage supp -> agence
   static const double tauxFlexible = 0.10;
-  static const int pointsDisponibles = 1200; // solde demo du voyageur
+  /// Solde réel de points JEGO du voyageur connecté, renvoyé par le
+  /// serveur à la connexion. Aucun solde n'est inventé : un compte
+  /// neuf démarre naturellement à zéro.
+  static int get pointsDisponibles => Session.pointsFidelite;
 
   int get prixBilletsAller => (offreAller['prix'] as int) * passagers;
   int get prixBilletsRetour =>

@@ -1,21 +1,20 @@
-'use client';
+﻿'use client';
 
-// ✅ BRANCHÉ (repli démo) — GET /api/litiges/mes-litiges, PUT /:id/reponse
-// { reponse } (texte uniquement — le fichier reste démo, la route ne
-// l'accepte pas). ⚠️ Modèle de données corrigé pour matcher le vrai
-// backend : motif en texte libre (pas de catégories fixes), pas de
-// "verdict agence/opposition" — l'agence répond, seul l'admin décide,
-// à n'importe quel moment (pas d'attente obligatoire de 48h côté agence).
+// BRANCHÉ SUR LE VRAI BACKEND, sans repli démo.
+// GET /api/litiges/mes-litiges, PUT /:id/reponse { reponse } (texte
+// uniquement — la route n'accepte pas encore l'upload de fichiers).
+// L'agence répond, seul l'admin décide, à n'importe quel moment (pas
+// d'attente obligatoire de 48h côté agence).
 
 import { useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
 import { Panel, Badge, BtnMini, ToastDemo } from '../components/ui';
-import { addDaysToInput, todayInputDate } from '../lib/date';
+import { todayInputDate } from '../lib/date';
 import { apiFetch } from '../lib/api';
 
 type Litige = {
-  id: string | number;
+  id: string;
   numero: string;
   motif: string;
   description: string;
@@ -24,33 +23,22 @@ type Litige = {
   reponse_agence: string | null;
   decision: string | null;
   cree_le: string;
-  // Démo uniquement — absents de la vraie réponse API :
   client?: string;
   trajet?: string;
-  trajet_id?: string;
   montant?: number;
-  signalants?: string[]; // liste des voyageurs ayant signalé, cas de déclaration collective (fausse arrivée)
 };
 
 const AUJOURDHUI = todayInputDate();
 
-const litigesDemo: Litige[] = [
-  { id: 'demo-1', numero: 'LIT-1001', motif: 'Remboursement demandé après annulation tardive', description: 'Le voyageur demande un remboursement après une annulation tardive.', statut: 'ouvert', niveau: 1, reponse_agence: null, decision: null, cree_le: new Date().toISOString(), client: 'Jean Mvondo', trajet: 'Douala → Yaoundé', trajet_id: 'TRJ-4821', montant: 4000 },
-  { id: 'demo-2', numero: 'LIT-1002', motif: 'Bagage manquant à l\u2019arrivée', description: "Bagage déclaré manquant à l'arrivée, vérification en cours.", statut: 'ouvert', niveau: 1, reponse_agence: null, decision: null, cree_le: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(), client: 'Nadine Essomba', trajet: 'Yaoundé → Douala', trajet_id: 'TRJ-4796', montant: 0 },
-  { id: 'demo-3', numero: 'LIT-0994', motif: 'Compensation pour fort retard', description: 'Demande de compensation suite à un fort retard.', statut: 'resolu', niveau: 3, reponse_agence: 'Les preuves de départ montrent un respect des horaires.', decision: "En faveur de l'agence. Raison communiquée au perdant : les preuves de départ et d'arrivée montrent que l'agence a informé les voyageurs dans les délais prévus.", cree_le: new Date(Date.now() - 18 * 24 * 3600 * 1000).toISOString(), client: 'Pauline Nana', trajet: 'Douala → Kribi', trajet_id: 'TRJ-4650', montant: 1500 },
-  { id: 'demo-4', numero: 'LIT-1006', motif: 'Fausse déclaration d\u2019arrivée signalée par plusieurs passagers', description: 'Le seuil de signalements collectifs a été atteint pendant le trajet — litige ouvert automatiquement.', statut: 'ouvert', niveau: 1, reponse_agence: null, decision: null, cree_le: new Date(Date.now() - 5 * 3600 * 1000).toISOString(), client: 'Signalement collectif', trajet: 'Bafoussam → Douala', trajet_id: 'TRJ-4901', montant: 0, signalants: ['Jean Mvondo', 'Nadine Essomba', 'Paul Nkeng', 'Sarah Mballa'] },
-];
-
 export default function LitigesPage() {
   const [litiges, setLitiges] = useState<Litige[]>([]);
-  const [modeDemo, setModeDemo] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
   const [recherche, setRecherche] = useState('');
 
-  const [reponseOuverte, setReponseOuverte] = useState<string | number | null>(null);
+  const [reponseOuverte, setReponseOuverte] = useState<string | null>(null);
   const [texteReponse, setTexteReponse] = useState('');
   const [fichiersReponse, setFichiersReponse] = useState<File[]>([]);
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
@@ -65,16 +53,10 @@ export default function LitigesPage() {
     setErreur(null);
     try {
       const data = await apiFetch('/api/litiges/mes-litiges');
-      if (data.litiges && data.litiges.length > 0) {
-        setLitiges(data.litiges);
-        setModeDemo(false);
-      } else {
-        setLitiges(litigesDemo);
-        setModeDemo(true);
-      }
-    } catch {
-      setLitiges(litigesDemo);
-      setModeDemo(true);
+      setLitiges(data.litiges || []);
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Impossible de charger les litiges.');
+      setLitiges([]);
     } finally {
       setChargement(false);
     }
@@ -95,17 +77,13 @@ export default function LitigesPage() {
     if (!texteReponse.trim()) return;
     setEnvoiEnCours(true);
     try {
-      if (modeDemo) {
-        setLitiges((prev) => prev.map((l) => (l.id === litige.id ? { ...l, reponse_agence: texteReponse, niveau: 2 } : l)));
-      } else {
-        await apiFetch(`/api/litiges/${litige.id}/reponse`, {
-          method: 'PUT',
-          body: JSON.stringify({ reponse: texteReponse }),
-        });
-        await charger();
-      }
+      await apiFetch(`/api/litiges/${litige.id}/reponse`, {
+        method: 'PUT',
+        body: JSON.stringify({ reponse: texteReponse }),
+      });
+      await charger();
       if (fichiersReponse.length > 0) {
-        notifier(`Réponse envoyée — ${fichiersReponse.length} pièce(s) jointe(s) NON envoyée(s) (démo, route sans upload)`);
+        notifier(`Réponse envoyée — ${fichiersReponse.length} pièce(s) jointe(s) non transmise(s) (l'envoi de fichiers n'est pas encore pris en charge).`);
       } else {
         notifier('Réponse envoyée à JEGO');
       }
@@ -129,19 +107,13 @@ export default function LitigesPage() {
             <b className="font-mono text-xs text-ink-soft">{litige.numero}</b>
             {estResolu ? <Badge color="grey">Résolu</Badge> : litige.reponse_agence ? <Badge color="amber">Réponse envoyée — en attente de décision JEGO</Badge> : <Badge color="red">En attente de ta réponse</Badge>}
           </div>
-          {litige.client && (
+          {(litige.client || litige.trajet) && (
             <p className="text-[12px] text-ink-soft mb-1">
-              {litige.client} · {litige.trajet} {litige.trajet_id && <span className="font-mono">#{litige.trajet_id}</span>}{litige.montant ? ` · ${litige.montant} F` : ''}
+              {litige.client}{litige.client && litige.trajet ? ' · ' : ''}{litige.trajet}{litige.montant ? ` · ${litige.montant} F` : ''}
             </p>
           )}
           <p className="text-[13px] font-semibold text-ink mb-1">{litige.motif}</p>
           <p className="text-[13px] text-ink-soft mb-2">{litige.description}</p>
-
-          {litige.signalants && litige.signalants.length > 0 && (
-            <div className="bg-red-bg rounded-lg px-3 py-2 mb-2 text-[12.5px]">
-              <b>Voyageurs ayant signalé ({litige.signalants.length}) :</b> {litige.signalants.join(', ')}
-            </div>
-          )}
 
           {litige.reponse_agence && (
             <div className="bg-off-white rounded-lg px-3 py-2 mb-2 text-[12.5px]"><b>Ta réponse :</b> {litige.reponse_agence}</div>
@@ -161,7 +133,7 @@ export default function LitigesPage() {
                     📎 Joindre des fichiers
                     <input type="file" multiple className="hidden" onChange={(e) => setFichiersReponse(Array.from(e.target.files ?? []))} />
                   </label>
-                  {fichiersReponse.length > 0 && <span className="text-[11px] text-amber">(démo — non envoyés réellement)</span>}
+                  {fichiersReponse.length > 0 && <span className="text-[11px] text-amber">(non transmis pour l&apos;instant, texte uniquement)</span>}
                 </div>
                 {fichiersReponse.length > 0 && (
                   <ul className="mb-3 space-y-0.5">
@@ -195,14 +167,6 @@ export default function LitigesPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 mb-4">
-          {modeDemo ? (
-            <div className="text-xs font-semibold text-amber bg-amber-bg rounded-lg px-3 py-2">Mode démo — données factices</div>
-          ) : <div />}
-          <button onClick={() => { setLitiges(litigesDemo); setModeDemo(true); }} className="text-[11px] font-bold text-green-700 underline shrink-0">
-            Voir des données de démonstration
-          </button>
-        </div>
         {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
 
         <Panel>

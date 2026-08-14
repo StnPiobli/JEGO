@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LANGUE_STORAGE_KEY, lireLangue, NAV_LABELS, type Langue } from '../lib/langue';
 import SiteLanguageTranslator from './SiteLanguageTranslator';
 import { ThemeToggle } from './ui';
-import { getAgenceLocale, onboardingComplet, clearSession } from '../lib/api';
+import { getAgenceLocale, onboardingComplet, clearSession, apiFetch } from '../lib/api';
 
 const liens = [
   { href: '/accueil', key: 'accueil', icone: 'accueil' },
@@ -22,11 +22,8 @@ const liens = [
   { href: '/avis', key: 'avis', icone: 'avis' },
 ] as const;
 
-const notificationsInitiales = [
-  { id: 'n1', titre: 'Nouveau litige', texte: 'Un dossier est en cours de traitement par JEGO.', heure: 'Il y a 8 min', lu: false },
-  { id: 'n2', titre: 'Programme incomplet', texte: 'La programmation est sous le seuil de 14 jours.', heure: 'Il y a 35 min', lu: false },
-  { id: 'n3', titre: 'Versement en attente', texte: 'Un versement reste bloque dans l’escrow.', heure: 'Il y a 1 h', lu: false },
-];
+type Notification = { id: string; titre: string; texte: string; heure: string; lien?: string; lu: boolean };
+const notificationsInitiales: Notification[] = [];
 
 function Icone({ nom, className }: { nom: string; className?: string }) {
   const props = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, className };
@@ -72,6 +69,24 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   const [notificationsOuvertes, setNotificationsOuvertes] = useState(false);
   const [notifications, setNotifications] = useState(notificationsInitiales);
   const [langue, setLangue] = useState<Langue>('fr');
+  const [nomAgenceConnectee, setNomAgenceConnectee] = useState('');
+
+  useEffect(() => {
+    const agence = getAgenceLocale();
+    if (agence?.nom) setNomAgenceConnectee(agence.nom);
+  }, []);
+
+  useEffect(() => {
+    apiFetch('/api/agences/notifications')
+      .then((data) => {
+        const liste: Notification[] = (data.notifications || []).map((n: { id: string; titre: string; texte: string; heure: string; lien?: string }) => ({
+          ...n,
+          lu: false,
+        }));
+        setNotifications(liste);
+      })
+      .catch(() => setNotifications([]));
+  }, []);
 
   // Garde-fou : LayoutAgence n'habille que les pages du dashboard complet
   // (accueil, trajets, flotte...). Si quelqu'un navigue directement dessus
@@ -156,10 +171,12 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
                 className={`w-full flex items-center ${replie ? 'justify-center' : 'gap-2.5 px-1.5'} pt-2 hover:opacity-80 transition-opacity`}
                 title={labels.logout}
               >
-                <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold text-white shrink-0">N</div>
+                <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                  {nomAgenceConnectee ? nomAgenceConnectee.charAt(0).toUpperCase() : '?'}
+                </div>
                 {!replie && (
                   <div className="text-[12.5px] text-left">
-                    <b className="block text-[13px] text-on-dark">Nuit Express</b>
+                    <b className="block text-[13px] text-on-dark">{nomAgenceConnectee || '…'}</b>
                     <span className="text-white/50 text-[11px] underline">{labels.logout}</span>
                   </div>
                 )}
@@ -194,7 +211,10 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
                         <button
                           type="button"
                           key={notification.id}
-                          onClick={() => setNotifications((liste) => liste.map((n) => n.id === notification.id ? { ...n, lu: true } : n))}
+                          onClick={() => {
+                            setNotifications((liste) => liste.map((n) => n.id === notification.id ? { ...n, lu: true } : n));
+                            if (notification.lien) router.push(notification.lien);
+                          }}
                           className={`w-full text-left rounded-xl border p-3 transition-colors ${notification.lu ? 'bg-off-white border-line' : 'bg-ok-bg border-green-300'}`}
                         >
                           <div className="flex items-start justify-between gap-3">

@@ -5,6 +5,7 @@ const pool = require('../config/database');
 const { lireMultipart } = require('../utils/multipart');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
+const { envoyerEmailDirect } = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // INSCRIPTION D'UNE AGENCE
@@ -116,7 +117,9 @@ async function monProfil(req, res) {
     const resultat = await pool.query(
       `SELECT id, nom, email, telephone, adresse, ville,
               registre_commerce, logo_url, badge_certifie, statut,
-              langue, cree_le
+              langue, cree_le, description, contact_directeur,
+              telephone_secondaire, mode_reception, numero_reception,
+              titulaire_reception, instructions_reception
        FROM agences WHERE id = $1`,
       [agenceId]
     );
@@ -255,4 +258,347 @@ async function supprimerMonDocument(req, res) {
   }
 }
 
-module.exports = { inscription, connexion, monProfil, televerserDocument, mesDocuments, supprimerMonDocument };
+// ═══════════════════════════════════════════════════
+// NOTIFICATIONS — sidebar agence
+// Trois sources réelles : litiges ouverts sans réponse, programme sous
+// le seuil d'alerte (réutilise la même logique que la relance email
+// quotidienne), versements escrow bloqués au-delà du délai normal de 6h.
+// ═══════════════════════════════════════════════════
+function formatRelatif(date) {
+  const minutes = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const heures = Math.floor(minutes / 60);
+  if (heures < 24) return `Il y a ${heures} h`;
+  return `Il y a ${Math.floor(heures / 24)} j`;
+}
+
+async function mesNotifications(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const notifications = [];
+
+    const litiges = await pool.query(
+      `SELECT id, numero, motif, cree_le FROM litiges
+       WHERE agence_id = $1 AND statut = 'ouvert' AND reponse_agence IS NULL
+       ORDER BY cree_le DESC`,
+      [agenceId]
+    );
+    litiges.rows.forEach((l) => {
+      notifications.push({
+        id: `litige-${l.id}`,
+        titre: 'Nouveau litige',
+        texte: `${l.numero} — ${l.motif}`,
+        heure: formatRelatif(l.cree_le),
+        lien: '/litiges',
+      });
+    });
+
+    const { calculerHorizon } = require('../services/programmationService');
+    const horizon = await calculerHorizon(agenceId);
+    if (horizon && !horizon.conforme) {
+      notifications.push({
+        id: 'programme',
+        titre: 'Programme incomplet',
+        texte: horizon.message,
+        heure: '',
+        lien: '/trajets',
+      });
+    }
+
+    const versements = await pool.query(
+      `SELECT COUNT(*) AS nb FROM escrow e
+       JOIN billets b ON b.id = e.billet_id
+       JOIN trajets t ON t.id = b.trajet_id
+       WHERE t.agence_id = $1 AND e.statut = 'retenu'
+         AND t.statut = 'termine' AND t.versement_escrow_le IS NOT NULL
+         AND t.versement_escrow_le < NOW()`,
+      [agenceId]
+    );
+    const nbVersements = parseInt(versements.rows[0].nb);
+    if (nbVersements > 0) {
+      notifications.push({
+        id: 'versements',
+        titre: 'Versement en attente',
+        texte: `${nbVersements} versement(s) resté(s) bloqué(s) dans l'escrow au-delà du délai normal`,
+        heure: '',
+        lien: '/paiements',
+      });
+    }
+
+    res.json({ notifications });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// TABLEAU DE BORD — écran d'accueil agence
+// Trajets aujourd'hui (+ comparaison réelle avec hier), bus actifs,
+// top destinations sur les 30 derniers jours.
+// ═══════════════════════════════════════════════════
+async function tableauDeBord(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+    const trajetsAuj = await pool.query(
+      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart::date = $2::date AND statut != 'annule'`,
+      [agenceId, aujourdhui]
+    );
+    const trajetsHier = await pool.query(
+      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart::date = $2::date AND statut != 'annule'`,
+      [agenceId, hier]
+    );
+    const bus = await pool.query(
+      `SELECT COUNT(*) AS nb FROM bus WHERE agence_id = $1 AND statut != 'inactif'`,
+      [agenceId]
+    );
+    const destinations = await pool.query(
+      `SELECT vd.nom_affiche || ' -> ' || va.nom_affiche AS route, COUNT(b.id) AS nb
+       FROM billets b
+       JOIN trajets t ON t.id = b.trajet_id
+       JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
+       WHERE t.agence_id = $1 AND b.statut IN ('confirme', 'utilise')
+         AND t.date_depart >= NOW() - INTERVAL '30 days'
+       GROUP BY vd.nom_affiche, va.nom_affiche
+       ORDER BY nb DESC LIMIT 3`,
+      [agenceId]
+    );
+
+    const nbAuj = parseInt(trajetsAuj.rows[0].nb);
+    const nbHier = parseInt(trajetsHier.rows[0].nb);
+    const variationTrajets = nbHier > 0 ? Math.round(((nbAuj - nbHier) / nbHier) * 1000) / 10 : null;
+
+    res.json({
+      trajetsAujourdhui: nbAuj,
+      trajetsHier: nbHier,
+      variationTrajets,
+      busActifs: parseInt(bus.rows[0].nb),
+      topDestinations: destinations.rows.map((d) => ({ nom: d.route, reservations: parseInt(d.nb) })),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MODIFIER LE PROFIL (agence)
+// Tous les champs sont optionnels à la marge (COALESCE) — seuls ceux
+// envoyés sont mis à jour, le reste reste inchangé.
+// ═══════════════════════════════════════════════════
+async function modifierProfil(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const {
+      nom, email, telephone, adresse, description,
+      contact_directeur, telephone_secondaire,
+      mode_reception, numero_reception, titulaire_reception, instructions_reception
+    } = req.body;
+
+    const resultat = await pool.query(
+      `UPDATE agences SET
+        nom = COALESCE($1, nom),
+        email = COALESCE($2, email),
+        telephone = COALESCE($3, telephone),
+        adresse = COALESCE($4, adresse),
+        description = COALESCE($5, description),
+        contact_directeur = COALESCE($6, contact_directeur),
+        telephone_secondaire = COALESCE($7, telephone_secondaire),
+        mode_reception = COALESCE($8, mode_reception),
+        numero_reception = COALESCE($9, numero_reception),
+        titulaire_reception = COALESCE($10, titulaire_reception),
+        instructions_reception = COALESCE($11, instructions_reception),
+        mis_a_jour_le = NOW()
+       WHERE id = $12
+       RETURNING id, nom, email, telephone, adresse, description,
+                 contact_directeur, telephone_secondaire, mode_reception,
+                 numero_reception, titulaire_reception, instructions_reception`,
+      [nom, email, telephone, adresse, description, contact_directeur,
+       telephone_secondaire, mode_reception, numero_reception,
+       titulaire_reception, instructions_reception, agenceId]
+    );
+
+    res.json({ message: 'Profil mis à jour', agence: resultat.rows[0] });
+
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Cet email ou ce téléphone est déjà utilisé par une autre agence.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// ENVOYER UN CODE D'ACCÈS AU PROFIL (par email, au directeur)
+// Un nouveau code écrase et invalide automatiquement le précédent —
+// l'ancien code, s'il existait, n'est plus vérifiable nulle part.
+// ═══════════════════════════════════════════════════
+async function envoyerCodeAcces(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const agence = await pool.query('SELECT contact_directeur FROM agences WHERE id = $1', [agenceId]);
+    if (agence.rows.length === 0) {
+      return res.status(404).json({ error: 'Agence introuvable' });
+    }
+    const emailDirecteur = agence.rows[0].contact_directeur;
+    if (!emailDirecteur) {
+      return res.status(400).json({ error: 'Aucun email de directeur enregistré pour l\'instant.' });
+    }
+
+    const code = String(crypto.randomInt(10000000, 99999999));
+    const expiration = new Date(Date.now() + 5 * 60 * 1000);
+
+    await pool.query(
+      `UPDATE agences SET code_acces_profil = $1, code_acces_expiration = $2, code_acces_utilise = false WHERE id = $3`,
+      [code, expiration, agenceId]
+    );
+
+    const envoye = await envoyerEmailDirect(
+      emailDirecteur,
+      'Code d\'accès au profil JEGO',
+      `Votre code d'accès temporaire est : ${code}\n\nValable 5 minutes, à usage unique. Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.`
+    );
+
+    if (!envoye) {
+      return res.status(500).json({ error: 'Échec de l\'envoi de l\'email. Vérifie l\'email du directeur, ou réessaie.' });
+    }
+
+    res.json({ message: `Code envoyé à ${emailDirecteur}` });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// VÉRIFIER LE CODE D'ACCÈS AU PROFIL
+// ═══════════════════════════════════════════════════
+async function verifierCodeAcces(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'Code requis' });
+    }
+
+    const resultat = await pool.query(
+      'SELECT code_acces_profil, code_acces_expiration, code_acces_utilise FROM agences WHERE id = $1',
+      [agenceId]
+    );
+    if (resultat.rows.length === 0) {
+      return res.status(404).json({ error: 'Agence introuvable' });
+    }
+    const a = resultat.rows[0];
+
+    if (!a.code_acces_profil || a.code_acces_utilise) {
+      return res.status(400).json({ valide: false, error: 'Aucun code actif — demande-en un nouveau.' });
+    }
+    if (new Date() > new Date(a.code_acces_expiration)) {
+      return res.status(400).json({ valide: false, error: 'Code expiré — demande-en un nouveau.' });
+    }
+    if (code !== a.code_acces_profil) {
+      return res.status(401).json({ valide: false, error: 'Code incorrect.' });
+    }
+
+    await pool.query('UPDATE agences SET code_acces_utilise = true WHERE id = $1', [agenceId]);
+
+    res.json({ valide: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// CHANGER LE MOT DE PASSE (agence)
+// L'ancien mot de passe est obligatoire pour confirmer.
+// ═══════════════════════════════════════════════════
+async function changerMotDePasseAgence(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { ancien_mot_de_passe, nouveau_mot_de_passe } = req.body;
+
+    if (!ancien_mot_de_passe || !nouveau_mot_de_passe) {
+      return res.status(400).json({ error: 'Ancien et nouveau mot de passe requis' });
+    }
+    if (nouveau_mot_de_passe.length < 8) {
+      return res.status(400).json({ error: 'Le nouveau mot de passe doit faire au moins 8 caractères' });
+    }
+
+    const resultat = await pool.query('SELECT mot_de_passe FROM agences WHERE id = $1', [agenceId]);
+    if (resultat.rows.length === 0) {
+      return res.status(404).json({ error: 'Agence introuvable' });
+    }
+
+    const valide = await bcrypt.compare(ancien_mot_de_passe, resultat.rows[0].mot_de_passe);
+    if (!valide) {
+      return res.status(401).json({ error: 'Ancien mot de passe incorrect' });
+    }
+
+    const nouveauHash = await bcrypt.hash(nouveau_mot_de_passe, 10);
+    await pool.query(
+      'UPDATE agences SET mot_de_passe = $1, mis_a_jour_le = NOW() WHERE id = $2',
+      [nouveauHash, agenceId]
+    );
+
+    res.json({ message: 'Mot de passe mis à jour' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// TÉLÉVERSER LE LOGO (agence)
+// Réutilise le même mécanisme multipart que televerserDocument, dans
+// un sous-dossier séparé — ce n'est pas un document officiel.
+// ═══════════════════════════════════════════════════
+const DOSSIER_LOGOS = path.join(__dirname, '..', 'uploads', 'agences', 'logos');
+const TYPES_MIME_LOGO = ['image/jpeg', 'image/png', 'image/webp'];
+
+async function televerserLogo(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+
+    let resultat;
+    try {
+      resultat = await lireMultipart(req, TAILLE_MAX_OCTETS);
+    } catch (err) {
+      if (err.message === 'TAILLE_DEPASSEE') {
+        return res.status(413).json({ error: 'Image trop lourde (8 Mo maximum)' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+
+    const { fichier } = resultat;
+    if (!fichier || !fichier.donnees || fichier.donnees.length === 0) {
+      return res.status(400).json({ error: 'Aucune image reçue' });
+    }
+    if (!TYPES_MIME_LOGO.includes(fichier.type)) {
+      return res.status(400).json({ error: 'Format non accepté. Envoie une image JPEG, PNG ou WebP.' });
+    }
+
+    const extensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+    const nomStocke = crypto.randomBytes(16).toString('hex') + extensions[fichier.type];
+
+    fs.mkdirSync(DOSSIER_LOGOS, { recursive: true });
+    fs.writeFileSync(path.join(DOSSIER_LOGOS, nomStocke), fichier.donnees);
+
+    const logoUrl = `/uploads/agences/logos/${nomStocke}`;
+    await pool.query('UPDATE agences SET logo_url = $1, mis_a_jour_le = NOW() WHERE id = $2', [logoUrl, agenceId]);
+
+    res.json({ message: 'Logo mis à jour', logo_url: logoUrl });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { inscription, connexion, monProfil, televerserDocument, mesDocuments, supprimerMonDocument, mesNotifications, tableauDeBord, modifierProfil, changerMotDePasseAgence, televerserLogo, envoyerCodeAcces, verifierCodeAcces };

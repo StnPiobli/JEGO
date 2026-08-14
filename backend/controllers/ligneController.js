@@ -143,8 +143,10 @@ async function listerLignes(req, res) {
 
     if (ligneIds.length > 0) {
       const points = await pool.query(
-        `SELECT ligne_id, ville, ordre, lieu_prise_en_charge
-         FROM ligne_points WHERE ligne_id = ANY($1) ORDER BY ligne_id, ordre`,
+        `SELECT lp.ligne_id, v.nom_affiche AS ville, lp.ordre, lp.lieu_prise_en_charge
+         FROM ligne_points lp
+         JOIN villes v ON v.code = lp.ville
+         WHERE lp.ligne_id = ANY($1) ORDER BY lp.ligne_id, lp.ordre`,
         [ligneIds]
       );
       for (const p of points.rows) {

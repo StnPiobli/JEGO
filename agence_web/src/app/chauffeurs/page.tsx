@@ -1,11 +1,15 @@
-'use client';
+﻿'use client';
 
-// ✅ BRANCHÉ (repli démo) — POST/GET /api/chauffeurs, PUT :id/desactiver,
-// PUT :id/reactiver. Champs réels : nom, prenom, date_naissance,
-// lieu_naissance, telephone, mot_de_passe (email/bus/missions n'existent
-// pas côté backend — restent démo). Le mot de passe étant haché côté
-// serveur, "voir le mot de passe" n'a plus de sens en mode réel — masqué
-// hors démo.
+// BRANCHÉ SUR LE VRAI BACKEND, sans repli démo.
+// POST/GET /api/chauffeurs, PUT :id/desactiver (désactivation d'urgence
+// réelle — coupe la session en cours), PUT :id/reactiver,
+// POST :id/renvoyer-identifiants (envoi réel par email).
+// Champs réels : nom, prenom, email, date_naissance, lieu_naissance,
+// telephone, mot_de_passe.
+// Le statut actif/inactif se lit sur desactive_urgence, pas sur la
+// colonne statut (qui n'est jamais mise à jour côté backend).
+// Les mots de passe sont hachés côté serveur : aucune fonctionnalité
+// "voir le mot de passe" n'a de sens réel, seulement réinitialiser.
 
 import { useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
@@ -14,20 +18,31 @@ import TelephoneInput from '../components/TelephoneInput';
 import { apiFetch } from '../lib/api';
 
 type Chauffeur = {
-  id: string | number;
+  id: string;
   nom: string;
   prenom: string;
   telephone: string;
-  statut: 'actif' | 'desactive';
+  email?: string;
+  desactive_urgence: boolean;
   note_moyenne: number | null;
   nombre_voyages: number;
-  // Démo uniquement :
-  email?: string;
-  dateNaissance?: string;
-  busAssigne?: string | null;
-  motDePasseDemo?: string;
-  dateAdhesion?: string;
-  missions?: { trajet: string; date: string; heure: string }[];
+  date_naissance?: string;
+};
+
+type TrajetChauffeur = {
+  id: string;
+  date_depart: string;
+  heure_depart: string;
+  statut: 'programme' | 'en_cours' | 'retard' | 'termine' | 'annule';
+  ville_depart: string;
+  ville_arrivee: string;
+};
+
+const libellesStatutTrajet: Record<TrajetChauffeur['statut'], string> = {
+  programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Annulé',
+};
+const couleurStatutTrajet: Record<TrajetChauffeur['statut'], 'green' | 'amber' | 'red' | 'grey'> = {
+  programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red',
 };
 
 function calculerAge(dateNaissance?: string): number | null {
@@ -40,14 +55,6 @@ function calculerAge(dateNaissance?: string): number | null {
   return age;
 }
 
-const chauffeursDemo: Chauffeur[] = [
-  { id: '1', nom: "Eto'o", prenom: 'Paul', telephone: '+237 6 90 12 34 56', email: 'paul.etoo@gmail.com', dateNaissance: '1988-04-12', busAssigne: 'Confort Express 01', statut: 'actif', motDePasseDemo: 'chauffeur123', note_moyenne: 4.8, nombre_voyages: 214, dateAdhesion: '2025-03-12', missions: [
-    { trajet: 'Douala → Yaounde', date: '2026-07-27', heure: '07:00' },
-  ] },
-  { id: '2', nom: 'Nkeng', prenom: 'Andre', telephone: '+237 6 90 22 33 44', email: 'andre.nkeng@gmail.com', dateNaissance: '1992-11-03', busAssigne: 'Confort 02', statut: 'actif', motDePasseDemo: 'route456', note_moyenne: 4.5, nombre_voyages: 98, dateAdhesion: '2025-08-04', missions: [] },
-  { id: '3', nom: 'Biya', prenom: 'Robert', telephone: '+237 6 90 55 66 77', email: 'robert.biya@gmail.com', dateNaissance: '1979-07-22', busAssigne: null, statut: 'desactive', motDePasseDemo: 'trajet789', note_moyenne: null, nombre_voyages: 12, dateAdhesion: '2024-11-20', missions: [] },
-];
-
 type TriChauffeur = 'alpha' | 'notes';
 
 function initiales(p: string, n: string) {
@@ -56,24 +63,23 @@ function initiales(p: string, n: string) {
 
 export default function ChauffeursPage() {
   const [chauffeurs, setChauffeurs] = useState<Chauffeur[]>([]);
-  const [modeDemo, setModeDemo] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [modaleOuverte, setModaleOuverte] = useState(false);
   const [chauffeurVu, setChauffeurVu] = useState<Chauffeur | null>(null);
-  // (remplacé par le flux codeMdp/codeMdpValide)
   const [tri, setTri] = useState<TriChauffeur>('alpha');
   const [filtreStatut, setFiltreStatut] = useState<'tous' | 'actif' | 'desactive'>('tous');
 
   const [confirmationStatut, setConfirmationStatut] = useState<Chauffeur | null>(null);
   const [texteConfirmation, setTexteConfirmation] = useState('');
-  const [codeMdp, setCodeMdp] = useState<string | null>(null);
-  const [codeMdpSaisi, setCodeMdpSaisi] = useState('');
-  const [codeMdpValide, setCodeMdpValide] = useState(false);
   const [confirmationRenvoi, setConfirmationRenvoi] = useState(false);
   const [texteConfirmationRenvoi, setTexteConfirmationRenvoi] = useState('');
+  const [confirmationSuppression, setConfirmationSuppression] = useState<Chauffeur | null>(null);
+  const [texteSuppression, setTexteSuppression] = useState('');
+  const [trajetsChauffeur, setTrajetsChauffeur] = useState<TrajetChauffeur[]>([]);
+  const [chargementTrajets, setChargementTrajets] = useState(false);
 
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
@@ -91,7 +97,7 @@ export default function ChauffeursPage() {
 
   function notifier(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(null), 2200);
+    setTimeout(() => setToast(null), 4500);
   }
 
   async function charger() {
@@ -99,16 +105,10 @@ export default function ChauffeursPage() {
     setErreur(null);
     try {
       const data = await apiFetch('/api/chauffeurs');
-      if (data.chauffeurs && data.chauffeurs.length > 0) {
-        setChauffeurs(data.chauffeurs);
-        setModeDemo(false);
-      } else {
-        setChauffeurs(chauffeursDemo);
-        setModeDemo(true);
-      }
-    } catch {
-      setChauffeurs(chauffeursDemo);
-      setModeDemo(true);
+      setChauffeurs(data.chauffeurs || []);
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Impossible de charger les chauffeurs.');
+      setChauffeurs([]);
     } finally {
       setChargement(false);
     }
@@ -116,33 +116,26 @@ export default function ChauffeursPage() {
   useEffect(() => { charger(); }, []);
 
   const chauffeursAffiches = useMemo(() => {
-    const copie = chauffeurs.filter((c) => filtreStatut === 'tous' || c.statut === filtreStatut);
+    const copie = chauffeurs.filter((c) => {
+      if (filtreStatut === 'tous') return true;
+      const actif = !c.desactive_urgence;
+      return filtreStatut === 'actif' ? actif : !actif;
+    });
     if (tri === 'notes') return [...copie].sort((a, b) => (b.note_moyenne ?? 0) - (a.note_moyenne ?? 0));
     return [...copie].sort((a, b) => a.nom.localeCompare(b.nom));
   }, [chauffeurs, tri, filtreStatut]);
 
-  function envoyerCodeMdp() {
-    const nouveau = String(Math.floor(100000 + Math.random() * 900000));
-    setCodeMdp(nouveau);
-    setCodeMdpValide(false);
-    setCodeMdpSaisi('');
-    notifier(`Code envoyé au mail du directeur (démo : ${nouveau})`);
-  }
-
-  function verifierCodeMdp() {
-    if (codeMdpSaisi === codeMdp) {
-      setCodeMdpValide(true);
-    } else {
-      notifier('Code incorrect');
-    }
-  }
-
-  function renvoyerIdentifiants() {
-    if (texteConfirmationRenvoi.trim().toUpperCase() !== 'RENVOYER') return;
-    notifier(`Identifiants renvoyés par email (démo)${chauffeurVu ? ` à ${chauffeurVu.email ?? chauffeurVu.prenom}` : ''}`);
-    setConfirmationRenvoi(false);
-    setTexteConfirmationRenvoi('');
-  }
+  useEffect(() => {
+    if (!chauffeurVu) { setTrajetsChauffeur([]); return; }
+    setChargementTrajets(true);
+    apiFetch(`/api/trajets?chauffeur_id=${chauffeurVu.id}`)
+      .then((data) => {
+        const trajets: TrajetChauffeur[] = data.trajets || [];
+        setTrajetsChauffeur(trajets.filter((t) => t.statut === 'programme' || t.statut === 'en_cours'));
+      })
+      .catch(() => setTrajetsChauffeur([]))
+      .finally(() => setChargementTrajets(false));
+  }, [chauffeurVu]);
 
   function demanderBasculeStatut(c: Chauffeur) {
     setConfirmationStatut(c);
@@ -151,17 +144,14 @@ export default function ChauffeursPage() {
 
   async function confirmerBasculeStatut() {
     if (!confirmationStatut) return;
-    const motAttendu = confirmationStatut.statut === 'actif' ? 'DESACTIVER' : 'ACTIVER';
+    const estActif = !confirmationStatut.desactive_urgence;
+    const motAttendu = estActif ? 'DESACTIVER' : 'ACTIVER';
     if (texteConfirmation.trim().toUpperCase() !== motAttendu) return;
     const id = confirmationStatut.id;
-    const action = confirmationStatut.statut === 'actif' ? 'desactiver' : 'reactiver';
+    const action = estActif ? 'desactiver' : 'reactiver';
     try {
-      if (modeDemo) {
-        setChauffeurs((prev) => prev.map((c) => (c.id === id ? { ...c, statut: c.statut === 'actif' ? 'desactive' : 'actif' } : c)));
-      } else {
-        await apiFetch(`/api/chauffeurs/${id}/${action}`, { method: 'PUT' });
-        await charger();
-      }
+      await apiFetch(`/api/chauffeurs/${id}/${action}`, { method: 'PUT' });
+      await charger();
       notifier(action === 'desactiver' ? 'Chauffeur désactivé' : 'Chauffeur réactivé');
     } catch (err) {
       setErreur(err instanceof Error ? err.message : 'Erreur');
@@ -171,26 +161,45 @@ export default function ChauffeursPage() {
     }
   }
 
+  async function renvoyerIdentifiants() {
+    if (texteConfirmationRenvoi.trim().toUpperCase() !== 'RENVOYER' || !chauffeurVu) return;
+    try {
+      const res = await apiFetch(`/api/chauffeurs/${chauffeurVu.id}/renvoyer-identifiants`, { method: 'POST' });
+      notifier(res.message || 'Identifiants renvoyés par email');
+    } catch (err) {
+      notifier(err instanceof Error ? err.message : 'Erreur lors du renvoi');
+    } finally {
+      setConfirmationRenvoi(false);
+      setTexteConfirmationRenvoi('');
+    }
+  }
+
+  async function confirmerSuppression() {
+    if (!confirmationSuppression || texteSuppression.trim().toUpperCase() !== 'SUPPRIMER') return;
+    try {
+      await apiFetch(`/api/chauffeurs/${confirmationSuppression.id}`, { method: 'DELETE' });
+      await charger();
+      notifier('Chauffeur supprimé');
+      setChauffeurVu(null);
+    } catch (err) {
+      notifier(err instanceof Error ? err.message : 'Erreur lors de la suppression');
+    } finally {
+      setConfirmationSuppression(null);
+      setTexteSuppression('');
+    }
+  }
+
   async function creerChauffeurSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!nom.trim() || !prenom.trim() || !email.trim() || !telephone.trim() || !dateNaissance || !lieuNaissance.trim()) return;
     setEnvoi(true);
     const motDePasseGenere = genererMotDePasse();
     try {
-      if (modeDemo) {
-        await new Promise((r) => setTimeout(r, 600));
-      } else {
-        // ⚠️ email envoyé mais ignoré côté backend — creerChauffeur() n'a pas
-        // de colonne email pour l'instant, donc il n'est pas réellement sauvegardé.
-        await apiFetch('/api/chauffeurs', {
-          method: 'POST',
-          body: JSON.stringify({ nom, prenom, email, telephone: `${indicatifTel} ${telephone}`.trim(), date_naissance: dateNaissance, lieu_naissance: lieuNaissance, mot_de_passe: motDePasseGenere }),
-        });
-        await charger();
-      }
-      // ⚠️ DÉMO — aucun envoi d'email réel n'a lieu, aucune route backend
-      // n'existe pour ça. Le mot de passe généré n'est affiché nulle part
-      // volontairement, pour rester cohérent avec "envoyé automatiquement".
+      await apiFetch('/api/chauffeurs', {
+        method: 'POST',
+        body: JSON.stringify({ nom, prenom, email, telephone: `${indicatifTel} ${telephone}`.trim(), date_naissance: dateNaissance, lieu_naissance: lieuNaissance, mot_de_passe: motDePasseGenere }),
+      });
+      await charger();
       setEnvoye(true);
     } catch (err) {
       setErreur(err instanceof Error ? err.message : 'Erreur de création');
@@ -218,7 +227,6 @@ export default function ChauffeursPage() {
           </button>
         </div>
 
-        {modeDemo && <div className="text-xs font-semibold text-amber bg-amber-bg rounded-lg px-3 py-2 mb-4">Mode démo — backend injoignable, données factices</div>}
         {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -248,7 +256,7 @@ export default function ChauffeursPage() {
                         <p className="text-sm font-bold text-ink">{c.prenom} {c.nom}</p>
                         <p className="text-xs text-ink-soft font-mono">{c.telephone}</p>
                       </div>
-                      <Badge color={c.statut === 'actif' ? 'green' : 'red'}>{c.statut === 'actif' ? 'Actif' : 'Désactivé'}</Badge>
+                      <Badge color={!c.desactive_urgence ? 'green' : 'red'}>{!c.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
                     </div>
                     <div className="flex items-center justify-between text-xs text-ink-soft">
                       <span>{c.nombre_voyages} voyage(s)</span>
@@ -272,7 +280,7 @@ export default function ChauffeursPage() {
               <div className="text-center">
                 <div className="w-14 h-14 rounded-full bg-ok-bg flex items-center justify-center mx-auto mb-4"><span className="text-2xl">✓</span></div>
                 <p className="text-[16px] font-display font-semibold text-ink mb-1">Chauffeur créé</p>
-                <p className="text-sm text-ink-soft mb-6">{modeDemo ? 'Démo — rien de réel créé, aucun email envoyé.' : `${prenom} ${nom} a été créé. Ses identifiants de connexion ont été générés automatiquement (envoi par email non branché — aucune route backend pour ça pour l'instant).`}</p>
+                <p className="text-sm text-ink-soft mb-6">{prenom} {nom} a été créé. Utilise &quot;Renvoyer ses identifiants&quot; depuis sa fiche pour lui envoyer un mot de passe par email.</p>
                 <button onClick={fermerModaleCreation} className="w-full rounded-lg bg-green-700 text-white font-semibold text-sm py-3">Fermer</button>
               </div>
             ) : (
@@ -288,7 +296,7 @@ export default function ChauffeursPage() {
                   <input type="date" value={dateNaissance} onChange={(e) => setDateNaissance(e.target.value)} className="rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm" />
                   <input value={lieuNaissance} onChange={(e) => setLieuNaissance(e.target.value)} placeholder="Lieu de naissance" className="rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm" />
                 </div>
-                <p className="text-[10.5px] text-ink-soft">🔐 Identifiants générés automatiquement et envoyés par email au chauffeur — pas besoin de les saisir.</p>
+                <p className="text-[10.5px] text-ink-soft">🔐 Un mot de passe est généré automatiquement. Utilise &quot;Renvoyer ses identifiants&quot; depuis sa fiche pour le lui envoyer par email.</p>
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={fermerModaleCreation} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-3">Annuler</button>
                   <button type="submit" disabled={envoi} className="flex-1 rounded-lg bg-green-700 disabled:opacity-60 text-white font-semibold text-sm py-3">{envoi ? 'Création…' : 'Créer'}</button>
@@ -300,7 +308,7 @@ export default function ChauffeursPage() {
       )}
 
       {chauffeurVu && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => { setChauffeurVu(null); setCodeMdp(null); setCodeMdpValide(false); }}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => setChauffeurVu(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-md w-full max-h-[85vh] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white font-display font-bold shrink-0">{initiales(chauffeurVu.prenom, chauffeurVu.nom)}</div>
@@ -313,49 +321,49 @@ export default function ChauffeursPage() {
             <div className="bg-off-white rounded-xl p-4 space-y-2 mb-4">
               <div className="kv"><span>Voyages effectués</span><span className="font-semibold">{chauffeurVu.nombre_voyages}</span></div>
               <div className="kv"><span>Note moyenne</span><span className="font-semibold">{chauffeurVu.note_moyenne ?? '—'}</span></div>
-              <div className="kv"><span>Email</span><span className="font-semibold">{chauffeurVu.email ?? "non fourni par l'API"}</span></div>
-              <div className="kv"><span>Âge</span><span className="font-semibold">{calculerAge(chauffeurVu.dateNaissance) != null ? `${calculerAge(chauffeurVu.dateNaissance)} ans` : "non fourni par l'API"}</span></div>
-              {modeDemo && chauffeurVu.motDePasseDemo && (
-                <div className="border-t border-line pt-2 mt-1">
-                  {!codeMdpValide ? (
-                    codeMdp === null ? (
-                      <button onClick={envoyerCodeMdp} className="text-[11.5px] font-bold text-green-700">🔐 Envoyer un code par email pour voir le mot de passe</button>
-                    ) : (
-                      <div>
-                        <p className="text-[11px] text-ink-soft mb-1.5">Code envoyé au mail du directeur</p>
-                        <div className="flex gap-2">
-                          <input value={codeMdpSaisi} onChange={(e) => setCodeMdpSaisi(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Code à 6 chiffres" className="flex-1 rounded-lg bg-off-white border border-line px-3 py-2 text-[12px]" />
-                          <button onClick={verifierCodeMdp} className="rounded-lg bg-green-700 text-white text-[11px] font-bold px-3">Valider</button>
-                        </div>
-                      </div>
-                    )
-                  ) : (
-                    <div className="kv">
-                      <span>Mot de passe (démo)</span>
-                      <span className="font-semibold text-ink font-mono">{chauffeurVu.motDePasseDemo}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="kv"><span>Email</span><span className="font-semibold">{chauffeurVu.email ?? '—'}</span></div>
+              <div className="kv"><span>Âge</span><span className="font-semibold">{calculerAge(chauffeurVu.date_naissance) != null ? `${calculerAge(chauffeurVu.date_naissance)} ans` : '—'}</span></div>
               <div className="border-t border-line pt-2 mt-1">
                 <button onClick={() => setConfirmationRenvoi(true)} className="text-[11.5px] font-bold text-green-700">📧 Renvoyer ses identifiants par email</button>
               </div>
               <div className="kv items-center">
                 <div>
                   <span className="block">Statut</span>
-                  <Badge color={chauffeurVu.statut === 'actif' ? 'green' : 'red'}>{chauffeurVu.statut === 'actif' ? 'Actif' : 'Désactivé'}</Badge>
+                  <Badge color={!chauffeurVu.desactive_urgence ? 'green' : 'red'}>{!chauffeurVu.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
                 </div>
-                <BtnMini variant={chauffeurVu.statut === 'actif' ? 'danger' : 'primary'} onClick={() => demanderBasculeStatut(chauffeurVu)}>
-                  {chauffeurVu.statut === 'actif' ? 'Désactiver' : 'Réactiver'}
+                <BtnMini variant={!chauffeurVu.desactive_urgence ? 'danger' : 'primary'} onClick={() => demanderBasculeStatut(chauffeurVu)}>
+                  {!chauffeurVu.desactive_urgence ? 'Désactiver' : 'Réactiver'}
                 </BtnMini>
               </div>
             </div>
 
-            {!modeDemo && (
-              <p className="text-[10.5px] text-ink-soft mb-4">Le mot de passe est chiffré côté serveur — il ne peut plus être consulté une fois créé, seulement réinitialisé.</p>
-            )}
+            <div className="mb-4">
+              <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-2">Trajets à venir</p>
+              {chargementTrajets ? (
+                <p className="text-[12px] text-ink-soft">Chargement…</p>
+              ) : trajetsChauffeur.length === 0 ? (
+                <p className="text-[12px] text-ink-soft">Aucun trajet programmé ou en cours pour l&apos;instant.</p>
+              ) : (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {trajetsChauffeur.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between bg-off-white rounded-lg px-3 py-2">
+                      <div>
+                        <p className="text-[12.5px] font-semibold text-ink">{t.ville_depart} → {t.ville_arrivee}</p>
+                        <p className="text-[10.5px] text-ink-soft">{t.date_depart.split('-').reverse().join('/')} · {t.heure_depart}</p>
+                      </div>
+                      <Badge color={couleurStatutTrajet[t.statut]}>{libellesStatutTrajet[t.statut]}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-            <button onClick={() => { setChauffeurVu(null); setCodeMdp(null); setCodeMdpValide(false); }} className="w-full rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-3">Fermer</button>
+            <p className="text-[10.5px] text-ink-soft mb-4">Le mot de passe est chiffré côté serveur — il ne peut plus être consulté une fois créé, seulement réinitialisé via le renvoi par email.</p>
+
+            <div className="flex gap-3">
+              <button onClick={() => setChauffeurVu(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-3">Fermer</button>
+              <button onClick={() => setConfirmationSuppression(chauffeurVu)} className="rounded-lg bg-red-bg text-red font-semibold text-sm px-4 py-3">Supprimer</button>
+            </div>
           </div>
         </div>
       )}
@@ -365,15 +373,15 @@ export default function ChauffeursPage() {
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
             <div className="w-12 h-12 rounded-full bg-red-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">⚠</span></div>
             <p className="text-center text-sm font-bold text-ink mb-1">
-              {confirmationStatut.statut === 'actif' ? 'Désactiver' : 'Réactiver'} {confirmationStatut.prenom} {confirmationStatut.nom} ?
+              {!confirmationStatut.desactive_urgence ? 'Désactiver' : 'Réactiver'} {confirmationStatut.prenom} {confirmationStatut.nom} ?
             </p>
             <p className="text-center text-xs text-ink-soft mb-4">
-              Pour confirmer, écris <strong>{confirmationStatut.statut === 'actif' ? 'DESACTIVER' : 'ACTIVER'}</strong> ci-dessous.
+              Pour confirmer, écris <strong>{!confirmationStatut.desactive_urgence ? 'DESACTIVER' : 'ACTIVER'}</strong> ci-dessous.
             </p>
-            <input value={texteConfirmation} onChange={(e) => setTexteConfirmation(e.target.value)} placeholder={confirmationStatut.statut === 'actif' ? 'DESACTIVER' : 'ACTIVER'} className="w-full rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm text-center font-bold mb-4" />
+            <input value={texteConfirmation} onChange={(e) => setTexteConfirmation(e.target.value)} placeholder={!confirmationStatut.desactive_urgence ? 'DESACTIVER' : 'ACTIVER'} className="w-full rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm text-center font-bold mb-4" />
             <div className="flex gap-3">
               <button onClick={() => setConfirmationStatut(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-2.5">Annuler</button>
-              <button onClick={confirmerBasculeStatut} disabled={texteConfirmation.trim().toUpperCase() !== (confirmationStatut.statut === 'actif' ? 'DESACTIVER' : 'ACTIVER')} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-sm py-2.5">Confirmer</button>
+              <button onClick={confirmerBasculeStatut} disabled={texteConfirmation.trim().toUpperCase() !== (!confirmationStatut.desactive_urgence ? 'DESACTIVER' : 'ACTIVER')} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-sm py-2.5">Confirmer</button>
             </div>
           </div>
         </div>
@@ -382,7 +390,7 @@ export default function ChauffeursPage() {
       {confirmationRenvoi && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]" onClick={() => setConfirmationRenvoi(false)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
-            <div className="w-12 h-12 rounded-full bg-amber-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">📧</span></div>
+            <div className="w-12 h-12 rounded-full bg-amber-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">💬</span></div>
             <p className="text-center text-sm font-bold text-ink mb-1">Renvoyer les identifiants ?</p>
             <p className="text-center text-xs text-ink-soft mb-4">
               Pour confirmer, écris <strong>RENVOYER</strong> ci-dessous.
@@ -391,6 +399,23 @@ export default function ChauffeursPage() {
             <div className="flex gap-3">
               <button onClick={() => setConfirmationRenvoi(false)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-2.5">Annuler</button>
               <button onClick={renvoyerIdentifiants} disabled={texteConfirmationRenvoi.trim().toUpperCase() !== 'RENVOYER'} className="flex-1 rounded-lg bg-green-700 disabled:opacity-40 text-white font-semibold text-sm py-2.5">Confirmer</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmationSuppression && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]" onClick={() => setConfirmationSuppression(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
+            <div className="w-12 h-12 rounded-full bg-red-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">🗑</span></div>
+            <p className="text-center text-sm font-bold text-ink mb-1">Supprimer {confirmationSuppression.prenom} {confirmationSuppression.nom} ?</p>
+            <p className="text-center text-xs text-ink-soft mb-4">
+              Action définitive. Si ce chauffeur est assigné à un trajet à venir ou en cours, la suppression sera refusée — retire-le du trajet ou utilise plutôt &quot;Désactiver&quot;. Un historique de trajets déjà terminés n&apos;empêche pas la suppression.
+              Pour confirmer, écris <strong>SUPPRIMER</strong> ci-dessous.
+            </p>
+            <input value={texteSuppression} onChange={(e) => setTexteSuppression(e.target.value)} placeholder="SUPPRIMER" className="w-full rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm text-center font-bold mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmationSuppression(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-sm py-2.5">Annuler</button>
+              <button onClick={confirmerSuppression} disabled={texteSuppression.trim().toUpperCase() !== 'SUPPRIMER'} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-sm py-2.5">Confirmer</button>
             </div>
           </div>
         </div>

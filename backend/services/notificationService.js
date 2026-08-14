@@ -76,10 +76,36 @@ async function recupererEmailDestinataire(type, id) {
   if (type === 'voyageur') table = 'voyageurs';
   else if (type === 'agence') table = 'agences';
   else if (type === 'admin') table = 'membres_admin';
-  else return null; // chauffeurs n'ont pas d'email en base actuellement
+  else if (type === 'chauffeur') table = 'chauffeurs';
+  else return null;
 
   const r = await pool.query(`SELECT email FROM ${table} WHERE id = $1`, [id]);
   return r.rows.length > 0 ? r.rows[0].email : null;
 }
 
-module.exports = { creerNotification };
+// ═══════════════════════════════════════════════════
+// Envoi email direct, hors du système de notifications standard —
+// utilisé quand le destinataire n'est pas un compte utilisateur classique
+// (ex : email personnel du directeur, jamais un compte JEGO).
+// ═══════════════════════════════════════════════════
+async function envoyerEmailDirect(email, sujet, texte, pieceJointe) {
+  if (!resend) return false;
+  try {
+    const payload = {
+      from: 'JEGO <onboarding@resend.dev>',
+      to: email,
+      subject: sujet,
+      text: texte
+    };
+    if (pieceJointe) {
+      payload.attachments = [{ filename: pieceJointe.nom, content: pieceJointe.contenu }];
+    }
+    await resend.emails.send(payload);
+    return true;
+  } catch (err) {
+    console.error('⚠️ [Email direct] Échec d\'envoi :', err.message);
+    return false;
+  }
+}
+
+module.exports = { creerNotification, envoyerEmailDirect };

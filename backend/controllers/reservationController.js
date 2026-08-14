@@ -2,7 +2,8 @@ const pool = require('../config/database');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { genererQR, verifierQR } = require('../utils/qr');
-const { creerNotification } = require('../services/notificationService');
+const { creerNotification, envoyerEmailDirect } = require('../services/notificationService');
+const { genererPdfBillet } = require('../services/pdfBilletService');
 const { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers } = require('../services/pointsService');
 const { normaliserTelephone } = require('../utils/telephone');
 
@@ -39,6 +40,7 @@ async function planTrajet(req, res) {
       `SELECT
           s.id, s.numero, s.rangee, s.position, s.type_position,
           s.est_premium, s.statut AS statut_siege,
+          bil.source_vente,
           CASE
             WHEN s.statut = 'supprime_toilettes' THEN 'toilettes'
             WHEN s.statut = 'desactive' THEN 'desactive'
@@ -588,14 +590,13 @@ async function venteGuichet(req, res) {
     const agenceId = req.utilisateur.id;
     const trajetId = req.params.id;
     const {
-      siege_id, nom_client, telephone_client,
+      siege_id, nom_client, telephone_client, email_client,
       supplement_bagage, est_premium_choisi,
-      point_embarquement_ordre, point_debarquement_ordre,
-      montant_recu
+      point_embarquement_ordre, point_debarquement_ordre
     } = req.body;
 
-    if (!siege_id || !nom_client || !telephone_client || montant_recu === undefined) {
-      return res.status(400).json({ error: 'Siège, nom client, téléphone et montant reçu sont obligatoires' });
+    if (!siege_id || !nom_client || !telephone_client) {
+      return res.status(400).json({ error: 'Siège, nom client et téléphone sont obligatoires' });
     }
 
     const a = point_embarquement_ordre !== undefined ? parseInt(point_embarquement_ordre) : 0;
@@ -662,28 +663,12 @@ async function venteGuichet(req, res) {
 
     const suppSiege = est_premium_choisi ? 500 : 0;
     const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
-    const prixAgenceFinal = prixAgence + suppBagage;
+    const prixAgenceFinal = prixAgence + suppBagage + suppSiege;
 
-    const grille = await client.query(
-      `SELECT pourcentage FROM configuration_frais
-       WHERE type_frais = 'commission' AND actif = true
-         AND tranche_min <= $1 AND (tranche_max IS NULL OR tranche_max >= $1)
-         AND (agence_id = $2 OR agence_id IS NULL)
-       ORDER BY agence_id NULLS LAST LIMIT 1`,
-      [prixAgence, agenceId]
-    );
-    const pourcentage = grille.rows.length > 0 ? parseFloat(grille.rows[0].pourcentage) : 7;
-    const commission = Math.round(prixAgence * pourcentage / 100);
-    const margeJego = commission + suppSiege;
-    const prixTotalClient = prixAgenceFinal + margeJego;
-
-    if (parseInt(montant_recu) !== prixTotalClient) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `Montant reçu incorrect. Prix attendu : ${prixTotalClient} FCFA`,
-        prix_attendu: prixTotalClient
-      });
-    }
+    // Vente au guichet = encaissement cash direct par l'agence : aucune
+    // commission JEGO, aucun frais.
+    const margeJego = 0;
+    const prixTotalClient = prixAgenceFinal;
 
     const telNormalise = normaliserTelephone(telephone_client);
     let voyageurId;
@@ -733,14 +718,54 @@ async function venteGuichet(req, res) {
       [billetId, voyageurId, prixTotalClient, `GUICHET-${Date.now()}`]
     );
 
-    await client.query(
+   await client.query(
       `INSERT INTO escrow
-        (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut)
-       VALUES ($1,$2,$3,$4,0,'retenu')`,
+        (billet_id, montant_total, montant_agence, montant_jego, frais_momo, statut, verse_le)
+       VALUES ($1,$2,$3,$4,0,'verse',NOW())`,
       [billetId, prixTotalClient, prixAgenceFinal, margeJego]
     );
 
     await client.query('COMMIT');
+
+    if (email_client) {
+      const trajetInfo = await pool.query(
+        `SELECT vd.nom_affiche AS depart, va.nom_affiche AS arrivee, t.date_depart, t.heure_depart
+         FROM trajets t
+         JOIN lignes l ON l.id = t.ligne_id
+         JOIN villes vd ON vd.code = l.ville_depart
+         JOIN villes va ON va.code = l.ville_arrivee
+         WHERE t.id = $1`,
+        [trajetId]
+      );
+      const ti = trajetInfo.rows[0];
+      const dateFr = ti ? new Date(ti.date_depart).toLocaleDateString('fr-FR') : '';
+      const heureFr = ti ? String(ti.heure_depart).slice(0, 5) : '';
+
+      let pieceJointe;
+      try {
+        const pdfBuffer = await genererPdfBillet({
+          numeroBillet: billet.rows[0].numero,
+          contenuQR: billet.rows[0].qr_code,
+          nomClient: nom_client,
+          depart: ti ? ti.depart : '',
+          arrivee: ti ? ti.arrivee : '',
+          dateDepart: dateFr,
+          heureDepart: heureFr,
+          siegeNumero: siege.numero,
+          prixTotal: prixTotalClient
+        });
+        pieceJointe = { nom: `billet-${billet.rows[0].numero}.pdf`, contenu: pdfBuffer };
+      } catch (err) {
+        console.error('⚠️ [PDF billet] Échec de génération :', err.message);
+      }
+
+      envoyerEmailDirect(
+        email_client,
+        `Confirmation de billet — ${billet.rows[0].numero}`,
+        `Bonjour ${nom_client},\n\nVotre billet est confirmé, vous le trouverez en pièce jointe (PDF avec QR code à présenter au chauffeur).\n\nTrajet : ${ti ? `${ti.depart} → ${ti.arrivee}` : ''}\nDate : ${dateFr}${ti ? ` à ${heureFr}` : ''}\nSiège : ${siege.numero}\nMontant payé : ${prixTotalClient} FCFA\nNuméro de billet : ${billet.rows[0].numero}\n\nBon voyage avec JEGO !`,
+        pieceJointe
+      ).catch(() => {});
+    }
 
     res.status(201).json({
       message: 'Vente au guichet enregistrée',

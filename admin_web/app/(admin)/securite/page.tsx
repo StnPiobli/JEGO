@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Panel } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type Log = { horodatage: string; action: string; auteur: string; ip: string };
 
@@ -21,10 +22,8 @@ export default function SecuritePage() {
     async function charger() {
       setChargement(true);
       try {
-        // BRANCHEMENT :
-        // const res = await apiFetch(`/api/admin/logs?date=${date.toISOString().slice(0, 10)}`);
-        // if (!annule) setLogs(res.logs || []);
-        if (!annule) setLogs([]);
+        const res = await apiFetch(`/api/admin/logs?date=${date.toISOString().slice(0, 10)}`);
+        if (!annule) setLogs(res.logs || []);
         if (!annule) setErreur(null);
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger le journal.");

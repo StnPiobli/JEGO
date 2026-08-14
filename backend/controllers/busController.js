@@ -118,13 +118,31 @@ async function listerBus(req, res) {
               COUNT(s.id) AS nombre_sieges
        FROM bus b
        LEFT JOIN sieges s ON s.bus_id = b.id
-       WHERE b.agence_id = $1
+       WHERE b.agence_id = $1 AND b.statut != 'inactif'
        GROUP BY b.id
        ORDER BY b.cree_le DESC`,
       [agenceId]
     );
 
     res.json({ bus: resultat.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function desactiverBus(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { id } = req.params;
+
+    const check = await pool.query('SELECT id FROM bus WHERE id = $1 AND agence_id = $2', [id, agenceId]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Bus introuvable dans votre agence' });
+    }
+
+    await pool.query(`UPDATE bus SET statut = 'inactif' WHERE id = $1`, [id]);
+    res.json({ message: 'Bus désactivé' });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -339,4 +357,4 @@ async function marquerPremium(req, res) {
   }
 }
 
-module.exports = { creerBus, listerBus, voirPlanBus, marquerToilettes, marquerAbime, reactiverSieges, marquerPremium };
+module.exports = { creerBus, listerBus, voirPlanBus, marquerToilettes, marquerAbime, reactiverSieges, marquerPremium, desactiverBus };

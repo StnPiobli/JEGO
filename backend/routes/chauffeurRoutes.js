@@ -5,7 +5,7 @@ const {
   mesTrajets, declarerDepart, declarerArriveeChauffeur,
   desactiverUrgence, reactiverChauffeur,
   changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur,
-  declarerArriveeArret, arretsTrajet
+  declarerArriveeArret, arretsTrajet, supprimerChauffeur
 } = require('../controllers/chauffeurController');
 const { authentifier, verifierChauffeurActif, verifierAgenceActive } = require('../middleware/auth');
 
@@ -14,6 +14,7 @@ router.post('/', authentifier, verifierAgenceActive, creerChauffeur);
 router.get('/', authentifier, listerChauffeurs);
 router.put('/:id/desactiver', authentifier, desactiverUrgence);
 router.put('/:id/reactiver', authentifier, reactiverChauffeur);
+router.delete('/:id', authentifier, supprimerChauffeur);
 // L'agence peut renvoyer des identifiants, jamais choisir le mot de passe
 router.post('/:id/renvoyer-identifiants', authentifier, verifierAgenceActive, renvoyerIdentifiantsChauffeur);
 

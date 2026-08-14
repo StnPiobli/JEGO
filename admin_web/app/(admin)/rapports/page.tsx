@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { jsPDF } from "jspdf";
 import { Panel, BtnMini, Toast } from "@/components/ui";
+import { apiFetch } from "@/lib/api";
 import HistoriqueButton from "@/components/HistoriqueButton";
 
 type Periode = "hebdo" | "mensuel" | "annuel";
@@ -84,11 +85,9 @@ export default function RapportsPage() {
     let annule = false;
     async function charger() {
       setChargement(true);
-      try {
-        // BRANCHEMENT :
-        // const res = await apiFetch(`/api/admin/rapports?periode=${periode}&annee=${annee}`);
-        // if (!annule) setDonnees({ ...donneesVides, ...res });
-        if (!annule) { setDonnees(donneesVides); setErreur(null); }
+     try {
+        const res = await apiFetch(`/api/admin/rapports?periode=${periode}&annee=${annee}`);
+        if (!annule) { setDonnees({ ...donneesVides, ...res }); setErreur(null); }
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les rapports.");
       } finally {

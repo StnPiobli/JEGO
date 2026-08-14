@@ -12,12 +12,12 @@ async function creerChauffeur(req, res) {
   try {
     const agenceId = req.utilisateur.id;
     const {
-      nom, prenom, date_naissance, lieu_naissance,
+      nom, prenom, email, date_naissance, lieu_naissance,
       telephone, mot_de_passe
     } = req.body;
 
     // Vérifier les champs obligatoires
-    if (!nom || !prenom || !date_naissance || !lieu_naissance || !telephone || !mot_de_passe) {
+    if (!nom || !prenom || !email || !date_naissance || !lieu_naissance || !telephone || !mot_de_passe) {
       return res.status(400).json({ error: 'Tous les champs sont obligatoires' });
     }
 
@@ -33,10 +33,10 @@ async function creerChauffeur(req, res) {
     // Créer le chauffeur, rattaché à l'agence
     const resultat = await pool.query(
       `INSERT INTO chauffeurs
-        (agence_id, nom, prenom, date_naissance, lieu_naissance, telephone, mot_de_passe)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, nom, prenom, telephone, statut`,
-      [agenceId, nom, prenom, date_naissance, lieu_naissance, telephone, motDePasseChiffre]
+        (agence_id, nom, prenom, email, date_naissance, lieu_naissance, telephone, mot_de_passe)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, nom, prenom, email, telephone, statut`,
+      [agenceId, nom, prenom, email, date_naissance, lieu_naissance, telephone, motDePasseChiffre]
     );
 
     res.status(201).json({
@@ -57,7 +57,7 @@ async function listerChauffeurs(req, res) {
     const agenceId = req.utilisateur.id;
 
     const resultat = await pool.query(
-      `SELECT id, nom, prenom, telephone, statut, note_moyenne, nombre_voyages, desactive_urgence
+      `SELECT id, nom, prenom, telephone, email, statut, note_moyenne, nombre_voyages, desactive_urgence, date_naissance
        FROM chauffeurs WHERE agence_id = $1
        ORDER BY nom, prenom`,
       [agenceId]
@@ -417,6 +417,17 @@ async function desactiverUrgence(req, res) {
       return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
     }
 
+  // Même principe que la suppression : on refuse de désactiver un
+    // chauffeur assigné à un trajet à venir ou en cours. L'agence doit
+    // d'abord le retirer de ces trajets (bouton "Changer de chauffeur").
+    const actif = await pool.query(
+      `SELECT COUNT(*) AS nb FROM trajets WHERE chauffeur_id = $1 AND statut IN ('programme', 'en_cours')`,
+      [chauffeurId]
+    );
+    if (parseInt(actif.rows[0].nb) > 0) {
+      return res.status(409).json({ error: 'Ce chauffeur est assigné à un trajet à venir ou en cours — retire-le de ce(s) trajet(s) avant de le désactiver.' });
+    }
+
     // Désactiver + couper la session active
     await pool.query(
       `UPDATE chauffeurs
@@ -543,14 +554,17 @@ async function renvoyerIdentifiantsChauffeur(req, res) {
     const agenceId = req.utilisateur.id;
     const chauffeurId = req.params.id;
 
-    const check = await pool.query(
-      'SELECT id, nom, prenom, telephone FROM chauffeurs WHERE id = $1 AND agence_id = $2',
+   const check = await pool.query(
+      'SELECT id, nom, prenom, telephone, email FROM chauffeurs WHERE id = $1 AND agence_id = $2',
       [chauffeurId, agenceId]
     );
     if (check.rows.length === 0) {
       return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
     }
     const ch = check.rows[0];
+    if (!ch.email) {
+      return res.status(400).json({ error: 'Ce chauffeur n\'a pas d\'email enregistré — impossible de lui renvoyer ses identifiants.' });
+    }
 
     // Mot de passe provisoire aléatoire — jamais renvoyé à l'agence.
     const provisoire = crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -566,11 +580,11 @@ async function renvoyerIdentifiantsChauffeur(req, res) {
       type: 'identifiants_renvoyes',
       titre: 'Vos identifiants JEGO',
       contenu: `Votre mot de passe provisoire est : ${provisoire}. Changez-le dès votre prochaine connexion depuis votre espace.`,
-      canal: 'sms'
+      canal: 'email'
     });
 
     res.json({
-      message: `Un mot de passe provisoire a été envoyé à ${ch.prenom} ${ch.nom} par SMS. Il devra le changer lui-même à la connexion.`,
+      message: `Un mot de passe provisoire a été envoyé à ${ch.prenom} ${ch.nom} par email. Il devra le changer lui-même à la connexion.`,
       chauffeur_id: chauffeurId
     });
 
@@ -773,4 +787,32 @@ async function arretsTrajet(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, arretsTrajet };
+async function supprimerChauffeur(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { id } = req.params;
+
+    const check = await pool.query('SELECT id, nom, prenom FROM chauffeurs WHERE id = $1 AND agence_id = $2', [id, agenceId]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
+    }
+
+    const actif = await pool.query(
+      `SELECT COUNT(*) AS nb FROM trajets WHERE chauffeur_id = $1 AND statut IN ('programme', 'en_cours')`,
+      [id]
+    );
+    if (parseInt(actif.rows[0].nb) > 0) {
+      return res.status(409).json({ error: 'Ce chauffeur est assigné à un trajet à venir ou en cours — retire-le de ce(s) trajet(s) avant de le supprimer.' });
+    }
+
+    await pool.query(`UPDATE trajets SET chauffeur_id = NULL WHERE chauffeur_id = $1`, [id]);
+    await pool.query('DELETE FROM chauffeurs WHERE id = $1', [id]);
+
+    res.json({ message: 'Chauffeur supprimé' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, arretsTrajet, supprimerChauffeur };

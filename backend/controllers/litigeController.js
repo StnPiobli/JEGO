@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { journaliser } = require('../services/logService');
 
 // ═══════════════════════════════════════════════════
 // OUVRIR UN LITIGE (voyageur, avec billet)
@@ -183,6 +184,13 @@ async function trancherLitige(req, res) {
 
     await client.query('COMMIT');
 
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: adminId,
+      action: 'decision_litige',
+      details: { litige_id: litigeId, gagnant, montant_mouvemente: montantMouvemente },
+      ipAddress: req.ip, estUrgence: true,
+    });
+
     await creerNotification({
       destinataire_type: 'voyageur', destinataire_id: l.voyageur_id,
       type: 'litige_decision', titre: 'Décision rendue sur votre litige',
@@ -227,8 +235,22 @@ async function mesLitiges(req, res) {
     else return res.status(403).json({ error: 'Accès non autorisé' });
 
     const resultat = await pool.query(
-      `SELECT id, numero, motif, description, statut, niveau, reponse_agence, decision, gagnant, cree_le
-       FROM litiges WHERE ${colonne} = $1 ORDER BY cree_le DESC`,
+      `SELECT l.id, l.numero, l.motif, l.description, l.statut, l.niveau,
+              l.reponse_agence, l.decision, l.gagnant, l.cree_le,
+              v.prenom || ' ' || v.nom AS client,
+              CASE WHEN vd.nom_affiche IS NOT NULL
+                THEN vd.nom_affiche || ' → ' || va.nom_affiche
+                ELSE NULL END AS trajet,
+              b.prix_total_client AS montant
+       FROM litiges l
+       LEFT JOIN voyageurs v ON v.id = l.voyageur_id
+       LEFT JOIN trajets t ON t.id = l.trajet_id
+       LEFT JOIN lignes li ON li.id = t.ligne_id
+       LEFT JOIN villes vd ON vd.code = li.ville_depart
+       LEFT JOIN villes va ON va.code = li.ville_arrivee
+       LEFT JOIN billets b ON b.id = l.billet_id
+       WHERE l.${colonne} = $1
+       ORDER BY l.cree_le DESC`,
       [id]
     );
 

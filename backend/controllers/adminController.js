@@ -2,6 +2,7 @@ const pool = require('../config/database');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
 const { creerNotification } = require('../services/notificationService');
+const { journaliser } = require('../services/logService');
 
 // ═══════════════════════════════════════════════════
 // CONNEXION ADMIN
@@ -95,6 +96,12 @@ async function validerAgence(req, res) {
       canal: 'email'
     });
 
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: req.utilisateur.id,
+      action: 'validation_agence', details: { agence_id: agenceId, nom: check.rows[0].nom },
+      ipAddress: req.ip,
+    });
+
     res.json({ message: `Agence ${check.rows[0].nom} validée avec succès`, agence_id: agenceId });
 
   } catch (err) {
@@ -131,6 +138,12 @@ async function refuserAgence(req, res) {
       titre: 'Inscription refusée',
       contenu: `Votre inscription n'a pas été validée. Motif : ${motif}`,
       canal: 'email'
+    });
+
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: req.utilisateur.id,
+      action: 'refus_agence', details: { agence_id: agenceId, nom: check.rows[0].nom, motif },
+      ipAddress: req.ip,
     });
 
     res.json({ message: `Agence ${check.rows[0].nom} refusée`, motif });
@@ -191,6 +204,12 @@ async function modifierParametre(req, res) {
       `UPDATE parametres_systeme SET valeur = $1, modifie_par = $2, mis_a_jour_le = NOW() WHERE cle = $3`,
       [String(valeur), adminId, cle]
     );
+
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: adminId,
+      action: 'modification_parametre', details: { cle, nouvelle_valeur: valeur },
+      ipAddress: req.ip, estUrgence: true,
+    });
 
     res.json({ message: `Paramètre ${cle} mis à jour`, cle, nouvelle_valeur: valeur });
 
@@ -915,6 +934,427 @@ async function transactionsFinances(req, res) {
   }
 }
 
+// ═══════════════════════════════════════════════════
+// DERNIÈRE TRANSACTION (toutes agences, sans filtre de date)
+// Utilisé par le tableau de bord — indépendant de la date consultée
+// ailleurs dans l'admin.
+// ═══════════════════════════════════════════════════
+async function derniereTransaction(req, res) {
+  try {
+    const resultat = await pool.query(
+      `SELECT
+          v.prenom || ' ' || v.nom AS client,
+          a.nom AS agence,
+          e.montant_total AS paye,
+          e.montant_agence AS verse,
+          e.montant_jego AS marge
+       FROM billets b
+       JOIN escrow e ON e.billet_id = b.id
+       JOIN voyageurs v ON v.id = b.voyageur_id
+       JOIN agences a ON a.id = b.agence_id
+       WHERE b.statut IN ('confirme', 'utilise')
+       ORDER BY b.cree_le DESC
+       LIMIT 1`
+    );
+
+    if (resultat.rows.length === 0) {
+      return res.json({ transaction: null });
+    }
+
+    const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' F';
+    const t = resultat.rows[0];
+    res.json({
+      transaction: {
+        client: t.client,
+        agence: t.agence,
+        paye: fmt(t.paye),
+        verse: fmt(t.verse),
+        marge: fmt(t.marge),
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// TABLEAU DE BORD — journal du jour (calcul en direct, pas de cache)
+// La table journal_bord existe dans le schéma mais n'est écrite nulle
+// part dans le code : on calcule ici en direct, comme le reste de
+// l'admin (resumeFinances, resumeTrajetsAdmin...), pour éviter un
+// système de génération à part qui peut se désynchroniser.
+// ═══════════════════════════════════════════════════
+async function resumeJournal(req, res) {
+  try {
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+
+    const billets = await pool.query(
+      `SELECT COUNT(*) AS nb, COALESCE(SUM(e.montant_jego), 0) AS revenu
+       FROM billets b
+       JOIN escrow e ON e.billet_id = b.id
+       WHERE b.cree_le::date = $1::date AND b.statut IN ('confirme', 'utilise')`,
+      [aujourdhui]
+    );
+
+    const clients = await pool.query(
+      `SELECT COUNT(*) AS nb FROM voyageurs WHERE cree_le::date = $1::date`,
+      [aujourdhui]
+    );
+
+    const litiges = await pool.query(
+      `SELECT COUNT(*) AS nb FROM litiges WHERE decide_le::date = $1::date`,
+      [aujourdhui]
+    );
+
+    const remb = await pool.query(
+      `SELECT COUNT(*) AS nb FROM remboursements WHERE statut = 'traite' AND traite_le::date = $1::date`,
+      [aujourdhui]
+    );
+
+    const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' F';
+
+    res.json({
+      billetsVendus: String(billets.rows[0].nb),
+      nouveauxClients: String(clients.rows[0].nb),
+      litigesTraites: String(litiges.rows[0].nb),
+      remboursements: String(remb.rows[0].nb),
+      revenuNet: fmt(billets.rows[0].revenu),
+      genereLe: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// TABLEAU DE BORD — à traiter (calcul en direct sur l'état réel)
+//
+// Urgent   : litiges en attente de décision admin (agence a répondu),
+//            ou litige ouvert dont le délai de réponse de 48h de
+//            l'agence est dépassé sans réponse.
+// Important: agence en attente de validation depuis >48h,
+//            demande de pièces ouverte depuis >5 jours.
+// En attente: mêmes catégories, encore dans leur délai normal —
+//            visibles mais pas encore à relancer.
+// ═══════════════════════════════════════════════════
+async function tachesATraiter(req, res) {
+  try {
+    const litigesEnCours = await pool.query(
+      `SELECT l.id, l.numero, l.motif, a.nom AS nom_agence,
+              v.prenom AS prenom_voyageur, v.nom AS nom_voyageur,
+              EXTRACT(EPOCH FROM (NOW() - l.reponse_agence_le)) / 3600 AS heures
+       FROM litiges l
+       JOIN agences a ON a.id = l.agence_id
+       JOIN voyageurs v ON v.id = l.voyageur_id
+       WHERE l.statut = 'en_cours'
+       ORDER BY l.reponse_agence_le ASC`
+    );
+
+    const litigesEnAttenteReponse = await pool.query(
+      `SELECT l.id, l.numero, l.motif, a.nom AS nom_agence,
+              EXTRACT(EPOCH FROM (NOW() - l.cree_le)) / 3600 AS heures
+       FROM litiges l
+       JOIN agences a ON a.id = l.agence_id
+       WHERE l.statut = 'ouvert'
+       ORDER BY l.cree_le ASC`
+    );
+
+    const agencesAttente = await pool.query(
+      `SELECT id, nom, ville, cree_le,
+              EXTRACT(EPOCH FROM (NOW() - cree_le)) / 3600 AS heures
+       FROM agences WHERE statut = 'en_attente'
+       ORDER BY cree_le ASC`
+    );
+
+    const piecesOuvertes = await pool.query(
+      `SELECT dp.id, dp.pieces, dp.cree_le, a.nom AS nom_agence,
+              EXTRACT(EPOCH FROM (NOW() - dp.cree_le)) / 3600 AS heures
+       FROM demandes_pieces dp
+       JOIN agences a ON a.id = dp.agence_id
+       WHERE dp.statut = 'ouverte'
+       ORDER BY dp.cree_le ASC`
+    );
+
+    const delai = (heures) => {
+      if (heures < 1) return "à l'instant";
+      if (heures < 24) return `depuis ${Math.floor(heures)} h`;
+      return `depuis ${Math.floor(heures / 24)} j`;
+    };
+
+    const urgent = [
+      ...litigesEnCours.rows.map((l) => ({
+        id: `litige-${l.id}`, reference: l.numero,
+        titre: `Décision attendue — ${l.motif}`,
+        sousTitre: `${l.nom_agence} vs ${l.prenom_voyageur} ${l.nom_voyageur}`,
+        delai: delai(Number(l.heures)), lien: '/litiges',
+      })),
+      ...litigesEnAttenteReponse.rows.filter((l) => Number(l.heures) >= 48).map((l) => ({
+        id: `litige-retard-${l.id}`, reference: l.numero,
+        titre: `Agence n'a pas répondu (délai 48h dépassé)`,
+        sousTitre: l.nom_agence, delai: delai(Number(l.heures)), lien: '/litiges',
+      })),
+    ];
+
+    const important = [
+      ...agencesAttente.rows.filter((a) => Number(a.heures) >= 48).map((a) => ({
+        id: `agence-${a.id}`, reference: a.ville,
+        titre: `Validation en attente — ${a.nom}`,
+        sousTitre: 'Délai normal dépassé', delai: delai(Number(a.heures)), lien: '/agences',
+      })),
+      ...piecesOuvertes.rows.filter((p) => Number(p.heures) >= 120).map((p) => ({
+        id: `piece-${p.id}`, reference: p.nom_agence,
+        titre: `Pièces manquantes toujours non reçues`,
+        sousTitre: p.pieces, delai: delai(Number(p.heures)), lien: '/agences',
+      })),
+    ];
+
+    const enAttente = [
+      ...litigesEnAttenteReponse.rows.filter((l) => Number(l.heures) < 48).map((l) => ({
+        id: `litige-attente-${l.id}`, reference: l.numero,
+        titre: `En attente de réponse agence — ${l.motif}`,
+        sousTitre: l.nom_agence, delai: delai(Number(l.heures)), lien: '/litiges',
+      })),
+      ...agencesAttente.rows.filter((a) => Number(a.heures) < 48).map((a) => ({
+        id: `agence-attente-${a.id}`, reference: a.ville,
+        titre: `Nouvelle inscription — ${a.nom}`,
+        sousTitre: 'Dans le délai normal', delai: delai(Number(a.heures)), lien: '/agences',
+      })),
+      ...piecesOuvertes.rows.filter((p) => Number(p.heures) < 120).map((p) => ({
+        id: `piece-attente-${p.id}`, reference: p.nom_agence,
+        titre: `Pièces demandées`,
+        sousTitre: p.pieces, delai: delai(Number(p.heures)), lien: '/agences',
+      })),
+    ];
+
+    res.json({ urgent, important, enAttente });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// POINTS JEGO — résumé (écran admin)
+// ═══════════════════════════════════════════════════
+async function resumePoints(req, res) {
+  try {
+    const circulation = await pool.query(
+      `SELECT COALESCE(SUM(points_fidelite), 0) AS total FROM voyageurs`
+    );
+
+    const gagnes = await pool.query(
+      `SELECT COALESCE(SUM(points), 0) AS total FROM jego_points
+       WHERE type = 'gain' AND cree_le >= NOW() - INTERVAL '7 days'`
+    );
+
+    const reconvertis = await pool.query(
+      `SELECT COALESCE(SUM(ABS(points)), 0) AS total FROM jego_points
+       WHERE type = 'depense' AND cree_le >= NOW() - INTERVAL '7 days'`
+    );
+
+    const paliers = await pool.query(
+      `SELECT cle, valeur FROM parametres_systeme
+       WHERE cle IN ('points_palier_reduction_points', 'points_palier_reduction_fcfa', 'points_palier_gratuit_points')`
+    );
+    const p = {};
+    paliers.rows.forEach((r) => { p[r.cle] = r.valeur; });
+    const reductionPoints = p['points_palier_reduction_points'] || 500;
+    const reductionFcfa = p['points_palier_reduction_fcfa'] || 500;
+    const gratuitPoints = p['points_palier_gratuit_points'] || 1000;
+
+    res.json({
+      totalCirculation: `${Number(circulation.rows[0].total).toLocaleString('fr-FR')} pts`,
+      gagnes7j: `+${Number(gagnes.rows[0].total).toLocaleString('fr-FR')} pts`,
+      reconvertis7j: `${Number(reconvertis.rows[0].total).toLocaleString('fr-FR')} pts`,
+      paliers: `${reductionPoints}pts=${reductionFcfa}F · ${gratuitPoints}pts=gratuit`,
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// POINTS JEGO — liste par voyageur, avec recherche
+// ═══════════════════════════════════════════════════
+async function pointsParVoyageur(req, res) {
+  try {
+    const { recherche } = req.query;
+    const params = [];
+    let filtre = '';
+    if (recherche && recherche.trim().length > 0) {
+      params.push(`%${recherche.trim()}%`);
+      filtre = `WHERE v.nom ILIKE $1 OR v.prenom ILIKE $1 OR v.telephone ILIKE $1`;
+    }
+
+    const resultat = await pool.query(
+      `SELECT v.id, v.nom, v.prenom, v.telephone, v.points_fidelite AS solde,
+              COALESCE(SUM(jp.points) FILTER (WHERE jp.type = 'gain'), 0) AS gagnes,
+              COALESCE(SUM(ABS(jp.points)) FILTER (WHERE jp.type = 'depense'), 0) AS utilises
+       FROM voyageurs v
+       LEFT JOIN jego_points jp ON jp.voyageur_id = v.id
+       ${filtre}
+       GROUP BY v.id, v.nom, v.prenom, v.telephone, v.points_fidelite
+       ORDER BY v.points_fidelite DESC
+       LIMIT 50`,
+      params
+    );
+
+    res.json({
+      voyageurs: resultat.rows.map((v) => ({
+        id: v.id, nom: v.nom, prenom: v.prenom, telephone: v.telephone,
+        solde: parseInt(v.solde), gagnes: parseInt(v.gagnes), utilises: parseInt(v.utilises),
+      })),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// POINTS JEGO — derniers usages (gains et dépenses réels)
+// ═══════════════════════════════════════════════════
+async function usagesPoints(req, res) {
+  try {
+    const resultat = await pool.query(
+      `SELECT jp.id, jp.motif, jp.type, jp.points, jp.cree_le,
+              v.prenom || ' ' || v.nom AS voyageur
+       FROM jego_points jp
+       JOIN voyageurs v ON v.id = jp.voyageur_id
+       ORDER BY jp.cree_le DESC
+       LIMIT 30`
+    );
+
+    res.json({
+      usages: resultat.rows.map((u) => {
+        let type = 'Réduction';
+        if (u.type === 'gain') type = 'Gain';
+        else if ((u.motif || '').toLowerCase().includes('gratuit')) type = 'Billet gratuit';
+        return {
+          id: u.id,
+          voyageur: u.voyageur,
+          action: u.motif || (u.type === 'gain' ? 'Gain de points' : 'Utilisation de points'),
+          type,
+          points: parseInt(u.points),
+          date: new Date(u.cree_le).toLocaleDateString('fr-FR'),
+        };
+      }),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MODÉRATION — avis signalés par des voyageurs
+// Motif générique pour l'instant : la table avis n'a pas de colonne pour
+// stocker la raison du signalement, seulement qui a signalé et quand.
+// ═══════════════════════════════════════════════════
+async function moderationListe(req, res) {
+  try {
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+
+    const resultat = await pool.query(
+      `SELECT av.id, av.commentaire, av.signale_le,
+              v.prenom || ' ' || v.nom AS auteur,
+              a.nom AS agence
+       FROM avis av
+       JOIN voyageurs v ON v.id = av.voyageur_id
+       JOIN agences a ON a.id = av.agence_id
+       WHERE av.statut = 'signale' AND av.signale_le::date = $1::date
+       ORDER BY av.signale_le ASC`,
+      [jour]
+    );
+
+    res.json({
+      commentaires: resultat.rows.map((c) => ({
+        id: c.id,
+        texte: c.commentaire || '(sans commentaire écrit)',
+        auteur: c.auteur,
+        agence: c.agence,
+        motif: 'Signalé par un voyageur',
+        color: 'amber',
+        primaryDanger: false,
+      })),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MODÉRATION — traiter un commentaire signalé
+// La table avis n'a que 3 statuts possibles (visible / signale / supprime),
+// donc "conserver" et "ignorer" ont le même effet réel : le commentaire
+// redevient visible et sort de la file de modération.
+// ═══════════════════════════════════════════════════
+async function moderationTraiter(req, res) {
+  try {
+    const { id } = req.params;
+    const { action } = req.body;
+
+    if (!['supprimer', 'conserver', 'ignorer'].includes(action)) {
+      return res.status(400).json({ error: "Action invalide (supprimer, conserver ou ignorer attendu)" });
+    }
+
+    const check = await pool.query(`SELECT id FROM avis WHERE id = $1`, [id]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Commentaire introuvable' });
+    }
+
+    const nouveauStatut = action === 'supprimer' ? 'supprime' : 'visible';
+    await pool.query(`UPDATE avis SET statut = $1 WHERE id = $2`, [nouveauStatut, id]);
+
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: req.utilisateur.id,
+      action: 'moderation_avis', details: { avis_id: id, decision: action },
+      ipAddress: req.ip,
+    });
+
+    res.json({ message: `Commentaire ${action}`, id, statut: nouveauStatut });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// SÉCURITÉ — journal des actions sensibles (logs_systeme)
+// ═══════════════════════════════════════════════════
+async function listerLogs(req, res) {
+  try {
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+
+    const resultat = await pool.query(
+      `SELECT ls.id, ls.action, ls.ip_address, ls.cree_le, ls.est_urgence,
+              COALESCE(ma.prenom || ' ' || ma.nom, ag.nom, 'Système') AS auteur
+       FROM logs_systeme ls
+       LEFT JOIN membres_admin ma ON ls.acteur_type = 'membre_admin' AND ma.id = ls.acteur_id
+       LEFT JOIN agences ag ON ls.acteur_type = 'agence' AND ag.id = ls.acteur_id
+       WHERE ls.cree_le::date = $1::date
+       ORDER BY ls.cree_le DESC`,
+      [jour]
+    );
+
+    res.json({
+      logs: resultat.rows.map((l) => ({
+        horodatage: new Date(l.cree_le).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        action: l.action,
+        auteur: l.auteur,
+        ip: l.ip_address || '—',
+      })),
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
@@ -922,5 +1362,9 @@ module.exports = {
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
   listerAgences,
   listerTrajetsAdmin, resumeTrajetsAdmin,
-  resumeFinances, serieFinances, transactionsFinances
+  resumeFinances, serieFinances, transactionsFinances,
+  derniereTransaction, resumeJournal, tachesATraiter,
+  resumePoints, pointsParVoyageur, usagesPoints,
+  moderationListe, moderationTraiter,
+  listerLogs
 };

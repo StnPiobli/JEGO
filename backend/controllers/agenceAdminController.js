@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { journaliser } = require('../services/logService');
 
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'agences');
 
@@ -365,6 +366,13 @@ async function desactiverAgence(req, res) {
     );
 
     await client.query('COMMIT');
+
+    await journaliser({
+      acteurType: 'membre_admin', acteurId: req.utilisateur.id,
+      action: 'desactivation_agence',
+      details: { agence_id: agenceId, nom: agence.rows[0].nom, motif, billets_rembourses: aRembourser.rows.length },
+      ipAddress: req.ip, estUrgence: true,
+    });
 
     // Notifications hors transaction : un échec d'envoi ne doit pas
     // annuler une désactivation déjà décidée.

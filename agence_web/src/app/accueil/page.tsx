@@ -1,29 +1,32 @@
-'use client';
+﻿'use client';
+
+// BRANCHÉ SUR LE VRAI BACKEND — GET /api/agences/tableau-de-bord,
+// GET /api/programmation/mon-horizon (déjà utilisé ailleurs dans l'app).
+// "vs hier" est un vrai calcul (trajets aujourd'hui vs hier), pas
+// affiché du tout s'il n'y avait aucun trajet hier (division par zéro
+// évitée, pas de faux "+infini%").
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LayoutAgence from '../components/LayoutAgence';
 import { enregistrerLangue, lireLangue, type Langue } from '../lib/langue';
+import { apiFetch } from '../lib/api';
 
-const statsDemo = {
-  trajetsProgrammes: 12,
-  busDansLaFlotte: 3,
-  horizonJours: 9,
-  seuilAlerte: 14,
+type TableauDeBord = {
+  trajetsAujourdhui: number;
+  trajetsHier: number;
+  variationTrajets: number | null;
+  busActifs: number;
+  topDestinations: { nom: string; reservations: number }[];
 };
 
-const destinations = [
-  { nom: 'Douala → Yaounde', reservations: 42 },
-  { nom: 'Yaounde → Douala', reservations: 28 },
-  { nom: 'Douala → Bafoussam', reservations: 19 },
-];
+type Horizon = { horizon_jours: number; seuil_alerte: number; conforme: boolean; message: string };
 
 const textes = {
   fr: {
     dashboard: 'Dashboard',
     bienvenue: 'Bienvenue dans l’espace JEGO.',
     langue: 'Langue',
-    abonnement: `Ton abonnement — ${statsDemo.horizonJours} jours d’avance seulement (minimum ${statsDemo.seuilAlerte}).`,
     details: 'Voir les details →',
     trajetsAuj: "Trajets aujourd'hui",
     busFlotte: 'Bus dans la flotte',
@@ -35,13 +38,13 @@ const textes = {
     flotteDesc: 'Gerer tes bus et leur configuration.',
     acceder: 'Acceder',
     top: 'Top destinations',
-    topDesc: 'Les lignes les plus sollicitees actuellement.',
+    topDesc: 'Les lignes les plus sollicitees sur les 30 derniers jours.',
+    aucuneDestination: 'Aucune reservation sur les 30 derniers jours.',
   },
   en: {
     dashboard: 'Dashboard',
     bienvenue: 'Welcome to the JEGO space.',
     langue: 'Language',
-    abonnement: `Your subscription — only ${statsDemo.horizonJours} days ahead (minimum ${statsDemo.seuilAlerte}).`,
     details: 'View details →',
     trajetsAuj: "Today's trips",
     busFlotte: 'Buses in fleet',
@@ -53,18 +56,32 @@ const textes = {
     flotteDesc: 'Manage your buses and their configuration.',
     acceder: 'Open',
     top: 'Top destinations',
-    topDesc: 'The most requested lines right now.',
+    topDesc: 'The most requested lines over the last 30 days.',
+    aucuneDestination: 'No reservations in the last 30 days.',
   },
 } as const;
 
 export default function Accueil() {
   const [langue, setLangue] = useState<Langue>('fr');
+  const [donnees, setDonnees] = useState<TableauDeBord | null>(null);
+  const [horizon, setHorizon] = useState<Horizon | null>(null);
+  const [chargement, setChargement] = useState(true);
 
   useEffect(() => {
     setLangue(lireLangue());
     const sync = () => setLangue(lireLangue());
     window.addEventListener('jego-lang-change', sync as EventListener);
     return () => window.removeEventListener('jego-lang-change', sync as EventListener);
+  }, []);
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/api/agences/tableau-de-bord'),
+      apiFetch('/api/programmation/mon-horizon'),
+    ])
+      .then(([tb, h]) => { setDonnees(tb); setHorizon(h); })
+      .catch(() => { setDonnees(null); setHorizon(null); })
+      .finally(() => setChargement(false));
   }, []);
 
   const t = textes[langue];
@@ -92,11 +109,11 @@ export default function Accueil() {
           </div>
         </div>
 
-        {statsDemo.horizonJours < statsDemo.seuilAlerte && (
+        {horizon && !horizon.conforme && (
           <div className="rounded-[28px] px-6 py-5 mb-8 bg-[linear-gradient(90deg,rgb(var(--c-amber-bg))_0%,rgb(var(--c-amber-bg))_100%)] border border-amber/55 flex items-center gap-4 shadow-[0_12px_28px_rgba(177,145,69,0.08)] overflow-hidden relative">
             <div className="w-14 h-14 rounded-full bg-green-700 text-white flex items-center justify-center text-2xl shadow-[0_16px_28px_rgba(11,158,99,0.25)] shrink-0">☆</div>
             <div className="flex-1">
-              <p className="text-[15px] font-bold text-ink">{t.abonnement}</p>
+              <p className="text-[15px] font-bold text-ink">{horizon.message}</p>
             </div>
             <Link href="/trajets" className="text-green-700 text-[15px] font-bold whitespace-nowrap">{t.details}</Link>
           </div>
@@ -115,19 +132,15 @@ export default function Accueil() {
               </div>
               <div>
                 <p className="text-[16px] text-ink-soft mb-1">{t.trajetsAuj}</p>
-                <p className="text-[58px] leading-none font-black text-ink">{statsDemo.trajetsProgrammes}</p>
+                <p className="text-[58px] leading-none font-black text-ink">{chargement ? '—' : (donnees?.trajetsAujourdhui ?? 0)}</p>
               </div>
             </div>
-            <div className="flex items-end gap-2 text-green-700 font-bold text-[15px] mb-1">
-              <span>↑ +18%</span>
-              <span className="text-ink-soft font-medium">{t.vsHier}</span>
-            </div>
-            <div className="mt-4 h-[90px] rounded-2xl bg-[linear-gradient(180deg,rgba(11,158,99,0.02),transparent)] flex items-center px-2">
-              <svg viewBox="0 0 300 90" className="w-full h-full" fill="none">
-                <path d="M6 65 C 26 58, 36 24, 58 30 S 88 72, 118 54 S 148 8, 178 22 S 208 64, 238 38 S 266 8, 294 14" stroke="#138555" strokeWidth="4" strokeLinecap="round" />
-                <circle cx="294" cy="14" r="5" fill="#ffffff" stroke="#138555" strokeWidth="3" />
-              </svg>
-            </div>
+            {!chargement && donnees && donnees.variationTrajets !== null && (
+              <div className={`flex items-end gap-2 font-bold text-[15px] mb-1 ${donnees.variationTrajets >= 0 ? 'text-green-700' : 'text-red'}`}>
+                <span>{donnees.variationTrajets >= 0 ? '↑' : '↓'} {donnees.variationTrajets >= 0 ? '+' : ''}{donnees.variationTrajets}%</span>
+                <span className="text-ink-soft font-medium">{t.vsHier}</span>
+              </div>
+            )}
           </div>
 
           <div className="relative overflow-hidden rounded-[30px] bg-paper border border-line p-7 shadow-[0_18px_48px_rgba(20,32,26,0.06)]">
@@ -141,7 +154,7 @@ export default function Accueil() {
               </div>
               <div>
                 <p className="text-[16px] text-ink-soft mb-1">{t.busFlotte}</p>
-                <p className="text-[58px] leading-none font-black text-ink">{statsDemo.busDansLaFlotte}</p>
+                <p className="text-[58px] leading-none font-black text-ink">{chargement ? '—' : (donnees?.busActifs ?? 0)}</p>
               </div>
             </div>
             <p className="text-ink-soft text-[15px] mb-5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-500 mr-2" />{t.enService}</p>
@@ -204,17 +217,23 @@ export default function Accueil() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            {destinations.map((destination, index) => (
-              <div key={destination.nom} className="flex items-center justify-between gap-3 pb-4 border-b border-line last:border-b-0 last:pb-0">
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-2xl bg-off-white flex items-center justify-center text-green-700 font-black">{index + 1}</div>
-                  <span className="text-[16px] font-semibold text-ink">{destination.nom}</span>
+          {chargement ? (
+            <p className="text-[14px] text-ink-soft">…</p>
+          ) : !donnees || donnees.topDestinations.length === 0 ? (
+            <p className="text-[14px] text-ink-soft">{t.aucuneDestination}</p>
+          ) : (
+            <div className="space-y-4">
+              {donnees.topDestinations.map((destination, index) => (
+                <div key={destination.nom} className="flex items-center justify-between gap-3 pb-4 border-b border-line last:border-b-0 last:pb-0">
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-2xl bg-off-white flex items-center justify-center text-green-700 font-black">{index + 1}</div>
+                    <span className="text-[16px] font-semibold text-ink">{destination.nom}</span>
+                  </div>
+                  <span className="text-[16px] font-black text-ink">{destination.reservations}</span>
                 </div>
-                <span className="text-[16px] font-black text-ink">{destination.reservations}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </LayoutAgence>

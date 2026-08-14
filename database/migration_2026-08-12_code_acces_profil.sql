@@ -1,0 +1,3 @@
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS code_acces_profil VARCHAR(10);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS code_acces_expiration TIMESTAMP;
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS code_acces_utilise BOOLEAN DEFAULT true;

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini, Toast } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type Commentaire = {
   id: string; texte: string; auteur: string; agence: string;
@@ -27,10 +28,8 @@ export default function ModerationPage() {
     async function charger() {
       setChargement(true);
       try {
-        // BRANCHEMENT :
-        // const res = await apiFetch(`/api/admin/moderation?date=${date.toISOString().slice(0, 10)}`);
-        // if (!annule) setCommentaires(res.commentaires || []);
-        if (!annule) setCommentaires([]);
+        const res = await apiFetch(`/api/admin/moderation?date=${date.toISOString().slice(0, 10)}`);
+        if (!annule) setCommentaires(res.commentaires || []);
         if (!annule) setErreur(null);
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger la file de modération.");
@@ -44,11 +43,10 @@ export default function ModerationPage() {
 
   async function traiter(id: string, action: string) {
     try {
-      // BRANCHEMENT :
-      // await apiFetch(`/api/admin/moderation/${id}`, {
-      //   method: "PUT",
-      //   body: JSON.stringify({ action: action.toLowerCase() }),
-      // });
+      await apiFetch(`/api/admin/moderation/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ action: action.toLowerCase() }),
+      });
       setCommentaires((prev) => prev.filter((c) => c.id !== id));
       setToast(`Commentaire ${action.toLowerCase()}`);
       setTimeout(() => setToast(null), 2000);

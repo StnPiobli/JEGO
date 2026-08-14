@@ -1,19 +1,16 @@
-"use client";
-// PRÊT À BRANCHER — tableau de bord Super Admin.
-// Routes attendues :
+﻿"use client";
+// BRANCHÉ SUR LE VRAI BACKEND.
+// Routes utilisées :
 //   GET /api/admin/dashboard/journal
-//     → { billetsVendus, nouveauxClients, litigesTraites, remboursements,
-//         revenuNet, genereLe }
 //   GET /api/admin/dashboard/a-traiter
-//     → { urgent: [...], important: [...], enAttente: [...] }
-//        chaque entrée : { id, reference, titre, sousTitre, delai, lien }
-//   GET /api/admin/agences-en-attente   (route existante)
-//   GET /api/admin/finances/transactions?limite=1
+//   GET /api/admin/agences-en-attente
+//   GET /api/admin/finances/derniere-transaction
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Panel, Badge } from "@/components/ui";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type Journal = {
   billetsVendus: string; nouveauxClients: string; litigesTraites: string;
@@ -35,8 +32,8 @@ type Transaction = {
 };
 
 const journalVide: Journal = {
-  billetsVendus: "—", nouveauxClients: "—", litigesTraites: "—",
-  remboursements: "—", revenuNet: "—", genereLe: null,
+  billetsVendus: "-", nouveauxClients: "-", litigesTraites: "-",
+  remboursements: "-", revenuNet: "-", genereLe: null,
 };
 
 function ColonneTaches({
@@ -78,18 +75,33 @@ export default function DashboardPage() {
     let annule = false;
     async function charger() {
       try {
-        // BRANCHEMENT :
-        // const j = await apiFetch("/api/admin/dashboard/journal");
-        // if (!annule) setJournal(j);
-        // const t = await apiFetch("/api/admin/dashboard/a-traiter");
-        // if (!annule) { setUrgent(t.urgent || []); setImportant(t.important || []); setEnAttente(t.enAttente || []); }
-        // const a = await apiFetch("/api/admin/agences-en-attente");
-        // if (!annule) setAgences(a.agences || []);
+        const j = await apiFetch("/api/admin/dashboard/journal");
+        if (!annule) setJournal(j);
+
+        const t = await apiFetch("/api/admin/dashboard/a-traiter");
         if (!annule) {
-          setJournal(journalVide);
-          setUrgent([]); setImportant([]); setEnAttente([]);
-          setAgences([]); setDerniereTransaction(null); setErreur(null);
+          setUrgent(t.urgent || []);
+          setImportant(t.important || []);
+          setEnAttente(t.enAttente || []);
         }
+
+        const a = await apiFetch("/api/admin/agences-en-attente");
+        if (!annule) {
+          const liste: AgenceEnAttente[] = (a.agences || []).map((ag: { id: string; nom: string; ville: string; cree_le: string }) => ({
+            id: ag.id,
+            nom: ag.nom,
+            ville: ag.ville,
+            inscriteLe: new Date(ag.cree_le).toLocaleDateString("fr-FR"),
+            statut: "En attente",
+            statutColor: "amber" as const,
+          }));
+          setAgences(liste);
+        }
+
+        const tr = await apiFetch("/api/admin/finances/derniere-transaction");
+        if (!annule) setDerniereTransaction(tr.transaction || null);
+
+        if (!annule) setErreur(null);
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger le tableau de bord.");
       } finally {
@@ -114,7 +126,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2">
           <div className="text-[11px] font-semibold text-green-700 bg-ok-bg border border-green-300 px-2.5 py-1.5 rounded-full flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            Session Super Admin — connexion loggée
+            Session Super Admin - connexion loggée
           </div>
           <HistoriqueButton entrees={[]} />
         </div>
@@ -122,14 +134,13 @@ export default function DashboardPage() {
 
       {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
 
-      {/* Journal de bord */}
       <div className="bg-paper border border-line rounded-2xl shadow-card mb-6 overflow-hidden">
         <div className="flex justify-between items-center px-[22px] pt-4 pb-3">
           <div>
             <div className="text-[11px] uppercase tracking-widest text-ink-soft">Journal de bord</div>
-            <div className="font-display font-semibold text-[15px]">Généré automatiquement à 00h00</div>
+            <div className="font-display font-semibold text-[15px]">Aujourd'hui, en direct</div>
           </div>
-          <div className="text-[11px] text-ink-soft">{journal.genereLe ?? "—"}</div>
+          <div className="text-[11px] text-ink-soft">{journal.genereLe ?? "-"}</div>
         </div>
         <div className="ticket-cut mx-[22px]" />
         <div className="grid grid-cols-5">
@@ -151,7 +162,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="font-display text-[13.5px] font-semibold uppercase tracking-wide text-ink-soft mt-6 mb-3">
-        À traiter aujourd&apos;hui
+        À traiter aujourd'hui
       </div>
       <div className="grid grid-cols-3 gap-4">
         <ColonneTaches titre="🔴 Urgent" couleurFond="bg-red-bg" couleurTexte="text-red" taches={urgent} chargement={chargement} />

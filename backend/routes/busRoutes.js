@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   creerBus, listerBus, voirPlanBus,
-  marquerToilettes, marquerAbime, reactiverSieges, marquerPremium
+  marquerToilettes, marquerAbime, reactiverSieges, marquerPremium,
+  desactiverBus
 } = require('../controllers/busController');
 const { authentifier, verifierAgenceActive } = require('../middleware/auth');
 
@@ -10,6 +11,7 @@ const { authentifier, verifierAgenceActive } = require('../middleware/auth');
 router.post('/', authentifier, verifierAgenceActive, creerBus);
 router.get('/', authentifier, listerBus);
 router.get('/:id/plan', authentifier, voirPlanBus);
+router.put('/:id/desactiver', authentifier, desactiverBus);
 
 // Marquage des sièges
 router.put('/:id/sieges/toilettes', authentifier, marquerToilettes);

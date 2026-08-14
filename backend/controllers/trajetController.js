@@ -1,4 +1,4 @@
-const pool = require('../config/database');
+﻿const pool = require('../config/database');
 const { verserEscrowTrajet } = require('../services/escrowService');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
@@ -14,14 +14,12 @@ async function creerTrajet(req, res) {
       heure_arrivee_estimee, prix_base, categorie
     } = req.body;
 
-    // Vérifier les champs obligatoires
     if (!ligne_id || !bus_id || !date_depart || !heure_depart || !prix_base) {
       return res.status(400).json({
         error: 'Ligne, bus, date, heure de départ et prix sont obligatoires'
       });
     }
 
-    // Vérifier que la ligne appartient à l'agence
     const ligneCheck = await pool.query(
       'SELECT id FROM lignes WHERE id = $1 AND agence_id = $2',
       [ligne_id, agenceId]
@@ -30,7 +28,6 @@ async function creerTrajet(req, res) {
       return res.status(404).json({ error: 'Ligne introuvable ou n\'appartient pas à votre agence' });
     }
 
-    // Vérifier que le bus appartient à l'agence
     const busCheck = await pool.query(
       'SELECT id FROM bus WHERE id = $1 AND agence_id = $2',
       [bus_id, agenceId]
@@ -39,13 +36,11 @@ async function creerTrajet(req, res) {
       return res.status(404).json({ error: 'Bus introuvable ou n\'appartient pas à votre agence' });
     }
 
-    // Vérifier la catégorie
     const categorieValide = categorie || 'standard';
     if (!['standard', 'vip', 'express', 'nuit'].includes(categorieValide)) {
       return res.status(400).json({ error: 'Catégorie invalide : standard, vip, express ou nuit' });
     }
 
-    // Créer le trajet
     const resultat = await pool.query(
       `INSERT INTO trajets
         (agence_id, ligne_id, bus_id, date_depart, heure_depart,
@@ -72,18 +67,39 @@ async function creerTrajet(req, res) {
 async function listerTrajets(req, res) {
   try {
     const agenceId = req.utilisateur.id;
+    const { chauffeur_id } = req.query;
+
+    const params = [agenceId];
+    let filtreChauffeur = '';
+    if (chauffeur_id) {
+      params.push(chauffeur_id);
+      filtreChauffeur = `AND t.chauffeur_id = $2`;
+    }
 
     const resultat = await pool.query(
-      `SELECT t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
-              t.prix_base, t.categorie, t.statut,
-              l.ville_depart, l.ville_arrivee,
-              b.nom AS nom_bus, b.disposition
+      `SELECT t.id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_estimee,
+              t.prix_base, t.categorie, t.statut, t.retard_minutes,
+              vd.nom_affiche AS ville_depart, va.nom_affiche AS ville_arrivee,
+              b.nom AS nom_bus, b.disposition,
+              c.prenom || ' ' || c.nom AS chauffeur,
+              COALESCE(arrets.villes, ARRAY[]::text[]) AS arrets
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
+       JOIN villes vd ON vd.code = l.ville_depart
+       JOIN villes va ON va.code = l.ville_arrivee
        JOIN bus b ON b.id = t.bus_id
-       WHERE t.agence_id = $1
+       LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(v2.nom_affiche ORDER BY lp2.ordre) AS villes
+         FROM ligne_points lp2
+         JOIN villes v2 ON v2.code = lp2.ville
+         WHERE lp2.ligne_id = t.ligne_id
+           AND lp2.ordre > (SELECT MIN(ordre) FROM ligne_points WHERE ligne_id = t.ligne_id)
+           AND lp2.ordre < (SELECT MAX(ordre) FROM ligne_points WHERE ligne_id = t.ligne_id)
+       ) AS arrets ON true
+       WHERE t.agence_id = $1 ${filtreChauffeur}
        ORDER BY t.date_depart, t.heure_depart`,
-      [agenceId]
+      params
     );
 
     res.json({ trajets: resultat.rows });
@@ -106,7 +122,6 @@ async function declarerArrivee(req, res) {
 
     await client.query('BEGIN');
 
-    // 1. Vérifier que le trajet appartient à l'agence
     const trajetCheck = await client.query(
       `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
       [trajetId, agenceId]
@@ -118,7 +133,6 @@ async function declarerArrivee(req, res) {
 
     const trajet = trajetCheck.rows[0];
 
-    // 2. Vérifier qu'il n'est pas déjà terminé ou annulé
     if (trajet.statut === 'termine') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce trajet est déjà déclaré arrivé' });
@@ -128,8 +142,6 @@ async function declarerArrivee(req, res) {
       return res.status(400).json({ error: 'Ce trajet a été annulé' });
     }
 
-    // 3. Passer le trajet en "termine", enregistrer l'heure d'arrivée
-    //    et programmer le versement de l'escrow dans 6h
     await client.query(
       `UPDATE trajets
        SET statut = 'termine',
@@ -140,7 +152,6 @@ async function declarerArrivee(req, res) {
       [trajetId]
     );
 
-    // 4. Marquer les billets confirmés comme "utilise"
     const billetsResult = await client.query(
       `UPDATE billets SET statut = 'utilise', mis_a_jour_le = NOW()
        WHERE trajet_id = $1 AND statut = 'confirme'
@@ -149,9 +160,6 @@ async function declarerArrivee(req, res) {
     );
 
     const retard = await appliquerBaremeRetard(client, trajetId);
-
-    // 5. Notifier les passagers (simulation pour l'instant)
-    //    Plus tard : push "Arrivée déclarée, c'était comment ?"
 
     await client.query('COMMIT');
 
@@ -210,7 +218,6 @@ async function assignerChauffeur(req, res) {
       return res.status(400).json({ error: 'L\'identifiant du chauffeur est obligatoire' });
     }
 
-    // 1. Vérifier que le trajet appartient à l'agence
     const trajetCheck = await pool.query(
       'SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2',
       [trajetId, agenceId]
@@ -219,7 +226,6 @@ async function assignerChauffeur(req, res) {
       return res.status(404).json({ error: 'Trajet introuvable' });
     }
 
-    // 2. Vérifier que le chauffeur appartient à la même agence et est actif
     const chauffeurCheck = await pool.query(
       'SELECT id, nom, prenom, desactive_urgence FROM chauffeurs WHERE id = $1 AND agence_id = $2',
       [chauffeur_id, agenceId]
@@ -231,7 +237,6 @@ async function assignerChauffeur(req, res) {
       return res.status(400).json({ error: 'Ce chauffeur est désactivé, impossible de l\'assigner' });
     }
 
-    // 3. Assigner le chauffeur au trajet
     await pool.query(
       'UPDATE trajets SET chauffeur_id = $1, mis_a_jour_le = NOW() WHERE id = $2',
       [chauffeur_id, trajetId]
@@ -250,8 +255,51 @@ async function assignerChauffeur(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
-// ANNULER UN TRAJET (agence) — rembourse 100% tous les billets
+// REMBOURSER TOUS LES BILLETS CONFIRMÉS D'UN TRAJET (100%)
+// Partagée par annulerTrajet et supprimerTrajet.
 // ═══════════════════════════════════════════════════
+async function rembourserBilletsDuTrajet(client, trajetId, motifCode, texteNotification) {
+  const billets = await client.query(
+    `SELECT id, voyageur_id, prix_total_client FROM billets
+     WHERE trajet_id = $1 AND statut = 'confirme'`,
+    [trajetId]
+  );
+
+  let totalRembourse = 0;
+  for (const billet of billets.rows) {
+    await client.query(
+      `UPDATE billets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
+      [billet.id]
+    );
+
+    await client.query(
+      `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1`,
+      [billet.id]
+    );
+
+    const reference = `REMB-${Date.now()}-${billet.id.slice(0, 4)}`;
+    await client.query(
+      `INSERT INTO remboursements
+        (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
+       VALUES ($1, $2, $3, $4, 100, 'traite', $5, NOW())`,
+      [billet.id, billet.voyageur_id, billet.prix_total_client, motifCode, reference]
+    );
+
+    totalRembourse += billet.prix_total_client;
+
+    await creerNotification({
+      destinataire_type: 'voyageur',
+      destinataire_id: billet.voyageur_id,
+      type: 'remboursement',
+      titre: 'Remboursement intégral',
+      contenu: `${texteNotification} Vous êtes remboursé à 100% (${billet.prix_total_client} FCFA).`,
+      canal: 'push'
+    });
+  }
+
+  return { nombre: billets.rows.length, total: totalRembourse };
+}
+
 async function annulerTrajet(req, res) {
   const client = await pool.connect();
   try {
@@ -259,14 +307,12 @@ async function annulerTrajet(req, res) {
     const trajetId = req.params.id;
     const { motif } = req.body;
 
-    // Motif obligatoire
     if (!motif || motif.trim().length === 0) {
       return res.status(400).json({ error: 'Le motif d\'annulation est obligatoire' });
     }
 
     await client.query('BEGIN');
 
-    // 1. Vérifier que le trajet appartient à l'agence
     const trajetCheck = await client.query(
       `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
       [trajetId, agenceId]
@@ -278,7 +324,6 @@ async function annulerTrajet(req, res) {
 
     const trajet = trajetCheck.rows[0];
 
-    // 2. Interdire l'annulation d'un trajet déjà terminé ou déjà annulé
     if (trajet.statut === 'termine') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Impossible d\'annuler un trajet déjà terminé' });
@@ -288,57 +333,16 @@ async function annulerTrajet(req, res) {
       return res.status(400).json({ error: 'Ce trajet est déjà annulé' });
     }
 
-    // 3. Récupérer tous les billets confirmés du trajet
-    const billets = await client.query(
-      `SELECT id, voyageur_id, prix_total_client FROM billets
-       WHERE trajet_id = $1 AND statut = 'confirme'`,
-      [trajetId]
+    const { nombre, total } = await rembourserBilletsDuTrajet(
+      client, trajetId, 'annulation_agence',
+      "Votre trajet a été annulé par l'agence."
     );
 
-    // 4. Pour chaque billet : rembourser 100%, escrow remboursé, ligne de remboursement
-    let totalRembourse = 0;
-    for (const billet of billets.rows) {
-      // Passer le billet en annulé
-      await client.query(
-        `UPDATE billets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
-        [billet.id]
-      );
-
-      // Escrow → remboursé (l'agence ne touche rien, JEGO rembourse le client)
-      await client.query(
-        `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1`,
-        [billet.id]
-      );
-
-      // Créer la ligne de remboursement (100%)
-      const reference = `REMB-${Date.now()}-${billet.id.slice(0,4)}`;
-      await client.query(
-        `INSERT INTO remboursements
-          (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-         VALUES ($1, $2, $3, 'annulation_agence', 100, 'traite', $4, NOW())`,
-        [billet.id, billet.voyageur_id, billet.prix_total_client, reference]
-      );
-
-      totalRembourse += billet.prix_total_client;
-      // [SIMULATION] Remboursement Mobile Money + notification voyageur
-    }
-
-    await creerNotification({
-        destinataire_type: 'voyageur',
-        destinataire_id: billet.voyageur_id,
-        type: 'remboursement',
-        titre: 'Trajet annulé — remboursement intégral',
-        contenu: `Votre trajet a été annulé par l'agence. Vous êtes remboursé à 100% (${billet.prix_total_client} FCFA).`,
-        canal: 'push'
-      });
-
-    // 5. Passer le trajet en "annule"
     await client.query(
       `UPDATE trajets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
       [trajetId]
     );
 
-    // 6. Nettoyer les verrous éventuels sur ce trajet
     await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
 
     await client.query('COMMIT');
@@ -346,8 +350,8 @@ async function annulerTrajet(req, res) {
     res.json({
       message: 'Trajet annulé. Tous les voyageurs seront remboursés à 100%.',
       motif: motif,
-      billets_rembourses: billets.rows.length,
-      total_rembourse: totalRembourse
+      billets_rembourses: nombre,
+      total_rembourse: total
     });
 
   } catch (err) {
@@ -360,11 +364,8 @@ async function annulerTrajet(req, res) {
 
 // ═══════════════════════════════════════════════════
 // DÉCLARER UN RETARD (agence)
-// Met à jour les horaires ANNONCÉS, mais la référence
-// du barème (heure_arrivee_initiale) reste intouchable.
 // ═══════════════════════════════════════════════════
-
-   async function declarerRetard(req, res) {
+async function declarerRetard(req, res) {
   try {
     const agenceId = req.utilisateur.id;
     const trajetId = req.params.id;
@@ -427,13 +428,8 @@ async function annulerTrajet(req, res) {
   }
 }
 
-
 // ═══════════════════════════════════════════════════
 // LISTER LES PASSAGERS D'UN TRAJET (agence)
-//
-// Alimente la page « Réservations » du portail agence : qui monte,
-// à quel siège, à quel arrêt il embarque et descend, et s'il est
-// déjà monté à bord (QR scanné).
 // ═══════════════════════════════════════════════════
 async function passagersTrajet(req, res) {
   try {
@@ -491,9 +487,6 @@ async function passagersTrajet(req, res) {
 
 // ═══════════════════════════════════════════════════
 // VERSEMENTS REÇUS PAR L'AGENCE (escrow)
-//
-// Alimente la page « Paiements » : ce que l'agence a réellement
-// touché, ce qui est encore retenu, et ce qui a été remboursé.
 // ═══════════════════════════════════════════════════
 async function versementsAgence(req, res) {
   try {
@@ -515,8 +508,6 @@ async function versementsAgence(req, res) {
       [agenceId]
     );
 
-    // Détail par trajet : c'est ainsi que l'argent est réellement
-    // versé (un versement par trajet, 6 h après l'arrivée).
     const parTrajet = await pool.query(
       `SELECT t.id AS trajet_id,
               'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' || to_char(t.heure_depart, 'HH24MI') || '-' || UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero,
@@ -550,4 +541,77 @@ async function versementsAgence(req, res) {
   }
 }
 
-module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet, declarerRetard, passagersTrajet, versementsAgence };
+// ═══════════════════════════════════════════════════
+// SUPPRIMER UN TRAJET
+// Bloqué si déjà débuté (en_cours), déjà terminé, ou déjà annulé.
+// Sans billet réel : suppression SQL réelle, rien à préserver.
+// Avec billets réels : remboursement 100% + notification de chaque
+// voyageur, puis le trajet est marqué "annulé" plutôt que réellement
+// supprimé — l'historique financier doit être conservé pour l'audit et
+// les litiges éventuels. Il disparaît de la liste active côté agence.
+// ═══════════════════════════════════════════════════
+async function supprimerTrajet(req, res) {
+  const client = await pool.connect();
+  try {
+    const agenceId = req.utilisateur.id;
+    const trajetId = req.params.id;
+
+    await client.query('BEGIN');
+
+    const trajetCheck = await client.query(
+      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      [trajetId, agenceId]
+    );
+    if (trajetCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const trajet = trajetCheck.rows[0];
+
+    if (trajet.statut === 'en_cours') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est en cours — impossible de le supprimer. Utilise "Arrêter le trajet" si besoin.' });
+    }
+    if (trajet.statut === 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà terminé — suppression impossible, l\'historique est conservé.' });
+    }
+    if (trajet.statut === 'annule') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà annulé.' });
+    }
+
+    const { nombre, total } = await rembourserBilletsDuTrajet(
+      client, trajetId, 'suppression_trajet',
+      "Votre trajet a été supprimé par l'agence."
+    );
+
+    if (nombre === 0) {
+      await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
+      await client.query(`DELETE FROM trajets WHERE id = $1`, [trajetId]);
+      await client.query('COMMIT');
+      return res.json({ message: 'Trajet supprimé.', billets_rembourses: 0, total_rembourse: 0 });
+    }
+
+    await client.query(
+      `UPDATE trajets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
+      [trajetId]
+    );
+    await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
+    await client.query('COMMIT');
+
+    res.json({
+      message: `Trajet retiré. ${nombre} voyageur(s) remboursé(s) à 100% (${total} FCFA au total) et notifié(s).`,
+      billets_rembourses: nombre,
+      total_rembourse: total
+    });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { creerTrajet, listerTrajets, declarerArrivee, verserEscrow, assignerChauffeur, annulerTrajet, declarerRetard, passagersTrajet, versementsAgence, supprimerTrajet };

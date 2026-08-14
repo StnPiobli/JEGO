@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   rapportAgence, rapportAgencePdf,
-  rapportJego, rapportJegoPdf
+  rapportJego, rapportJegoPdf,
+  rapportAgenceDetaille
 } = require('../controllers/rapportController');
 const { authentifier } = require('../middleware/auth');
 
@@ -13,5 +14,7 @@ router.get('/jego', authentifier, rapportJego);
 // Sorties PDF (téléchargement, mise en page JEGO)
 router.get('/agence/pdf', authentifier, rapportAgencePdf);
 router.get('/jego/pdf', authentifier, rapportJegoPdf);
+
+router.get('/agence-detaille', authentifier, rapportAgenceDetaille);
 
 module.exports = router;

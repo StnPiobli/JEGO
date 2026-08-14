@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { Panel, Badge, StatCard } from "@/components/ui";
 import HistoriqueButton from "@/components/HistoriqueButton";
+import { apiFetch } from "@/lib/api";
 
 type VoyageurPoints = {
   id: string; nom: string; prenom: string; telephone: string;
@@ -39,14 +40,13 @@ export default function PointsPage() {
     async function charger() {
       setChargement(true);
       try {
-        // BRANCHEMENT :
-        // const r = await apiFetch("/api/admin/points/resume");
-        // if (!annule) setResume(r);
-        // const v = await apiFetch(`/api/admin/points/voyageurs?recherche=${encodeURIComponent(recherche)}`);
-        // if (!annule) setVoyageurs(v.voyageurs || []);
-        // const u = await apiFetch("/api/admin/points/usages");
-        // if (!annule) setUsages(u.usages || []);
-        if (!annule) { setResume(resumeVide); setVoyageurs([]); setUsages([]); setErreur(null); }
+        const r = await apiFetch("/api/admin/points/resume");
+        if (!annule) setResume(r);
+        const v = await apiFetch(`/api/admin/points/voyageurs?recherche=${encodeURIComponent(recherche)}`);
+        if (!annule) setVoyageurs(v.voyageurs || []);
+        const u = await apiFetch("/api/admin/points/usages");
+        if (!annule) setUsages(u.usages || []);
+        if (!annule) setErreur(null);
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les points.");
       } finally {

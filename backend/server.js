@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const pool = require('./config/database');
@@ -10,6 +11,9 @@ const app = express();
 
 // Middleware
 app.use(cors());
+// Fichiers publics (logos d'agence) — pas les documents officiels,
+// ceux-là restent servis via une route API authentifiée séparée.
+app.use('/uploads/agences/logos', express.static(path.join(__dirname, 'uploads', 'agences', 'logos')));
 // express.json() doit laisser passer les envois de fichiers : la route
 // de téléversement lit le flux multipart brut elle-même.
 app.use((req, res, next) => {

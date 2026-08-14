@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   inscription, connexion, monProfil,
-  televerserDocument, mesDocuments, supprimerMonDocument
+  televerserDocument, mesDocuments, supprimerMonDocument,
+  mesNotifications
 } = require('../controllers/agenceController');
 const { authentifier } = require('../middleware/auth');
 
@@ -21,5 +22,15 @@ router.get('/documents', authentifier, mesDocuments);
 const { versementsAgence } = require('../controllers/trajetController');
 router.get('/versements', authentifier, versementsAgence);
 router.delete('/documents/:id', authentifier, supprimerMonDocument);
+
+router.get('/notifications', authentifier, mesNotifications);
+
+const { tableauDeBord, modifierProfil, changerMotDePasseAgence, televerserLogo, envoyerCodeAcces, verifierCodeAcces } = require('../controllers/agenceController');
+router.get('/tableau-de-bord', authentifier, tableauDeBord);
+router.put('/profil', authentifier, modifierProfil);
+router.put('/mot-de-passe', authentifier, changerMotDePasseAgence);
+router.post('/logo', authentifier, televerserLogo);
+router.post('/envoyer-code-acces', authentifier, envoyerCodeAcces);
+router.post('/verifier-code-acces', authentifier, verifierCodeAcces);
 
 module.exports = router;

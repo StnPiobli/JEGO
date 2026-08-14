@@ -6,7 +6,10 @@ const {
   listerVoyageurs, modifierStatutVoyageur,
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
   listerTrajetsAdmin, resumeTrajetsAdmin,
-  resumeFinances, serieFinances, transactionsFinances
+  resumeFinances, serieFinances, transactionsFinances,
+  derniereTransaction, resumeJournal, tachesATraiter,
+  resumePoints, pointsParVoyageur, usagesPoints,
+  moderationListe, moderationTraiter, listerLogs
 } = require('../controllers/adminController');
 
 // Accès simple admin, sans permission RBAC dédiée — cohérent avec la
@@ -23,6 +26,7 @@ const {
   envoyerMessageAgence, rappelProgrammation, desactiverAgence
 } = require('../controllers/agenceAdminController');
 const { authentifier, verifierPermission } = require('../middleware/auth');
+const { rapportAdminDetaille } = require('../controllers/rapportController');
 
 router.post('/connexion', connexion);
 router.get('/agences-en-attente', authentifier, verifierPermission('valider_agence'), agencesEnAttente);
@@ -61,5 +65,25 @@ router.get('/trajets/resume', authentifier, adminSeul, resumeTrajetsAdmin);
 router.get('/finances/resume', authentifier, adminSeul, resumeFinances);
 router.get('/finances/serie', authentifier, adminSeul, serieFinances);
 router.get('/finances/transactions', authentifier, adminSeul, transactionsFinances);
+router.get('/finances/derniere-transaction', authentifier, adminSeul, derniereTransaction);
+
+// Tableau de bord
+router.get('/dashboard/journal', authentifier, adminSeul, resumeJournal);
+router.get('/dashboard/a-traiter', authentifier, adminSeul, tachesATraiter);
+
+// Rapports
+router.get('/rapports', authentifier, adminSeul, rapportAdminDetaille);
+
+// Points JEGO
+router.get('/points/resume', authentifier, adminSeul, resumePoints);
+router.get('/points/voyageurs', authentifier, adminSeul, pointsParVoyageur);
+router.get('/points/usages', authentifier, adminSeul, usagesPoints);
+
+// Modération
+router.get('/moderation', authentifier, adminSeul, moderationListe);
+router.put('/moderation/:id', authentifier, adminSeul, moderationTraiter);
+
+// Sécurité — logs
+router.get('/logs', authentifier, adminSeul, listerLogs);
 
 module.exports = router;

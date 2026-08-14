@@ -1,0 +1,7 @@
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS contact_directeur VARCHAR(150);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS telephone_secondaire VARCHAR(20);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS mode_reception VARCHAR(50);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS numero_reception VARCHAR(100);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS titulaire_reception VARCHAR(150);
+ALTER TABLE agences ADD COLUMN IF NOT EXISTS instructions_reception TEXT;

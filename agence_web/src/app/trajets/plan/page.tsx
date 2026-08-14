@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -26,6 +26,7 @@ type Siege = {
   type_position: string;
   est_premium: boolean;
   statutVente: StatutVente;
+  sourceVente?: string | null;
 };
 
 type Troncon = { valeur: string; libelle: string; ordreDepart: number; ordreArrivee: number; prix: number };
@@ -50,12 +51,16 @@ export default function PlanSieges() {
   const [enCours, setEnCours] = useState(false);
   const [infoTrajet, setInfoTrajet] = useState('');
   const [nomBus, setNomBus] = useState('');
+  const [typeBus, setTypeBus] = useState('');
+  const [supplementPremium, setSupplementPremium] = useState(0);
 
   const [nomClient, setNomClient] = useState('');
   const [tronconChoisi, setTronconChoisi] = useState('');
   const [telClient, setTelClient] = useState('');
   const [indicatifClient, setIndicatifClient] = useState('+237');
   const [emailClient, setEmailClient] = useState('');
+  const [placePremium, setPlacePremium] = useState(false);
+  const [bagageSupp, setBagageSupp] = useState('');
   const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
 
   // Charge le plan réel du bus et les tronçons vendables de la ligne.
@@ -73,12 +78,14 @@ export default function PlanSieges() {
       const date = String(t.date_depart ?? '').split('T')[0];
       setInfoTrajet(`${t.depart ?? ''} → ${t.arrivee ?? ''} · ${date} · ${String(t.heure_depart ?? '').slice(0, 5)}`);
       setNomBus(String(t.nom_bus ?? ''));
+      setTypeBus(String(t.type_bus ?? ''));
+      setSupplementPremium(Number(t.supplement_premium) || 0);
       setSieges(
         ((plan.sieges || []) as Record<string, unknown>[]).map((x) => {
           const dispo = String(x.disponibilite);
           let statutVente: StatutVente;
           if (dispo === 'disponible') statutVente = 'disponible';
-          else if (dispo === 'pris') statutVente = 'vendu_en_ligne';
+          else if (dispo === 'pris') statutVente = x.source_vente === 'physique' ? 'vendu_physique' : 'vendu_en_ligne';
           else statutVente = 'indisponible';
           return {
             id: String(x.id),
@@ -88,6 +95,7 @@ export default function PlanSieges() {
             type_position: String(x.type_position ?? ''),
             est_premium: x.est_premium === true,
             statutVente,
+            sourceVente: x.source_vente ? String(x.source_vente) : null,
           } as Siege;
         }),
       );
@@ -128,6 +136,8 @@ export default function PlanSieges() {
     setSiegeAVendre(siege);
     setEtapeVente('formulaire');
     setNomClient(''); setTelClient(''); setEmailClient('');
+    setPlacePremium(false); setBagageSupp('');
+    setErreur(null);
   }
 
   function selectionAleatoire() {
@@ -137,6 +147,13 @@ export default function PlanSieges() {
     ouvrirVente(choisi);
   }
 
+  const prixEstime = (() => {
+    const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
+    if (!troncon) return null;
+    const supplementSiegePhysique = siegeAVendre?.est_premium ? supplementPremium : 0;
+    return troncon.prix + supplementSiegePhysique + (placePremium ? 500 : 0) + (parseInt(bagageSupp) || 0);
+  })();
+
   async function confirmerVente() {
     if (!siegeAVendre || !nomClient.trim() || !telClient.trim() || !tronconChoisi || enCours) return;
     const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
@@ -145,8 +162,10 @@ export default function PlanSieges() {
     setEnCours(true);
     setErreur(null);
     try {
-      // Vente réelle : le serveur crée le billet, son QR signé, et
-      // calcule le montant à encaisser (prix agence + commission).
+      // Le prix exact (agence + commission + suppléments) est calculé
+      // et facturé par le serveur — pas de ressaisie manuelle du
+      // montant côté agence. Ce qui est affiché ici n'est qu'une
+      // estimation à titre indicatif pour l'agent.
       await apiFetch(`/api/reservations/trajets/${trajetId}/vente-guichet`, {
         method: 'POST',
         body: JSON.stringify({
@@ -156,9 +175,11 @@ export default function PlanSieges() {
           email_client: emailClient.trim() || undefined,
           point_embarquement_ordre: troncon.ordreDepart,
           point_debarquement_ordre: troncon.ordreArrivee,
+          est_premium_choisi: placePremium,
+          supplement_bagage: bagageSupp ? parseInt(bagageSupp) : undefined,
         }),
       });
-      setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique' } : s)));
+      setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique', sourceVente: 'physique' } : s)));
       setEtapeVente('confirmation');
     } catch (e) {
       setErreur(e instanceof Error ? e.message : 'La vente a échoué');
@@ -166,6 +187,7 @@ export default function PlanSieges() {
       setEnCours(false);
     }
   }
+
 
   function fermerVente() {
     setSiegeAVendre(null);
@@ -284,15 +306,32 @@ export default function PlanSieges() {
                   <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom du client" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
                   <TelephoneInput indicatif={indicatifClient} numero={telClient} onChangeIndicatif={setIndicatifClient} onChangeNumero={setTelClient} />
                   <input type="email" value={emailClient} onChange={(e) => setEmailClient(e.target.value)} placeholder="Email (pour la confirmation)" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
+                  {typeBus === 'mixte' && (
+                    <label className="flex items-center gap-2.5 bg-off-white rounded-xl px-4 py-3 text-sm cursor-pointer">
+                      <input type="checkbox" checked={placePremium} onChange={(e) => setPlacePremium(e.target.checked)} className="w-4 h-4" />
+                      Place premium (+500 FCFA)
+                    </label>
+                  )}
+                  <input
+                    value={bagageSupp}
+                    onChange={(e) => setBagageSupp(e.target.value.replace(/\D/g, ''))}
+                    inputMode="numeric"
+                    placeholder="Bagage supplémentaire (FCFA, optionnel)"
+                    className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm"
+                  />
                 </div>
+                {prixEstime !== null && (
+                  <p className="text-[12px] text-ink-soft mb-4">Montant à payer : <span className="font-bold text-ink">{prixEstime} FCFA</span></p>
+                )}
+                {erreur && <p className="text-[11.5px] text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</p>}
                 <div className="flex gap-3">
                   <button onClick={fermerVente} className="flex-1 rounded-xl bg-off-white text-ink font-bold text-sm py-3">Annuler</button>
                   <button
                     onClick={confirmerVente}
-                    disabled={!nomClient.trim() || !telClient.trim() || !tronconChoisi}
+                    disabled={!nomClient.trim() || !telClient.trim() || !tronconChoisi || enCours}
                     className="flex-1 rounded-xl bg-amber disabled:opacity-40 text-ink font-bold text-sm py-3"
                   >
-                    Vendre
+                    {enCours ? '…' : 'Vendre'}
                   </button>
                 </div>
               </>
@@ -302,13 +341,12 @@ export default function PlanSieges() {
                   <span className="text-2xl">✓</span>
                 </div>
                 <p className="text-sm font-bold text-ink mb-1">Siege {siegeAVendre.numero} vendu</p>
-                <p className="text-[11.5px] text-purple font-semibold mb-2">{tronconChoisi}</p>
+                <p className="text-[11.5px] text-purple font-semibold mb-2">{sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi)?.libelle}</p>
                 <p className="text-xs text-ink-soft mb-6">
                   {emailClient
-                    ? `Email de confirmation envoye a ${emailClient} (facade -- non branche).`
+                    ? `Email de confirmation envoye a ${emailClient}.`
                     : 'Aucun email fourni -- confirmation non envoyee.'}
                 </p>
-                <p className="text-[10px] text-amber mb-4">⚠️ Démo — aucune route backend ne permet de vendre un billet au guichet pour l&apos;instant (voir mémoire projet).</p>
                 <button onClick={fermerVente} className="w-full rounded-xl bg-green-700 text-white font-bold text-sm py-3.5">Fermer</button>
               </div>
             )}

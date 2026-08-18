@@ -27,7 +27,7 @@ async function creerBus(req, res) {
     const {
       nom, type_bus, disposition, nombre_rangees,
       toilettes, climatisation, prises_usb, wifi,
-      sieges_inclinables, supplement_premium
+      sieges_inclinables, supplement_premium, sieges_premium
     } = req.body;
 
     // Vérifier les champs obligatoires
@@ -64,6 +64,7 @@ async function creerBus(req, res) {
 
     const bus = busResult.rows[0];
     const schemaRangee = DISPOSITIONS[disposition];
+    const numerosPremiumChoisis = new Set(Array.isArray(sieges_premium) ? sieges_premium : []);
 
     // 2. Générer tous les sièges
     let siegesCrees = 0;
@@ -72,8 +73,9 @@ async function creerBus(req, res) {
         const numero = `${rangee}${LETTRES[pos]}`;
         const typePosition = schemaRangee[pos];
 
-        // VIP = tous premium, Standard = aucun, Mixte = aucun par défaut (réglé après)
-        const estPremium = (type_bus === 'vip');
+        // VIP = tous premium. Mixte = ceux choisis par l'agence à la
+        // création (grille cliquable côté formulaire). Standard = aucun.
+        const estPremium = type_bus === 'vip' || (type_bus === 'mixte' && numerosPremiumChoisis.has(numero));
 
         await client.query(
           `INSERT INTO sieges
@@ -357,4 +359,94 @@ async function marquerPremium(req, res) {
   }
 }
 
-module.exports = { creerBus, listerBus, voirPlanBus, marquerToilettes, marquerAbime, reactiverSieges, marquerPremium, desactiverBus };
+// ═══════════════════════════════════════════════════
+// VOIR UN BUS PRÉCIS (avec ses sièges, pour préremplir le formulaire
+// de modification)
+// ═══════════════════════════════════════════════════
+async function voirBus(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { id } = req.params;
+
+    const bus = await pool.query(
+      `SELECT id, nom, type_bus, disposition, nombre_rangees,
+              toilettes, climatisation, prises_usb, wifi,
+              sieges_inclinables, supplement_premium, statut
+       FROM bus WHERE id = $1 AND agence_id = $2`,
+      [id, agenceId]
+    );
+    if (bus.rows.length === 0) {
+      return res.status(404).json({ error: 'Bus introuvable dans votre agence' });
+    }
+
+    const sieges = await pool.query(
+      `SELECT numero, rangee, position, type_position, est_premium, statut
+       FROM sieges WHERE bus_id = $1 ORDER BY rangee, position`,
+      [id]
+    );
+
+    res.json({ bus: bus.rows[0], sieges: sieges.rows });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MODIFIER UN BUS EXISTANT
+// disposition et nombre_rangees ne sont JAMAIS modifiables — les
+// changer casserait la correspondance avec les sièges déjà créés.
+// Le type_bus, le supplément premium et les sièges premium restent
+// modifiables même si des billets existent déjà : chaque billet garde
+// son propre prix déjà figé au moment de l'achat, et chaque trajet
+// garde sa propre catégorie figée au moment de sa création — rien de
+// ce qui est déjà vendu n'est jamais affecté rétroactivement. Seules
+// les prochaines ventes suivront la nouvelle configuration.
+// ═══════════════════════════════════════════════════
+async function modifierBus(req, res) {
+  try {
+    const agenceId = req.utilisateur.id;
+    const { id } = req.params;
+    const {
+      nom, toilettes, climatisation, prises_usb, wifi, sieges_inclinables,
+      type_bus, supplement_premium, sieges_premium
+    } = req.body;
+
+    const busCheck = await pool.query('SELECT id FROM bus WHERE id = $1 AND agence_id = $2', [id, agenceId]);
+    if (busCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Bus introuvable dans votre agence' });
+    }
+
+    await pool.query(
+      `UPDATE bus SET
+        nom = COALESCE($1, nom),
+        toilettes = COALESCE($2, toilettes),
+        climatisation = COALESCE($3, climatisation),
+        prises_usb = COALESCE($4, prises_usb),
+        wifi = COALESCE($5, wifi),
+        sieges_inclinables = COALESCE($6, sieges_inclinables),
+        type_bus = COALESCE($7, type_bus),
+        supplement_premium = COALESCE($8, supplement_premium)
+       WHERE id = $9`,
+      [nom, toilettes, climatisation, prises_usb, wifi, sieges_inclinables,
+       type_bus, supplement_premium, id]
+    );
+
+    if (Array.isArray(sieges_premium)) {
+      await pool.query(`UPDATE sieges SET est_premium = false WHERE bus_id = $1`, [id]);
+      if (sieges_premium.length > 0) {
+        await pool.query(
+          `UPDATE sieges SET est_premium = true WHERE bus_id = $1 AND numero = ANY($2)`,
+          [id, sieges_premium]
+        );
+      }
+    }
+
+    res.json({ message: 'Bus mis à jour' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerBus, listerBus, voirPlanBus, marquerToilettes, marquerAbime, reactiverSieges, marquerPremium, desactiverBus, voirBus, modifierBus };

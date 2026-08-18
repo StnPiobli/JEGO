@@ -3,13 +3,14 @@ const router = express.Router();
 const {
   creerBus, listerBus, voirPlanBus,
   marquerToilettes, marquerAbime, reactiverSieges, marquerPremium,
-  desactiverBus
+  desactiverBus, voirBus, modifierBus
 } = require('../controllers/busController');
 const { authentifier, verifierAgenceActive } = require('../middleware/auth');
-
 // Gestion des bus
 router.post('/', authentifier, verifierAgenceActive, creerBus);
 router.get('/', authentifier, listerBus);
+router.get('/:id', authentifier, voirBus);
+router.put('/:id', authentifier, verifierAgenceActive, modifierBus);
 router.get('/:id/plan', authentifier, voirPlanBus);
 router.put('/:id/desactiver', authentifier, desactiverBus);
 

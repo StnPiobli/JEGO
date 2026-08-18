@@ -11,7 +11,8 @@ async function creerTrajet(req, res) {
     const agenceId = req.utilisateur.id;
     const {
       ligne_id, bus_id, date_depart, heure_depart,
-      heure_arrivee_estimee, prix_base, categorie
+      heure_arrivee_estimee, prix_base, prix_bagage_supplementaire,
+      distribution_nourriture
     } = req.body;
 
     if (!ligne_id || !bus_id || !date_depart || !heure_depart || !prix_base) {
@@ -29,26 +30,29 @@ async function creerTrajet(req, res) {
     }
 
     const busCheck = await pool.query(
-      'SELECT id FROM bus WHERE id = $1 AND agence_id = $2',
+      'SELECT id, type_bus FROM bus WHERE id = $1 AND agence_id = $2',
       [bus_id, agenceId]
     );
     if (busCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Bus introuvable ou n\'appartient pas à votre agence' });
     }
 
-    const categorieValide = categorie || 'standard';
-    if (!['standard', 'vip', 'express', 'nuit'].includes(categorieValide)) {
-      return res.status(400).json({ error: 'Catégorie invalide : standard, vip, express ou nuit' });
-    }
+    // La catégorie n'est plus un choix manuel : elle suit toujours le bus
+    // réellement assigné (standard/mixte/vip). "Nuit" et "Express" ne sont
+    // plus stockés du tout — badges calculés à l'affichage (heure de
+    // départ / absence d'arrêts), jamais liés au prix.
+    const categorieValide = busCheck.rows[0].type_bus;
+    const bagageSupp = prix_bagage_supplementaire !== undefined ? Number(prix_bagage_supplementaire) : 1000;
 
     const resultat = await pool.query(
       `INSERT INTO trajets
         (agence_id, ligne_id, bus_id, date_depart, heure_depart,
-         heure_arrivee_estimee, heure_arrivee_initiale, prix_base, categorie, statut)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, 'programme')
-       RETURNING id, date_depart, heure_depart, heure_arrivee_estimee, prix_base, categorie, statut`,
+         heure_arrivee_estimee, heure_arrivee_initiale, prix_base, categorie,
+         prix_bagage_supplementaire, distribution_nourriture, statut)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, 'programme')
+       RETURNING id, date_depart, heure_depart, heure_arrivee_estimee, prix_base, categorie, prix_bagage_supplementaire, distribution_nourriture, statut`,
       [agenceId, ligne_id, bus_id, date_depart, heure_depart,
-       heure_arrivee_estimee || null, prix_base, categorieValide]
+       heure_arrivee_estimee || null, prix_base, categorieValide, bagageSupp, distribution_nourriture === true]
     );
 
     res.status(201).json({
@@ -78,11 +82,14 @@ async function listerTrajets(req, res) {
 
     const resultat = await pool.query(
       `SELECT t.id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_estimee,
-              t.prix_base, t.categorie, t.statut, t.retard_minutes,
+              t.prix_base, t.categorie, t.statut, t.retard_minutes, t.prix_bagage_supplementaire,
+              t.distribution_nourriture, b.supplement_premium,
               vd.nom_affiche AS ville_depart, va.nom_affiche AS ville_arrivee,
-              b.nom AS nom_bus, b.disposition,
+              b.nom AS nom_bus, b.disposition, b.type_bus,
               c.prenom || ' ' || c.nom AS chauffeur,
-              COALESCE(arrets.villes, ARRAY[]::text[]) AS arrets
+              COALESCE(arrets.villes, ARRAY[]::text[]) AS arrets,
+              COALESCE(pointsDetail.points, '[]'::json) AS points_detail,
+              COALESCE(prixSections.troncons, '[]'::json) AS prix_sections
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
@@ -97,6 +104,23 @@ async function listerTrajets(req, res) {
            AND lp2.ordre > (SELECT MIN(ordre) FROM ligne_points WHERE ligne_id = t.ligne_id)
            AND lp2.ordre < (SELECT MAX(ordre) FROM ligne_points WHERE ligne_id = t.ligne_id)
        ) AS arrets ON true
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT('ville', v3.nom_affiche, 'lieu', lp3.lieu_prise_en_charge) ORDER BY lp3.ordre) AS points
+         FROM ligne_points lp3
+         JOIN villes v3 ON v3.code = lp3.ville
+         WHERE lp3.ligne_id = t.ligne_id
+       ) AS pointsDetail ON true
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                  'depart', vd2.nom_affiche, 'arrivee', va2.nom_affiche, 'prix', ltp.prix
+                ) ORDER BY ltp.ordre_depart, ltp.ordre_arrivee) AS troncons
+         FROM ligne_troncon_prix ltp
+         JOIN ligne_points lpd ON lpd.ligne_id = ltp.ligne_id AND lpd.ordre = ltp.ordre_depart
+         JOIN ligne_points lpa ON lpa.ligne_id = ltp.ligne_id AND lpa.ordre = ltp.ordre_arrivee
+         JOIN villes vd2 ON vd2.code = lpd.ville
+         JOIN villes va2 ON va2.code = lpa.ville
+         WHERE ltp.ligne_id = t.ligne_id
+       ) AS prixSections ON true
        WHERE t.agence_id = $1 ${filtreChauffeur}
        ORDER BY t.date_depart, t.heure_depart`,
       params

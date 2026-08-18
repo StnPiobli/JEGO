@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
@@ -18,18 +18,10 @@ import { apiFetch } from '../../lib/api';
  * Bus et chauffeurs viennent maintenant de GET /api/bus et
  * GET /api/chauffeurs (listes reelles de l'agence), plus de demo.
  *
- * Reste en facade, sans colonne backend derriere : le prix bagage
- * supplementaire et le supplement siege premium par defaut de ce
- * formulaire (ces valeurs se configurent aujourd'hui au moment de
- * l'achat du billet, pas au niveau du trajet).
+ * La categorie du trajet n'est plus un choix manuel : elle est toujours
+ * derivee du bus assigne (standard/mixte/vip). Le prix du bagage
+ * supplementaire, lui, est reellement enregistre ici sur le trajet.
  */
-
-const categories = [
-  { valeur: 'standard', libelle: 'Standard' },
-  { valeur: 'vip', libelle: 'VIP' },
-  { valeur: 'express', libelle: 'Express' },
-  { valeur: 'nuit', libelle: 'Nuit' },
-] as const;
 
 type Bus = { id: string; nom: string; type_bus: string; disposition: string; nombre_sieges: string | number };
 type Chauffeur = { id: string; nom: string; prenom: string; statut: string };
@@ -124,12 +116,12 @@ export default function NouveauTrajet() {
   const [dateDepart, setDateDepart] = useState(todayInputDate());
   const [heureDepart, setHeureDepart] = useState('');
   const [heureArrivee, setHeureArrivee] = useState('');
-  const [categorie, setCategorie] = useState<typeof categories[number]['valeur']>('standard');
   const [distributionNourriture, setDistributionNourriture] = useState(false);
 
-  // Tarifs additionnels (facade -- aucun champ backend sur trajets pour ça)
+  // Prix du bagage supplementaire, reellement enregistre sur le trajet.
+  // Le supplement siege premium, lui, se configure au niveau du bus
+  // (flotte), pas ici -- pas de duplication.
   const [prixBagage, setPrixBagage] = useState('1000');
-  const [supplementPremium, setSupplementPremium] = useState('1500');
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
@@ -142,7 +134,6 @@ export default function NouveauTrajet() {
     setVilleArrivee(params.get('ville_arrivee') || '');
     setBusId(params.get('bus_id') || '');
     setChauffeurId(params.get('chauffeur_id') || '');
-    setCategorie((params.get('categorie') as typeof categorie) || 'standard');
     setPointDepart(params.get('point_depart') || '');
     setPointArrivee(params.get('point_arrivee') || '');
   }, [dupliquer, params]);
@@ -230,7 +221,8 @@ export default function NouveauTrajet() {
           heure_depart: heureDepart,
           heure_arrivee_estimee: heureArrivee,
           prix_base: Number(prixSegmentComplet),
-          categorie,
+          prix_bagage_supplementaire: Number(prixBagage) || 0,
+          distribution_nourriture: distributionNourriture,
         }),
       });
 
@@ -483,13 +475,12 @@ export default function NouveauTrajet() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-ink-soft mb-1.5">Categorie</label>
-              <select
-                value={categorie}
-                onChange={(e) => setCategorie(e.target.value as typeof categorie)}
-                className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
-              >
-                {categories.map((c) => <option key={c.valeur} value={c.valeur}>{c.libelle}</option>)}
-              </select>
+              <div className="w-full rounded-xl bg-off-white px-4 py-3 text-sm text-ink-soft">
+                {busId
+                  ? (busListe.find((b) => b.id === busId)?.type_bus ?? '—')
+                  : 'Choisis un bus pour la determiner'}
+              </div>
+              <p className="text-[10.5px] text-ink-soft mt-1">Derivee automatiquement du bus assigne.</p>
             </div>
           </div>
 
@@ -521,16 +512,16 @@ export default function NouveauTrajet() {
             <span className="text-sm text-ink">Distribution de nourriture prévue durant ce trajet</span>
           </label>
 
-          {/* Tarifs additionnels -- facade totale */}
+          {/* Bagage supplementaire -- reellement enregistre sur le trajet */}
           <div className="border-t border-line pt-5">
-            <p className="text-xs font-semibold text-ink-soft mb-1">Tarifs additionnels</p>
+            <p className="text-xs font-semibold text-ink-soft mb-1">Bagage supplementaire</p>
             <p className="text-[11px] text-ink-soft mb-3">
-              Aucun champ backend n&apos;existe encore pour ces deux valeurs -- facade uniquement.
+              Prix applique automatiquement au guichet quand l&apos;agent coche l&apos;option.
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-ink-soft mb-1.5">
-                  Bagage supplementaire (FCFA)
+                  Prix du bagage supplementaire (FCFA)
                 </label>
                 <input
                   type="number"
@@ -538,19 +529,6 @@ export default function NouveauTrajet() {
                   step="100"
                   value={prixBagage}
                   onChange={(e) => setPrixBagage(e.target.value)}
-                  className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-ink-soft mb-1.5">
-                  Supplement siege premium (FCFA)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={supplementPremium}
-                  onChange={(e) => setSupplementPremium(e.target.value)}
                   className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
                 />
               </div>

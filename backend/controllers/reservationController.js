@@ -16,8 +16,8 @@ async function planTrajet(req, res) {
 
     const trajetResult = await pool.query(
       `SELECT
-          t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
-          t.prix_base, t.categorie, t.bus_id, t.ligne_id,
+          t.id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_estimee,
+          t.prix_base, t.categorie, t.bus_id, t.ligne_id, t.prix_bagage_supplementaire,
           vd.nom_affiche AS depart_affiche,
           va.nom_affiche AS arrivee_affiche,
           b.nom AS nom_bus, b.disposition, b.type_bus,
@@ -72,7 +72,8 @@ async function planTrajet(req, res) {
         nom_bus: trajet.nom_bus,
         disposition: trajet.disposition,
         type_bus: trajet.type_bus,
-        supplement_premium: trajet.supplement_premium
+        supplement_premium: trajet.supplement_premium,
+        prix_bagage_supplementaire: trajet.prix_bagage_supplementaire
       },
       sieges: siegesResult.rows
     });
@@ -366,7 +367,7 @@ async function payer(req, res) {
     }
 
     const infos = await client.query(
-      `SELECT t.prix_base, t.agence_id, t.date_depart, t.ligne_id,
+      `SELECT t.prix_base, t.agence_id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.ligne_id,
               b.supplement_premium,
               s.numero AS siege_numero, s.est_premium
        FROM trajets t
@@ -444,7 +445,7 @@ async function payer(req, res) {
     const fraisMomo = prixTotalClient > 0 ? Math.round(prixTotalClient * 0.015) : 0;
     const referenceMomo = prixTotalClient > 0 ? `SIM-${operateur.toUpperCase()}-${Date.now()}` : 'GRATUIT-POINTS';
 
-    const dateStr = new Date(info.date_depart).toISOString().slice(0,10).replace(/-/g,'');
+    const dateStr = info.date_depart.replace(/-/g, '');
     const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
     const numeroBillet = `JG-${dateStr}-${suffixe}`;
     const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
@@ -604,8 +605,8 @@ async function venteGuichet(req, res) {
 
     await client.query('BEGIN');
 
-    const trajetCheck = await client.query(
-      `SELECT t.id, t.agence_id, t.prix_base, t.date_depart, t.statut, t.ligne_id,
+   const trajetCheck = await client.query(
+      `SELECT t.id, t.agence_id, t.prix_base, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.statut, t.ligne_id,
               b.supplement_premium
        FROM trajets t JOIN bus b ON b.id = t.bus_id
        WHERE t.id = $1`,
@@ -623,6 +624,14 @@ async function venteGuichet(req, res) {
     if (['en_cours', 'termine', 'annule'].includes(trajet.statut)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'La vente est fermée pour ce trajet' });
+    }
+    // Sécurité supplémentaire, indépendante du statut : même si le
+    // trajet est toujours formellement "programme" (départ pas encore
+    // déclaré), on refuse toute vente après l'heure de départ prévue.
+    const dateHeureDepart = new Date(`${trajet.date_depart}T${trajet.heure_depart}`);
+    if (new Date() > dateHeureDepart) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'L\'heure de départ de ce trajet est déjà passée — la vente au guichet est fermée.' });
     }
 
     const siegeCheck = await client.query(

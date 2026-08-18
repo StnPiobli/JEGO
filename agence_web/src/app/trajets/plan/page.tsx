@@ -53,14 +53,16 @@ export default function PlanSieges() {
   const [nomBus, setNomBus] = useState('');
   const [typeBus, setTypeBus] = useState('');
   const [supplementPremium, setSupplementPremium] = useState(0);
+  const [departPasse, setDepartPasse] = useState(false);
 
   const [nomClient, setNomClient] = useState('');
   const [tronconChoisi, setTronconChoisi] = useState('');
   const [telClient, setTelClient] = useState('');
   const [indicatifClient, setIndicatifClient] = useState('+237');
   const [emailClient, setEmailClient] = useState('');
-  const [placePremium, setPlacePremium] = useState(false);
-  const [bagageSupp, setBagageSupp] = useState('');
+  const [dialoguePreferenceAuto, setDialoguePreferenceAuto] = useState(false);
+  const [quantiteBagages, setQuantiteBagages] = useState(0);
+  const [prixBagageConfigure, setPrixBagageConfigure] = useState(0);
   const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
 
   // Charge le plan réel du bus et les tronçons vendables de la ligne.
@@ -80,6 +82,10 @@ export default function PlanSieges() {
       setNomBus(String(t.nom_bus ?? ''));
       setTypeBus(String(t.type_bus ?? ''));
       setSupplementPremium(Number(t.supplement_premium) || 0);
+      setPrixBagageConfigure(Number(t.prix_bagage_supplementaire) || 0);
+      if (date && t.heure_depart) {
+        setDepartPasse(new Date() > new Date(`${date}T${t.heure_depart}`));
+      }
       setSieges(
         ((plan.sieges || []) as Record<string, unknown>[]).map((x) => {
           const dispo = String(x.disponibilite);
@@ -133,25 +139,46 @@ export default function PlanSieges() {
   const nbTotal = sieges.filter((s) => s.statutVente !== 'indisponible').length;
 
   function ouvrirVente(siege: Siege) {
+    if (departPasse) {
+      setErreur('L\'heure de départ de ce trajet est déjà passée — la vente au guichet est fermée.');
+      return;
+    }
     setSiegeAVendre(siege);
     setEtapeVente('formulaire');
     setNomClient(''); setTelClient(''); setEmailClient('');
-    setPlacePremium(false); setBagageSupp('');
+    setQuantiteBagages(0);
     setErreur(null);
   }
 
-  function selectionAleatoire() {
-    const disponibles = sieges.filter((s) => s.statutVente === 'disponible');
-    if (disponibles.length === 0) return;
-    const choisi = disponibles[Math.floor(Math.random() * disponibles.length)];
+  function tirerEtOuvrir(pool: Siege[]) {
+    if (pool.length === 0) return;
+    const choisi = pool[Math.floor(Math.random() * pool.length)];
     ouvrirVente(choisi);
+  }
+
+  function selectionAleatoire() {
+    if (typeBus === 'mixte') {
+      setDialoguePreferenceAuto(true);
+      return;
+    }
+    tirerEtOuvrir(sieges.filter((s) => s.statutVente === 'disponible'));
+  }
+
+  function confirmerPreferenceAuto(veutPremium: boolean) {
+    setDialoguePreferenceAuto(false);
+    const filtres = sieges.filter((s) => s.statutVente === 'disponible' && s.est_premium === veutPremium);
+    if (filtres.length === 0) {
+      setErreur(`Aucun siège ${veutPremium ? 'premium' : 'standard'} disponible pour l'instant.`);
+      return;
+    }
+    tirerEtOuvrir(filtres);
   }
 
   const prixEstime = (() => {
     const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
     if (!troncon) return null;
     const supplementSiegePhysique = siegeAVendre?.est_premium ? supplementPremium : 0;
-    return troncon.prix + supplementSiegePhysique + (placePremium ? 500 : 0) + (parseInt(bagageSupp) || 0);
+    return troncon.prix + supplementSiegePhysique + (quantiteBagages * prixBagageConfigure);
   })();
 
   async function confirmerVente() {
@@ -175,8 +202,7 @@ export default function PlanSieges() {
           email_client: emailClient.trim() || undefined,
           point_embarquement_ordre: troncon.ordreDepart,
           point_debarquement_ordre: troncon.ordreArrivee,
-          est_premium_choisi: placePremium,
-          supplement_bagage: bagageSupp ? parseInt(bagageSupp) : undefined,
+          supplement_bagage: quantiteBagages > 0 ? quantiteBagages * prixBagageConfigure : undefined,
         }),
       });
       setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique', sourceVente: 'physique' } : s)));
@@ -208,12 +234,20 @@ export default function PlanSieges() {
           </div>
           <button
             onClick={selectionAleatoire}
-            className="flex items-center gap-1.5 rounded-xl bg-off-white hover:bg-line text-ink font-bold text-xs px-4 py-2.5 transition-colors"
+            disabled={departPasse}
+            className="flex items-center gap-2 rounded-xl bg-purple hover:bg-purple/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm px-6 py-3.5 shadow-lg shadow-purple/25 transition-colors"
           >
-            🎲 Vendre un siege au hasard
+            🎲 Choix auto du siège
           </button>
         </div>
         <p className="text-sm text-ink-soft mb-6">{nomBus}</p>
+
+        {departPasse && (
+          <div className="rounded-2xl p-4 mb-6 bg-red-bg border border-red/20">
+            <p className="text-sm font-bold text-red">Vente fermée</p>
+            <p className="text-sm text-red">L&apos;heure de départ de ce trajet est déjà passée — la vente au guichet n&apos;est plus possible.</p>
+          </div>
+        )}
 
         {chargement && (
           <div className="rounded-2xl p-4 mb-6 bg-paper border border-line">
@@ -261,10 +295,10 @@ export default function PlanSieges() {
                       <div key={siege.id} className="flex items-center">
                         {i === idxCouloir && <div className="w-5" />}
                         <button
-                          disabled={siege.statutVente !== 'disponible'}
+                          disabled={siege.statutVente !== 'disponible' || departPasse}
                           onClick={() => ouvrirVente(siege)}
                           className={`relative w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${couleurs[siege.statutVente].bg} ${couleurs[siege.statutVente].text} ${
-                            siege.statutVente === 'disponible' ? 'hover:ring-2 hover:ring--ink/20 cursor-pointer' : 'cursor-default'
+                            siege.statutVente === 'disponible' && !departPasse ? 'hover:ring-2 hover:ring--ink/20 cursor-pointer' : 'cursor-default'
                           }`}
                         >
                           {siege.numero}
@@ -287,6 +321,19 @@ export default function PlanSieges() {
         </div>
       </div>
 
+      {dialoguePreferenceAuto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => setDialoguePreferenceAuto(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-3xl p-7 max-w-sm w-full">
+            <p className="text-sm font-bold text-ink mb-1">Quel type de siège ?</p>
+            <p className="text-xs text-ink-soft mb-5">Ce bus est mixte — précise le type souhaité, le tirage se fera parmi les sièges correspondants.</p>
+            <div className="flex gap-3">
+              <button onClick={() => confirmerPreferenceAuto(false)} className="flex-1 rounded-xl bg-off-white text-ink font-bold text-sm py-3">Standard</button>
+              <button onClick={() => confirmerPreferenceAuto(true)} className="flex-1 rounded-xl bg-amber text-ink font-bold text-sm py-3">⭐ Premium</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Formulaire vente un billet (manuel ou aleatoire, meme flux) */}
       {siegeAVendre && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={fermerVente}>
@@ -294,6 +341,9 @@ export default function PlanSieges() {
             {etapeVente === 'formulaire' ? (
               <>
                 <p className="text-sm font-bold text-ink mb-1">Vente du siege {siegeAVendre.numero}</p>
+                {siegeAVendre.est_premium && (
+                  <p className="text-[11.5px] font-bold text-amber mb-1">⭐ Siège premium (+{supplementPremium} FCFA)</p>
+                )}
                 <p className="text-xs text-ink-soft mb-5">Un seul billet a la fois. Renseigne les infos du client.</p>
                 <div className="space-y-3 mb-5">
                   <div>
@@ -306,19 +356,14 @@ export default function PlanSieges() {
                   <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom du client" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
                   <TelephoneInput indicatif={indicatifClient} numero={telClient} onChangeIndicatif={setIndicatifClient} onChangeNumero={setTelClient} />
                   <input type="email" value={emailClient} onChange={(e) => setEmailClient(e.target.value)} placeholder="Email (pour la confirmation)" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
-                  {typeBus === 'mixte' && (
-                    <label className="flex items-center gap-2.5 bg-off-white rounded-xl px-4 py-3 text-sm cursor-pointer">
-                      <input type="checkbox" checked={placePremium} onChange={(e) => setPlacePremium(e.target.checked)} className="w-4 h-4" />
-                      Place premium (+500 FCFA)
-                    </label>
-                  )}
-                  <input
-                    value={bagageSupp}
-                    onChange={(e) => setBagageSupp(e.target.value.replace(/\D/g, ''))}
-                    inputMode="numeric"
-                    placeholder="Bagage supplémentaire (FCFA, optionnel)"
-                    className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm"
-                  />
+                  <div className="bg-off-white rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-sm text-ink">Bagage supplémentaire ({prixBagageConfigure} FCFA/unité)</span>
+                    <div className="flex items-center gap-3">
+                      <button type="button" onClick={() => setQuantiteBagages((q) => Math.max(0, q - 1))} className="w-7 h-7 rounded-lg bg-paper border border-line text-ink font-bold">−</button>
+                      <span className="w-5 text-center text-sm font-bold text-ink">{quantiteBagages}</span>
+                      <button type="button" onClick={() => setQuantiteBagages((q) => q + 1)} className="w-7 h-7 rounded-lg bg-paper border border-line text-ink font-bold">+</button>
+                    </div>
+                  </div>
                 </div>
                 {prixEstime !== null && (
                   <p className="text-[12px] text-ink-soft mb-4">Montant à payer : <span className="font-bold text-ink">{prixEstime} FCFA</span></p>

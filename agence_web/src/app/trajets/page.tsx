@@ -5,8 +5,9 @@
 // Le départ est déclaré par le chauffeur depuis jego_mobile
 // (PUT /api/chauffeurs/trajets/:id/depart) — pas depuis ici, l'agence
 // n'a pas à dupliquer cette déclaration.
-// Les points précis de départ/arrivée par arrêt n'existent pas encore
-// (chantier tronçons/multi-arrêts différé) — non affichés pour l'instant.
+// Les lieux de prise en charge par point (departure/arrets/arrivee)
+// viennent de listerTrajets (points_detail), avec les prix par section
+// si la ligne a plusieurs troncons vendables (prix_sections).
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -22,7 +23,7 @@ type Trajet = {
   heure_depart: string;
   heure_arrivee_estimee: string | null;
   prix_base: number;
-  categorie: 'standard' | 'vip' | 'express' | 'nuit';
+  categorie: 'standard' | 'mixte' | 'vip';
   statut: 'programme' | 'en_cours' | 'retard' | 'termine' | 'annule';
   ville_depart: string;
   ville_arrivee: string;
@@ -30,6 +31,11 @@ type Trajet = {
   chauffeur?: string | null;
   retard_minutes?: number;
   arrets?: string[];
+  distribution_nourriture?: boolean;
+  supplement_premium?: number;
+  prix_bagage_supplementaire?: number;
+  points_detail?: { ville: string; lieu: string | null }[];
+  prix_sections?: { depart: string; arrivee: string; prix: number }[];
 };
 
 type ChauffeurOption = { id: string; nom: string; prenom: string; desactive_urgence: boolean };
@@ -38,7 +44,18 @@ const AUJOURDHUI = todayInputDate();
 
 const horizonVide = { horizon_jours: 0, seuil_alerte: 14, conforme: true, message: '' };
 
-const libellesCategorie: Record<Trajet['categorie'], string> = { standard: 'Standard', vip: 'VIP', express: 'Express', nuit: 'Nuit' };
+const libellesCategorie: Record<Trajet['categorie'], string> = { standard: 'Standard', mixte: 'Mixte', vip: 'VIP' };
+
+// "Nuit" et "Express" ne sont plus des choix stockes -- purement
+// informatifs, calcules a l'affichage, jamais lies au prix (fixe a
+// l'avance par l'agence quelle que soit l'heure ou les arrets).
+function estDeNuit(heureDepart: string): boolean {
+  const heure = parseInt(heureDepart.slice(0, 2), 10);
+  return heure >= 22 || heure < 3;
+}
+function estExpress(t: Trajet): boolean {
+  return !t.arrets || t.arrets.length === 0;
+}
 const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Annulé' };
 const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red' };
 
@@ -111,7 +128,7 @@ export default function ProgrammationTrajets() {
       .catch(() => setChauffeurs([]));
   }, []);
 
-  const trajetsDuJour = useMemo(() => trajets.filter((t) => t.date_depart === dateChoisie && t.statut !== 'annule'), [trajets, dateChoisie]);
+  const trajetsDuJour = useMemo(() => trajets.filter((t) => t.date_depart === dateChoisie), [trajets, dateChoisie]);
 
   const resultatsRecherche = useMemo(() => {
     const terme = recherche.trim().toLowerCase();
@@ -255,47 +272,86 @@ export default function ProgrammationTrajets() {
           ) : (
             <div className="divide-y divide-line">
               {trajetsDuJour.map((t) => (
-                <div key={t.id} className="px-5 py-4 hover:bg-green-500/5 transition-colors">
-                  <div className="flex flex-wrap items-start gap-4 justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-3 flex-wrap mb-2">
-                        <p className="text-sm font-bold text-ink">{t.heure_depart}</p>
-                        <p className="text-sm font-bold text-ink">{t.ville_depart} → {t.ville_arrivee}</p>
-                        <span className="font-mono text-[10px] text-ink-soft">{identifiantAffichage(t)}</span>
-                        <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
-                        <Badge color={couleurStatut[t.statut]}>{libellesStatut[t.statut]}</Badge>
-                        {t.retard_minutes != null && t.retard_minutes > 0 && (
-                          <Badge color="amber">{libelleRetard(t.retard_minutes)}</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-ink-soft">
-                        {t.chauffeur ?? 'Chauffeur non assigné'} · {t.nom_bus} {t.heure_arrivee_estimee ? `· arrivée ${t.heure_arrivee_estimee}` : ''}
-                      </p>
-                      {t.arrets && t.arrets.length > 0 && (
-                        <p className="text-[11px] text-ink-soft mt-1">Via {t.arrets.join(', ')}</p>
-                      )}
+                <div key={t.id} className={`px-5 py-4 transition-colors ${t.statut === 'annule' ? 'opacity-50 bg-off-white/40' : 'hover:bg-green-500/5'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="text-sm font-bold text-ink whitespace-nowrap mr-3">
+                        {t.heure_depart}{t.heure_arrivee_estimee ? ` → ${t.heure_arrivee_estimee}` : ''}
+                      </span>
+                      <span className="text-sm">
+                        {(t.points_detail && t.points_detail.length > 0
+                          ? t.points_detail
+                          : [{ ville: t.ville_depart, lieu: null }, { ville: t.ville_arrivee, lieu: null }]
+                        ).map((p, i, arr) => (
+                          <span key={i}>
+                            <span className="font-bold text-ink">{p.ville}</span>
+                            {p.lieu && <span className="text-ink-soft font-normal"> ({p.lieu})</span>}
+                            {i < arr.length - 1 && <span className="text-ink-soft font-normal"> → </span>}
+                          </span>
+                        ))}
+                      </span>
                     </div>
-
-                    <div className="flex gap-1.5 flex-wrap justify-end">
-                      <Link href={`/trajets/plan?id=${t.id}`} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-ink text-white border border-ink">
-                        🎟️ Vendre un billet (guichet)
-                      </Link>
-                      {t.statut === 'programme' && (
-                        <button onClick={() => { setDialogueChauffeur(t); setChauffeurChoisi(''); }} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-off-white border border-line text-ink">
-                          Changer de chauffeur
-                        </button>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
+                      {estDeNuit(t.heure_depart) && <Badge color="grey">Nuit</Badge>}
+                      {estExpress(t) && <Badge color="grey">Express</Badge>}
+                      <Badge color={couleurStatut[t.statut]}>{libellesStatut[t.statut]}</Badge>
+                      {t.retard_minutes != null && t.retard_minutes > 0 && (
+                        <Badge color="amber">{libelleRetard(t.retard_minutes)}</Badge>
                       )}
-                      {t.statut !== 'annule' && t.statut !== 'termine' && (
-                        <>
-                          <button onClick={() => setDialogueRetard(t)} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-amber text-white border border-amber">
-                            Déclarer un retard
-                          </button>
-                          <BtnMini variant="danger" onClick={() => setDialogueArret(t)}>Arrêter le trajet</BtnMini>
-                        </>
-                      )}
-                      <BtnMini variant="danger" onClick={() => setDialogueSuppression(t)}>Supprimer</BtnMini>
                     </div>
                   </div>
+
+                  <p className="mt-1 font-mono text-[10px] text-ink-soft">{identifiantAffichage(t)}</p>
+
+                  <p className="mt-1.5 text-[11px] text-ink-soft">
+                    <span className="font-semibold text-ink">Chauffeur :</span> {t.chauffeur ?? 'non assigné'}
+                    {' / '}<span className="font-semibold text-ink">bus :</span> {t.nom_bus}
+                    {' / '}<span className="font-semibold text-ink">Prix :</span> {t.prix_base} FCFA
+                    {t.categorie === 'mixte' && t.supplement_premium != null && t.supplement_premium > 0 && (
+                      <>{' / '}<span className="font-semibold text-ink">Premium :</span> +{t.supplement_premium} FCFA</>
+                    )}
+                    {t.prix_bagage_supplementaire != null && (
+                      <>{' / '}<span className="font-semibold text-ink">Bagage :</span> {t.prix_bagage_supplementaire} FCFA</>
+                    )}
+                    {' / '}<span className="font-semibold text-ink">Repas :</span> {t.distribution_nourriture ? 'inclus' : 'non inclus'}
+                  </p>
+
+                  {t.prix_sections && t.prix_sections.length > 1 && (
+                    <p className="mt-1 text-[11px] text-ink-soft">
+                      <span className="font-semibold text-ink">Sections :</span>{' '}
+                      {t.prix_sections.map((s, i) => (
+                        <span key={i}>
+                          {s.depart} → {s.arrivee} <span className="font-semibold text-ink">{s.prix} FCFA</span>
+                          {i < (t.prix_sections?.length ?? 0) - 1 ? ' / ' : ''}
+                        </span>
+                      ))}
+                    </p>
+                  )}
+
+                  {t.statut === 'annule' ? (
+                    <p className="mt-2.5 text-[11.5px] text-ink-soft italic">Trajet annulé — plus aucune action possible.</p>
+                  ) : (
+                  <div className="mt-2.5 flex gap-1.5 flex-wrap">
+                    <Link href={`/trajets/plan?id=${t.id}`} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-ink text-white border border-ink">
+                      🎟️ Vendre un billet (guichet)
+                    </Link>
+                    {t.statut === 'programme' && (
+                      <button onClick={() => { setDialogueChauffeur(t); setChauffeurChoisi(''); }} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-off-white border border-line text-ink">
+                        Changer de chauffeur
+                      </button>
+                    )}
+                    {t.statut !== 'termine' && (
+                      <>
+                        <button onClick={() => setDialogueRetard(t)} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-amber text-white border border-amber">
+                          Déclarer un retard
+                        </button>
+                        <BtnMini variant="danger" onClick={() => setDialogueArret(t)}>Arrêter le trajet</BtnMini>
+                      </>
+                    )}
+                    <BtnMini variant="danger" onClick={() => setDialogueSuppression(t)}>Supprimer</BtnMini>
+                  </div>
+                  )}
                 </div>
               ))}
             </div>

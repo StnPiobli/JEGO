@@ -341,16 +341,14 @@ async function mesNotifications(req, res) {
 async function tableauDeBord(req, res) {
   try {
     const agenceId = req.utilisateur.id;
-    const aujourdhui = new Date().toISOString().slice(0, 10);
-    const hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
     const trajetsAuj = await pool.query(
-      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart::date = $2::date AND statut != 'annule'`,
-      [agenceId, aujourdhui]
+      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart = CURRENT_DATE AND statut != 'annule'`,
+      [agenceId]
     );
     const trajetsHier = await pool.query(
-      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart::date = $2::date AND statut != 'annule'`,
-      [agenceId, hier]
+      `SELECT COUNT(*) AS nb FROM trajets WHERE agence_id = $1 AND date_depart = CURRENT_DATE - INTERVAL '1 day' AND statut != 'annule'`,
+      [agenceId]
     );
     const bus = await pool.query(
       `SELECT COUNT(*) AS nb FROM bus WHERE agence_id = $1 AND statut != 'inactif'`,

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -7,10 +7,13 @@ import LayoutAgence from '../../components/LayoutAgence';
 import { useLangue } from '../../lib/langue';
 import { apiFetch } from '../../lib/api';
 
-// ✅ Création BRANCHÉE — POST /api/bus (nom, type_bus, disposition,
-// nombre_rangees, toilettes, climatisation, prises_usb, wifi,
-// sieges_inclinables, supplement_premium). ⚠️ Modification reste DÉMO —
-// aucune route PUT n'existe pour éditer un bus existant.
+// Création ET modification BRANCHÉES — POST /api/bus, GET /api/bus/:id,
+// PUT /api/bus/:id. Disposition et nombre de rangées ne sont jamais
+// modifiables après création. Le type de bus, le supplément premium et
+// les sièges premium restent modifiables même si des billets existent
+// déjà : chaque billet garde son propre prix figé au moment de l'achat,
+// rien de déjà vendu n'est jamais affecté rétroactivement — seules les
+// prochaines ventes suivront la nouvelle configuration.
 
 type Categorie = 'toilettes' | 'abime' | 'porte' | 'premium';
 type TypeBus = 'standard' | 'vip' | 'mixte';
@@ -32,51 +35,44 @@ const typesBus = [
 ] as const;
 const dispositions = ['1+1', '1+2', '2+1', '2+2', '2+3', '3+2', '3+3'] as const;
 
+type SiegeApi = { numero: string; rangee: number; position: number; type_position: string; est_premium: boolean; statut: string };
+
 export default function NouveauBus() {
   const langue = useLangue();
   const t = langue === 'en' ? {
     editBus: 'Edit bus', newBus: 'New bus', config: 'Bus configuration and seat layout preview shown clearly on the right.', backFleet: 'Back to fleet',
     busName: 'Bus name', layout: 'Layout', rows: 'Number of rows', equipment: 'Equipment', premiumSupplement: 'Premium surcharge',
     cancel: 'Cancel', save: 'Update bus', create: 'Create bus', saving: 'Saving...', seatPlan: 'Seat plan', seatPlanText: 'The live layout preview stays directly on the right for a clear view.', totalSeats: 'total seats',
-    required: 'Bus name and row count are required.', created: 'Bus created successfully (demo).', updated: 'Bus updated successfully (demo).',
-    standardBlocked: 'Premium seat selection is disabled for a standard bus.', doorArea: 'Door area', toilets: 'Toilets', damaged: 'Damaged', premium: 'Premium'
+    required: 'Bus name and row count are required.', created: 'Bus created successfully.', updated: 'Bus updated successfully.',
+    standardBlocked: 'Premium seat selection is disabled for a standard bus.', doorArea: 'Door area', toilets: 'Toilets', damaged: 'Damaged', premium: 'Premium',
+    loading: 'Loading bus...',
+    layoutLocked: 'Layout can never be changed after creation.'
   } : {
     editBus: 'Modifier un bus', newBus: 'Nouveau bus', config: 'Configuration du bus et apercu du plan affiche clairement a droite.', backFleet: 'Retour flotte',
     busName: 'Nom du bus', layout: 'Disposition', rows: 'Nombre de rangees', equipment: 'Equipements', premiumSupplement: 'Supplement premium',
     cancel: 'Annuler', save: 'Mettre a jour le bus', create: 'Creer le bus', saving: 'Enregistrement...', seatPlan: 'Plan des sieges', seatPlanText: 'Le plan en generation reste directement a droite pour une visualisation nette.', totalSeats: 'places au total',
-    required: 'Nom et nombre de rangees requis.', created: 'Bus cree avec succes (facade).', updated: 'Bus modifie avec succes (facade).',
-    standardBlocked: 'La selection premium est automatiquement bloquee pour un bus standard.', doorArea: 'Espace porte', toilets: 'Toilettes', damaged: 'Abime', premium: 'Premium'
+    required: 'Nom et nombre de rangees requis.', created: 'Bus cree avec succes.', updated: 'Bus modifie avec succes.',
+    standardBlocked: 'La selection premium est automatiquement bloquee pour un bus standard.', doorArea: 'Espace porte', toilets: 'Toilettes', damaged: 'Abime', premium: 'Premium',
+    loading: 'Chargement du bus...',
+    layoutLocked: 'La disposition ne peut jamais etre changee apres la creation.'
   };
 
   const params = useSearchParams();
   const router = useRouter();
-  const busId = params.get('id');
+  const busId = params.get('edit');
   const isEdition = !!busId;
 
-  const base = useMemo(() => {
-    if (!isEdition) return null;
-    return {
-      nom: params.get('nom') || 'Confort Express 04',
-      typeBus: (params.get('type') as TypeBus) || 'standard',
-      disposition: (params.get('disposition') as keyof typeof SCHEMAS_DISPOSITION) || '2+3',
-      nombreRangees: params.get('rangees') || '13',
-      climatisation: (params.get('climatisation') || '1') === '1',
-      prisesUsb: (params.get('prisesUsb') || '1') === '1',
-      wifi: (params.get('wifi') || '1') === '1',
-      siegesInclinables: (params.get('siegesInclinables') || '1') === '1',
-      supplementPremium: params.get('supplementPremium') || '1000',
-    };
-  }, [isEdition, params]);
+  const [chargementInitial, setChargementInitial] = useState(isEdition);
 
-  const [nom, setNom] = useState(base?.nom || '');
-  const [typeBus, setTypeBus] = useState<TypeBus>(base?.typeBus || 'standard');
-  const [disposition, setDisposition] = useState<keyof typeof SCHEMAS_DISPOSITION>(base?.disposition || '2+3');
-  const [nombreRangees, setNombreRangees] = useState(base?.nombreRangees || '13');
-  const [climatisation, setClimatisation] = useState(base?.climatisation ?? true);
-  const [prisesUsb, setPrisesUsb] = useState(base?.prisesUsb ?? true);
-  const [wifi, setWifi] = useState(base?.wifi ?? true);
-  const [siegesInclinables, setSiegesInclinables] = useState(base?.siegesInclinables ?? true);
-  const [supplementPremium, setSupplementPremium] = useState(base?.supplementPremium || '1000');
+  const [nom, setNom] = useState('');
+  const [typeBus, setTypeBus] = useState<TypeBus>('standard');
+  const [disposition, setDisposition] = useState<keyof typeof SCHEMAS_DISPOSITION>('2+3');
+  const [nombreRangees, setNombreRangees] = useState('13');
+  const [climatisation, setClimatisation] = useState(true);
+  const [prisesUsb, setPrisesUsb] = useState(true);
+  const [wifi, setWifi] = useState(true);
+  const [siegesInclinables, setSiegesInclinables] = useState(true);
+  const [supplementPremium, setSupplementPremium] = useState('1000');
   const [erreur, setErreur] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
   const [succes, setSucces] = useState('');
@@ -86,8 +82,41 @@ export default function NouveauBus() {
   const [siegesAbimes, setSiegesAbimes] = useState<Set<string>>(new Set());
   const [siegesPorte, setSiegesPorte] = useState<Set<string>>(new Set());
   const [siegesPremium, setSiegesPremium] = useState<Set<string>>(new Set());
+  const [siegesToilettesInitial, setSiegesToilettesInitial] = useState<Set<string>>(new Set());
+  const [siegesDesactivesInitial, setSiegesDesactivesInitial] = useState<Set<string>>(new Set());
+
+  // Charge les vraies données du bus en mode édition.
+  useEffect(() => {
+    if (!isEdition || !busId) return;
+    apiFetch(`/api/bus/${busId}`)
+      .then((data) => {
+        const b = data.bus;
+        setNom(b.nom);
+        setTypeBus(b.type_bus);
+        setDisposition(b.disposition);
+        setNombreRangees(String(b.nombre_rangees));
+        setClimatisation(b.climatisation);
+        setPrisesUsb(b.prises_usb);
+        setWifi(b.wifi);
+        setSiegesInclinables(b.sieges_inclinables);
+        setSupplementPremium(String(b.supplement_premium ?? '1000'));
+
+        const sieges = (data.sieges || []) as SiegeApi[];
+        const toilettes = new Set(sieges.filter((s) => s.statut === 'supprime_toilettes').map((s) => s.numero));
+        const desactives = new Set(sieges.filter((s) => s.statut === 'desactive').map((s) => s.numero));
+        const premium = new Set(sieges.filter((s) => s.est_premium).map((s) => s.numero));
+        setSiegesToilettes(toilettes);
+        setSiegesToilettesInitial(toilettes);
+        setSiegesAbimes(desactives);
+        setSiegesDesactivesInitial(desactives);
+        setSiegesPremium(premium);
+      })
+      .catch((err) => setErreur(err instanceof Error ? err.message : 'Impossible de charger ce bus.'))
+      .finally(() => setChargementInitial(false));
+  }, [isEdition, busId]);
 
   useEffect(() => {
+    if (chargementInitial) return;
     if (typeBus === 'standard') {
       setSiegesPremium(new Set());
       if (modeMarquage === 'premium') setModeMarquage(null);
@@ -99,7 +128,7 @@ export default function NouveauBus() {
       setSiegesPremium(new Set());
       if (modeMarquage === 'premium') setModeMarquage(null);
     }
-  }, [typeBus, modeMarquage, t.standardBlocked]);
+  }, [typeBus, modeMarquage, t.standardBlocked, chargementInitial]);
 
   const schema = SCHEMAS_DISPOSITION[disposition];
   const [placesGauche] = disposition.split('+').map(Number);
@@ -117,6 +146,7 @@ export default function NouveauBus() {
   function toggleSiege(numero: string) {
     if (!modeMarquage) return;
     if (modeMarquage === 'premium' && typeBus !== 'mixte') return;
+    if (isEdition && modeMarquage === 'toilettes' && siegesToilettesInitial.has(numero)) return; // deja en toilettes, irreversible
     const setters: Record<Categorie, [Set<string>, (s: Set<string>) => void]> = {
       toilettes: [siegesToilettes, setSiegesToilettes],
       abime: [siegesAbimes, setSiegesAbimes],
@@ -167,7 +197,7 @@ export default function NouveauBus() {
     { valeur: 'premium' as const, label: t.premium, icone: '⭐', disabled: typeBus !== 'mixte' },
   ];
 
-  async function creerBus(e: React.FormEvent) {
+  async function enregistrerBus(e: React.FormEvent) {
     e.preventDefault();
     setErreur(null);
     setSucces('');
@@ -176,14 +206,48 @@ export default function NouveauBus() {
       return;
     }
     setEnregistrement(true);
-    if (isEdition) {
-      // Aucune route PUT de modification n'existe côté backend — reste démo.
-      setTimeout(() => {
-        setEnregistrement(false);
+
+    if (isEdition && busId) {
+      try {
+        await apiFetch(`/api/bus/${busId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            nom,
+            climatisation,
+            prises_usb: prisesUsb,
+            wifi,
+            sieges_inclinables: siegesInclinables,
+            type_bus: typeBus,
+            supplement_premium: typeBus === 'mixte' ? Number(supplementPremium) : null,
+            sieges_premium: typeBus === 'mixte' ? Array.from(siegesPremium) : [],
+          }),
+        });
+
+        const nouveauxToilettes = Array.from(siegesToilettes).filter((n) => !siegesToilettesInitial.has(n));
+        if (nouveauxToilettes.length > 0) {
+          await apiFetch(`/api/bus/${busId}/sieges/toilettes`, { method: 'PUT', body: JSON.stringify({ sieges: nouveauxToilettes }) });
+        }
+
+        const desactivesActuels = new Set([...siegesAbimes, ...siegesPorte]);
+        const nouveauxDesactives = Array.from(desactivesActuels).filter((n) => !siegesDesactivesInitial.has(n));
+        const reactives = Array.from(siegesDesactivesInitial).filter((n) => !desactivesActuels.has(n));
+        if (nouveauxDesactives.length > 0) {
+          await apiFetch(`/api/bus/${busId}/sieges/abime`, { method: 'PUT', body: JSON.stringify({ sieges: nouveauxDesactives }) });
+        }
+        if (reactives.length > 0) {
+          await apiFetch(`/api/bus/${busId}/sieges/reactiver`, { method: 'PUT', body: JSON.stringify({ sieges: reactives }) });
+        }
+
         setSucces(t.updated);
-      }, 900);
+        router.push('/flotte');
+      } catch (err) {
+        setErreur(err instanceof Error ? err.message : 'Erreur lors de la modification');
+      } finally {
+        setEnregistrement(false);
+      }
       return;
     }
+
     try {
       await apiFetch('/api/bus', {
         method: 'POST',
@@ -198,6 +262,7 @@ export default function NouveauBus() {
           wifi,
           sieges_inclinables: siegesInclinables,
           supplement_premium: typeBus === 'mixte' ? Number(supplementPremium) : null,
+          sieges_premium: typeBus === 'mixte' ? Array.from(siegesPremium) : [],
         }),
       });
       setSucces(t.created);
@@ -207,6 +272,14 @@ export default function NouveauBus() {
     } finally {
       setEnregistrement(false);
     }
+  }
+
+  if (isEdition && chargementInitial) {
+    return (
+      <LayoutAgence>
+        <div className="max-w-6xl mx-auto py-16 text-center text-sm text-ink-soft">{t.loading}</div>
+      </LayoutAgence>
+    );
   }
 
   return (
@@ -220,7 +293,7 @@ export default function NouveauBus() {
           <Link href="/flotte" className="rounded-xl bg-off-white text-ink font-bold text-[13px] px-5 py-3">{t.backFleet}</Link>
         </div>
 
-        <form onSubmit={creerBus} className="grid lg:grid-cols-[minmax(360px,0.86fr)_minmax(420px,1.14fr)] gap-6 items-start">
+        <form onSubmit={enregistrerBus} className="grid lg:grid-cols-[minmax(360px,0.86fr)_minmax(420px,1.14fr)] gap-6 items-start">
           <div className="bg-paper rounded-3xl border border-line p-6 space-y-5">
             <div>
               <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.busName}</label>
@@ -229,22 +302,30 @@ export default function NouveauBus() {
 
             <div className="grid grid-cols-1 gap-3">
               {typesBus.map((type) => (
-                <button type="button" key={type.valeur} onClick={() => setTypeBus(type.valeur)} className={`w-full rounded-xl border px-4 py-3 text-left text-[13px] ${typeBus === type.valeur ? 'border-green-700 bg-green-700/8 text-green-700 font-bold' : 'border-line text-ink-soft'}`}>{type.libelle}</button>
+                <button
+                  type="button"
+                  key={type.valeur}
+                  onClick={() => setTypeBus(type.valeur)}
+                  className={`w-full rounded-xl border px-4 py-3 text-left text-[13px] ${typeBus === type.valeur ? 'border-green-700 bg-green-700/8 text-green-700 font-bold' : 'border-line text-ink-soft'}`}
+                >
+                  {type.libelle}
+                </button>
               ))}
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.layout}</label>
-                <select value={disposition} onChange={(e) => setDisposition(e.target.value as keyof typeof SCHEMAS_DISPOSITION)} className="w-full rounded-xl px-4 py-3 text-[13px]">
+                <select value={disposition} disabled={isEdition} onChange={(e) => setDisposition(e.target.value as keyof typeof SCHEMAS_DISPOSITION)} className="w-full rounded-xl px-4 py-3 text-[13px] disabled:opacity-50 disabled:cursor-not-allowed">
                   {dispositions.map((d) => <option key={d}>{d}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-ink-soft mb-1.5">{t.rows}</label>
-                <input value={nombreRangees} onChange={(e) => setNombreRangees(e.target.value)} type="number" min="1" className="w-full rounded-xl px-4 py-3 text-[13px]" />
+                <input value={nombreRangees} disabled={isEdition} onChange={(e) => setNombreRangees(e.target.value)} type="number" min="1" className="w-full rounded-xl px-4 py-3 text-[13px] disabled:opacity-50 disabled:cursor-not-allowed" />
               </div>
             </div>
+            {isEdition && <p className="text-[10.5px] text-ink-soft -mt-3">{t.layoutLocked}</p>}
 
             <div>
               <p className="text-[12px] font-bold text-ink-soft mb-3">{t.equipment}</p>

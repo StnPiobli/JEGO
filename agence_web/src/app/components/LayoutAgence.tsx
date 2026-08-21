@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -45,8 +45,8 @@ function Icone({ nom, className }: { nom: string; className?: string }) {
 }
 
 function BoutonLien({
-  href, icone, label, actif, replie,
-}: { href: string; icone: string; label: string; actif: boolean; replie: boolean }) {
+  href, icone, label, actif, replie, badge,
+}: { href: string; icone: string; label: string; actif: boolean; replie: boolean; badge?: number }) {
   return (
     <Link
       href={href}
@@ -57,7 +57,12 @@ function BoutonLien({
     >
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${actif ? 'bg-green-300' : 'bg-white/30'}`} />
       <Icone nom={icone} className="shrink-0" />
-      {!replie && <span className="truncate">{label}</span>}
+      {!replie && <span className="truncate flex-1">{label}</span>}
+      {!!badge && badge > 0 && (
+        <span className={`shrink-0 text-[10px] font-bold bg-red text-white rounded-full ${replie ? 'absolute -mt-4 ml-3' : ''} px-1.5 py-0.5 min-w-[16px] text-center`}>
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -70,6 +75,7 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   const [notifications, setNotifications] = useState(notificationsInitiales);
   const [langue, setLangue] = useState<Langue>('fr');
   const [nomAgenceConnectee, setNomAgenceConnectee] = useState('');
+  const [messagesNonLus, setMessagesNonLus] = useState(0);
 
   useEffect(() => {
     const agence = getAgenceLocale();
@@ -87,6 +93,26 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
       })
       .catch(() => setNotifications([]));
   }, []);
+
+  // Rafraîchi en tâche de fond (pas seulement au chargement de la
+  // page) pour que le badge apparaisse dès qu'un message arrive et
+  // disparaisse dès que la discussion est réellement ouverte et lue.
+  useEffect(() => {
+    let annule = false;
+    function charger() {
+      apiFetch('/api/messages/non-lus')
+        .then((data) => { if (!annule) setMessagesNonLus(data.non_lus || 0); })
+        .catch(() => { if (!annule) setMessagesNonLus(0); });
+    }
+    charger();
+    const intervalle = window.setInterval(charger, 10000);
+    window.addEventListener('jego-messages-lus', charger);
+    return () => {
+      annule = true;
+      window.clearInterval(intervalle);
+      window.removeEventListener('jego-messages-lus', charger);
+    };
+  }, [chemin]);
 
   // Garde-fou : LayoutAgence n'habille que les pages du dashboard complet
   // (accueil, trajets, flotte...). Si quelqu'un navigue directement dessus
@@ -134,8 +160,8 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   return (
     <>
       <SiteLanguageTranslator />
-      <div className="min-h-screen bg-off-white">
-        <div className="grid grid-cols-[auto_1fr] min-h-screen">
+            <div className="h-screen overflow-hidden bg-off-white">
+        <div className="grid grid-cols-[auto_1fr] h-screen">
           <aside className={`bg-green-900 px-3 py-6 flex flex-col sticky top-0 h-screen overflow-y-auto transition-[width] ${replie ? 'w-[70px]' : 'w-[220px]'}`}>
             <div className={`${replie ? 'text-center' : 'px-1.5'} mb-5 flex items-center gap-2.5`}>
               <div className="w-[30px] h-[30px] rounded-[8px] bg-green-300 flex items-center justify-center text-green-900 font-display font-bold text-sm -rotate-3 shrink-0">J</div>
@@ -150,7 +176,7 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
             <nav className="flex-1 min-h-0 overflow-y-auto">
               {liens.map((l) => {
                 const actif = chemin === l.href || chemin?.startsWith(l.href + '/');
-                return <BoutonLien key={l.href} href={l.href} icone={l.icone} label={labels[l.key]} actif={!!actif} replie={replie} />;
+                return <BoutonLien key={l.href} href={l.href} icone={l.icone} label={labels[l.key]} actif={!!actif} replie={replie} badge={l.key === 'discussion' ? messagesNonLus : undefined} />;
               })}
             </nav>
 
@@ -184,7 +210,7 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
             </div>
           </aside>
 
-          <main className="px-10 py-7 pb-16 relative">
+          <main className="px-10 py-7 pb-16 relative overflow-y-auto min-h-0">
             <div className="flex justify-end mb-4">
               <div className="relative">
                 <button

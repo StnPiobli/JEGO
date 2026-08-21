@@ -10,10 +10,15 @@ import { apiFetch } from '../../lib/api';
 /**
  * Plan des sièges réel d'un trajet, alimenté par le serveur.
  *
- * Vente au guichet : UN SEUL billet à la fois. Le siège est réellement
- * réservé côté serveur, le billet est créé avec son QR signé, et le
- * client reçoit sa confirmation. Le montant encaissé est calculé par
- * le serveur — jamais par cette page.
+ * Vente au guichet : UN SEUL billet à la fois. Le tronçon souhaité par
+ * le client est choisi EN AMONT (avant d'afficher le plan) -- un siège
+ * vendu sur un tronçon reste vendable pour un autre tronçon non
+ * chevauchant du même trajet (ex: vendu Douala->Bafoussam, encore
+ * disponible pour Bafoussam->Yaoundé). Le calcul de chevauchement est
+ * fait côté serveur (GET .../plan?ordre_depart=X&ordre_arrivee=Y).
+ * Le siège est réellement réservé côté serveur, le billet est créé
+ * avec son QR signé, et le client reçoit sa confirmation. Le montant
+ * encaissé est calculé par le serveur — jamais par cette page.
  */
 
 type StatutVente = 'disponible' | 'vendu_en_ligne' | 'vendu_physique' | 'reserve' | 'indisponible';
@@ -47,6 +52,7 @@ export default function PlanSieges() {
   const [sousTrajetsPossibles, setSousTrajetsPossibles] = useState<Troncon[]>([]);
   const [siegeAVendre, setSiegeAVendre] = useState<Siege | null>(null);
   const [chargement, setChargement] = useState(true);
+  const [chargementSieges, setChargementSieges] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [infoTrajet, setInfoTrajet] = useState('');
@@ -55,8 +61,11 @@ export default function PlanSieges() {
   const [supplementPremium, setSupplementPremium] = useState(0);
   const [departPasse, setDepartPasse] = useState(false);
 
+  // Tronçon verrouillé EN AMONT -- tant qu'il n'est pas choisi, le plan
+  // des sièges n'est pas affiché.
+  const [tronconVerrouille, setTronconVerrouille] = useState<Troncon | null>(null);
+
   const [nomClient, setNomClient] = useState('');
-  const [tronconChoisi, setTronconChoisi] = useState('');
   const [telClient, setTelClient] = useState('');
   const [indicatifClient, setIndicatifClient] = useState('+237');
   const [emailClient, setEmailClient] = useState('');
@@ -65,8 +74,10 @@ export default function PlanSieges() {
   const [prixBagageConfigure, setPrixBagageConfigure] = useState(0);
   const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
 
-  // Charge le plan réel du bus et les tronçons vendables de la ligne.
-  const charger = useCallback(async () => {
+  // Charge les infos du trajet + la liste des tronçons vendables --
+  // sans encore charger les sièges (inutiles tant que le tronçon n'est
+  // pas choisi).
+  const chargerInfos = useCallback(async () => {
     if (!trajetId) {
       setErreur('Aucun trajet indiqué.');
       setChargement(false);
@@ -86,6 +97,40 @@ export default function PlanSieges() {
       if (date && t.heure_depart) {
         setDepartPasse(new Date() > new Date(`${date}T${t.heure_depart}`));
       }
+
+      const rep = await apiFetch('/api/lignes');
+      const lignes = (rep.lignes || []) as Record<string, unknown>[];
+      const ligne = lignes.find((l) => String(l.id) === String(t.ligne_id)) || lignes[0];
+      if (ligne) {
+        const points = (ligne.points || []) as Record<string, unknown>[];
+        const nomParOrdre = new Map<number, string>();
+        points.forEach((pt) => nomParOrdre.set(Number(pt.ordre), String(pt.ville)));
+        setSousTrajetsPossibles(
+          ((ligne.troncons_prix || []) as Record<string, unknown>[]).map((tr) => {
+            const od = Number(tr.ordre_depart);
+            const oa = Number(tr.ordre_arrivee);
+            const libelle = `${nomParOrdre.get(od) ?? od} → ${nomParOrdre.get(oa) ?? oa}`;
+            return { valeur: `${od}-${oa}`, libelle, ordreDepart: od, ordreArrivee: oa, prix: Number(tr.prix) || 0 };
+          }),
+        );
+      }
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'Chargement impossible');
+    } finally {
+      setChargement(false);
+    }
+  }, [trajetId]);
+
+  useEffect(() => { chargerInfos(); }, [chargerInfos]);
+
+  // Charge le plan des sièges filtré pour le tronçon choisi -- un
+  // siège n'apparaît "pris" que s'il chevauche réellement ce tronçon.
+  const chargerSieges = useCallback(async (troncon: Troncon) => {
+    if (!trajetId) return;
+    setChargementSieges(true);
+    setErreur(null);
+    try {
+      const plan = await apiFetch(`/api/reservations/trajets/${trajetId}/plan?ordre_depart=${troncon.ordreDepart}&ordre_arrivee=${troncon.ordreArrivee}`);
       setSieges(
         ((plan.sieges || []) as Record<string, unknown>[]).map((x) => {
           const dispo = String(x.disponibilite);
@@ -105,34 +150,22 @@ export default function PlanSieges() {
           } as Siege;
         }),
       );
-
-      // Tronçons réellement vendables, avec le prix fixé par l'agence
-      // pour chaque combinaison (ce n'est pas la somme des tronçons).
-      const rep = await apiFetch('/api/lignes');
-      const lignes = (rep.lignes || []) as Record<string, unknown>[];
-      const ligne = lignes.find((l) =>
-        String(l.id) === String(plan.trajet?.ligne_id)) || lignes[0];
-      if (ligne) {
-        const points = (ligne.points || []) as Record<string, unknown>[];
-        const nomParOrdre = new Map<number, string>();
-        points.forEach((pt) => nomParOrdre.set(Number(pt.ordre), String(pt.ville)));
-        setSousTrajetsPossibles(
-          ((ligne.troncons_prix || []) as Record<string, unknown>[]).map((t) => {
-            const od = Number(t.ordre_depart);
-            const oa = Number(t.ordre_arrivee);
-            const libelle = `${nomParOrdre.get(od) ?? od} → ${nomParOrdre.get(oa) ?? oa}`;
-            return { valeur: `${od}-${oa}`, libelle, ordreDepart: od, ordreArrivee: oa, prix: Number(t.prix) || 0 };
-          }),
-        );
-      }
     } catch (e) {
-      setErreur(e instanceof Error ? e.message : 'Chargement impossible');
+      setErreur(e instanceof Error ? e.message : 'Chargement du plan impossible');
     } finally {
-      setChargement(false);
+      setChargementSieges(false);
     }
   }, [trajetId]);
 
-  useEffect(() => { charger(); }, [charger]);
+  function choisirTroncon(troncon: Troncon) {
+    setTronconVerrouille(troncon);
+    chargerSieges(troncon);
+  }
+
+  function changerDeTroncon() {
+    setTronconVerrouille(null);
+    setSieges([]);
+  }
 
   const rangees = Array.from(new Set(sieges.map((s) => s.rangee))).sort((a, b) => a - b);
   const nbVendus = sieges.filter((s) => s.statutVente === 'vendu_en_ligne' || s.statutVente === 'vendu_physique').length;
@@ -175,24 +208,21 @@ export default function PlanSieges() {
   }
 
   const prixEstime = (() => {
-    const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
-    if (!troncon) return null;
+    if (!tronconVerrouille) return null;
     const supplementSiegePhysique = siegeAVendre?.est_premium ? supplementPremium : 0;
-    return troncon.prix + supplementSiegePhysique + (quantiteBagages * prixBagageConfigure);
+    return tronconVerrouille.prix + supplementSiegePhysique + (quantiteBagages * prixBagageConfigure);
   })();
 
   async function confirmerVente() {
-    if (!siegeAVendre || !nomClient.trim() || !telClient.trim() || !tronconChoisi || enCours) return;
-    const troncon = sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi);
-    if (!troncon) return;
+    if (!siegeAVendre || !nomClient.trim() || !telClient.trim() || !tronconVerrouille || enCours) return;
 
     setEnCours(true);
     setErreur(null);
     try {
-      // Le prix exact (agence + commission + suppléments) est calculé
-      // et facturé par le serveur — pas de ressaisie manuelle du
-      // montant côté agence. Ce qui est affiché ici n'est qu'une
-      // estimation à titre indicatif pour l'agent.
+      // Le prix exact (agence + suppléments) est calculé et facturé
+      // par le serveur -- pas de ressaisie manuelle du montant côté
+      // agence. Ce qui est affiché ici n'est qu'une estimation à
+      // titre indicatif pour l'agent.
       await apiFetch(`/api/reservations/trajets/${trajetId}/vente-guichet`, {
         method: 'POST',
         body: JSON.stringify({
@@ -200,9 +230,10 @@ export default function PlanSieges() {
           nom_client: nomClient.trim(),
           telephone_client: `${indicatifClient}${telClient.trim()}`,
           email_client: emailClient.trim() || undefined,
-          point_embarquement_ordre: troncon.ordreDepart,
-          point_debarquement_ordre: troncon.ordreArrivee,
+          point_embarquement_ordre: tronconVerrouille.ordreDepart,
+          point_debarquement_ordre: tronconVerrouille.ordreArrivee,
           supplement_bagage: quantiteBagages > 0 ? quantiteBagages * prixBagageConfigure : undefined,
+          quantite_bagages: quantiteBagages > 0 ? quantiteBagages : undefined,
         }),
       });
       setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique', sourceVente: 'physique' } : s)));
@@ -214,10 +245,8 @@ export default function PlanSieges() {
     }
   }
 
-
   function fermerVente() {
     setSiegeAVendre(null);
-    setTronconChoisi('');
   }
 
   return (
@@ -232,13 +261,15 @@ export default function PlanSieges() {
             <h1 className="text-2xl font-extrabold text-ink">Plan des sieges</h1>
             <p className="text-[12px] text-ink-soft mt-0.5">{infoTrajet}</p>
           </div>
-          <button
-            onClick={selectionAleatoire}
-            disabled={departPasse}
-            className="flex items-center gap-2 rounded-xl bg-purple hover:bg-purple/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm px-6 py-3.5 shadow-lg shadow-purple/25 transition-colors"
-          >
-            🎲 Choix auto du siège
-          </button>
+          {tronconVerrouille && (
+            <button
+              onClick={selectionAleatoire}
+              disabled={departPasse}
+              className="flex items-center gap-2 rounded-xl bg-purple hover:bg-purple/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm px-6 py-3.5 shadow-lg shadow-purple/25 transition-colors"
+            >
+              🎲 Choix auto du siège
+            </button>
+          )}
         </div>
         <p className="text-sm text-ink-soft mb-6">{nomBus}</p>
 
@@ -251,74 +282,122 @@ export default function PlanSieges() {
 
         {chargement && (
           <div className="rounded-2xl p-4 mb-6 bg-paper border border-line">
-            <p className="text-sm text-ink-soft">Chargement du plan du bus...</p>
+            <p className="text-sm text-ink-soft">Chargement du trajet...</p>
           </div>
         )}
 
         {erreur && (
           <div className="rounded-2xl p-4 mb-6 bg-red/6 border border-red/20">
             <p className="text-sm text-red">{erreur}</p>
-            <button onClick={charger} className="text-sm font-bold text-green-700 mt-1">Réessayer</button>
+            <button onClick={chargerInfos} className="text-sm font-bold text-green-700 mt-1">Réessayer</button>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-4 mb-6">
-          {(Object.keys(couleurs) as StatutVente[]).map((s) => (
-            <div key={s} className="flex items-center gap-2">
-              <span className={`w-3.5 h-3.5 rounded ${couleurs[s].bg}`} />
-              <span className="text-xs text-ink-soft">{couleurs[s].label}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-paper rounded-3xl border border-line shadow-sm p-8">
-          <div className="flex justify-end mb-6">
-            <div className="w-10 h-10 rounded-xl bg-off-white flex items-center justify-center">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgb(var(--c-ink-soft))" strokeWidth="2">
-                <circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" />
-              </svg>
-            </div>
+        {!chargement && !tronconVerrouille && !departPasse && (
+          <div className="bg-paper rounded-3xl border border-line shadow-sm p-8">
+            <p className="text-sm font-bold text-ink mb-1">Quel trajet le client souhaite-t-il ?</p>
+            <p className="text-xs text-ink-soft mb-5">
+              Un siège vendu sur un tronçon reste disponible pour un autre tronçon non
+              chevauchant du même trajet -- précise d&apos;abord le tronçon pour voir les
+              sièges réellement libres pour ce segment.
+            </p>
+            {sousTrajetsPossibles.length === 0 ? (
+              <p className="text-sm text-ink-soft">Aucun tronçon vendable trouvé pour ce trajet.</p>
+            ) : (
+              <div className="space-y-2">
+                {sousTrajetsPossibles.map((t) => (
+                  <button
+                    key={t.valeur}
+                    onClick={() => choisirTroncon(t)}
+                    className="w-full flex items-center justify-between rounded-xl border border-line hover:border-green-700 hover:bg-green-700/5 px-4 py-3 text-left transition-colors"
+                  >
+                    <span className="text-sm font-semibold text-ink">{t.libelle}</span>
+                    <span className="text-sm font-bold text-green-700">{t.prix} FCFA</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+        )}
 
-          <div className="space-y-2.5">
-            {rangees.map((rangee) => {
-              const siegesRangee = sieges.filter((s) => s.rangee === rangee).sort((a, b) => a.position - b.position);
-              let dernierIdxGauche = -1;
-              siegesRangee.forEach((s, idx) => { if (s.type_position.endsWith('_gauche')) dernierIdxGauche = idx; });
-              const idxCouloir = dernierIdxGauche + 1;
+        {tronconVerrouille && (
+          <>
+            <div className="flex items-center justify-between rounded-2xl bg-purple/8 border border-purple/20 px-4 py-3 mb-6">
+              <p className="text-sm text-ink">
+                Tronçon choisi : <span className="font-bold">{tronconVerrouille.libelle}</span> — {tronconVerrouille.prix} FCFA
+              </p>
+              <button onClick={changerDeTroncon} className="text-[11.5px] font-bold text-purple hover:underline shrink-0 ml-3">
+                Changer de tronçon
+              </button>
+            </div>
 
-              return (
-                <div key={rangee} className="flex items-center gap-2">
-                  <span className="w-5 text-xs text-ink-soft font-semibold">{rangee}</span>
-                  <div className="flex gap-2 flex-1">
-                    {siegesRangee.map((siege, i) => (
-                      <div key={siege.id} className="flex items-center">
-                        {i === idxCouloir && <div className="w-5" />}
-                        <button
-                          disabled={siege.statutVente !== 'disponible' || departPasse}
-                          onClick={() => ouvrirVente(siege)}
-                          className={`relative w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${couleurs[siege.statutVente].bg} ${couleurs[siege.statutVente].text} ${
-                            siege.statutVente === 'disponible' && !departPasse ? 'hover:ring-2 hover:ring--ink/20 cursor-pointer' : 'cursor-default'
-                          }`}
-                        >
-                          {siege.numero}
-                          {siege.est_premium && (
-                            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-paper shadow flex items-center justify-center text-[8px]">⭐</span>
-                          )}
-                        </button>
-                      </div>
-                    ))}
+            <div className="flex flex-wrap gap-4 mb-6">
+              {(Object.keys(couleurs) as StatutVente[]).map((s) => (
+                <div key={s} className="flex items-center gap-2">
+                  <span className={`w-3.5 h-3.5 rounded ${couleurs[s].bg}`} />
+                  <span className="text-xs text-ink-soft">{couleurs[s].label}</span>
+                </div>
+              ))}
+            </div>
+
+            {chargementSieges ? (
+              <div className="rounded-2xl p-4 mb-6 bg-paper border border-line">
+                <p className="text-sm text-ink-soft">Chargement du plan pour ce tronçon...</p>
+              </div>
+            ) : (
+              <>
+                <div className="bg-paper rounded-3xl border border-line shadow-sm p-8">
+                  <div className="flex justify-end mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-off-white flex items-center justify-center">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgb(var(--c-ink-soft))" strokeWidth="2">
+                        <circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {rangees.map((rangee) => {
+                      const siegesRangee = sieges.filter((s) => s.rangee === rangee).sort((a, b) => a.position - b.position);
+                      let dernierIdxGauche = -1;
+                      siegesRangee.forEach((s, idx) => { if (s.type_position.endsWith('_gauche')) dernierIdxGauche = idx; });
+                      const idxCouloir = dernierIdxGauche + 1;
+
+                      return (
+                        <div key={rangee} className="flex items-center gap-2">
+                          <span className="w-5 text-xs text-ink-soft font-semibold">{rangee}</span>
+                          <div className="flex gap-2 flex-1">
+                            {siegesRangee.map((siege, i) => (
+                              <div key={siege.id} className="flex items-center">
+                                {i === idxCouloir && <div className="w-5" />}
+                                <button
+                                  disabled={siege.statutVente !== 'disponible' || departPasse}
+                                  onClick={() => ouvrirVente(siege)}
+                                  className={`relative w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${couleurs[siege.statutVente].bg} ${couleurs[siege.statutVente].text} ${
+                                    siege.statutVente === 'disponible' && !departPasse ? 'hover:ring-2 hover:ring--ink/20 cursor-pointer' : 'cursor-default'
+                                  }`}
+                                >
+                                  {siege.numero}
+                                  {siege.est_premium && (
+                                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-paper shadow flex items-center justify-center text-[8px]">⭐</span>
+                                  )}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
 
-        <div className="mt-6 bg-paper rounded-2xl border border-line px-5 py-4 flex items-center justify-between">
-          <span className="text-sm font-bold text-ink">Places vendues : {nbVendus}/{nbTotal}</span>
-          <span className="text-xs text-ink-soft">⭐ = siege premium</span>
-        </div>
+                <div className="mt-6 bg-paper rounded-2xl border border-line px-5 py-4 flex items-center justify-between">
+                  <span className="text-sm font-bold text-ink">Places vendues (ce tronçon) : {nbVendus}/{nbTotal}</span>
+                  <span className="text-xs text-ink-soft">⭐ = siege premium</span>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {dialoguePreferenceAuto && (
@@ -334,7 +413,8 @@ export default function PlanSieges() {
         </div>
       )}
 
-      {/* Formulaire vente un billet (manuel ou aleatoire, meme flux) */}
+      {/* Formulaire vente un billet (manuel ou aleatoire, meme flux) --
+          le tronçon est déjà fixé en amont, plus besoin de le redemander. */}
       {siegeAVendre && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={fermerVente}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-3xl p-8 max-w-sm w-full">
@@ -344,15 +424,9 @@ export default function PlanSieges() {
                 {siegeAVendre.est_premium && (
                   <p className="text-[11.5px] font-bold text-amber mb-1">⭐ Siège premium (+{supplementPremium} FCFA)</p>
                 )}
+                <p className="text-[11.5px] text-purple font-semibold mb-1">{tronconVerrouille?.libelle}</p>
                 <p className="text-xs text-ink-soft mb-5">Un seul billet a la fois. Renseigne les infos du client.</p>
                 <div className="space-y-3 mb-5">
-                  <div>
-                    <label className="block text-[10.5px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Trajet souhaité par le client</label>
-                    <select value={tronconChoisi} onChange={(e) => setTronconChoisi(e.target.value)} className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm">
-                      <option value="">Choisir le trajet...</option>
-                      {sousTrajetsPossibles.map((t) => <option key={t.valeur} value={t.valeur}>{t.libelle} — {t.prix} FCFA</option>)}
-                    </select>
-                  </div>
                   <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom du client" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
                   <TelephoneInput indicatif={indicatifClient} numero={telClient} onChangeIndicatif={setIndicatifClient} onChangeNumero={setTelClient} />
                   <input type="email" value={emailClient} onChange={(e) => setEmailClient(e.target.value)} placeholder="Email (pour la confirmation)" className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm" />
@@ -373,7 +447,7 @@ export default function PlanSieges() {
                   <button onClick={fermerVente} className="flex-1 rounded-xl bg-off-white text-ink font-bold text-sm py-3">Annuler</button>
                   <button
                     onClick={confirmerVente}
-                    disabled={!nomClient.trim() || !telClient.trim() || !tronconChoisi || enCours}
+                    disabled={!nomClient.trim() || !telClient.trim() || enCours}
                     className="flex-1 rounded-xl bg-amber disabled:opacity-40 text-ink font-bold text-sm py-3"
                   >
                     {enCours ? '…' : 'Vendre'}
@@ -386,7 +460,7 @@ export default function PlanSieges() {
                   <span className="text-2xl">✓</span>
                 </div>
                 <p className="text-sm font-bold text-ink mb-1">Siege {siegeAVendre.numero} vendu</p>
-                <p className="text-[11.5px] text-purple font-semibold mb-2">{sousTrajetsPossibles.find((t) => t.valeur === tronconChoisi)?.libelle}</p>
+                <p className="text-[11.5px] text-purple font-semibold mb-2">{tronconVerrouille?.libelle}</p>
                 <p className="text-xs text-ink-soft mb-6">
                   {emailClient
                     ? `Email de confirmation envoye a ${emailClient}.`

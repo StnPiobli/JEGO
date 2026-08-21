@@ -21,7 +21,7 @@ type Passager = {
   siege: string;
   montantAgence: number; // net perçu par l'agence, pas le prix payé par le client
   statut: 'confirme' | 'embarque' | 'annule';
-  optionsSupp?: ('Bagage supplementaire' | 'Premium')[];
+    optionsSupp?: string[];
   trajetAssocie: string; // tronçon réellement réservé (ex: "Loum → Yaounde") — un même trajet physique peut avoir plusieurs tronçons vendus séparément
 };
 type TrajetAvecPassagers = {
@@ -62,7 +62,10 @@ export default function Reservations() {
             capacite = Number(detail.trajet?.capacite) || 0;
             passagers = ((detail.passagers || []) as Record<string, unknown>[]).map((p) => {
               const options: Passager['optionsSupp'] = [];
-              if (Number(p.supplement_bagage) > 0) options.push('Bagage supplementaire');
+                            const nbBagages = Number(p.quantite_bagages) || 0;
+              if (Number(p.supplement_bagage) > 0) {
+                options.push(nbBagages > 0 ? `Bagage supplementaire x${nbBagages}` : 'Bagage supplementaire');
+              }
               const segment = `${p.ville_embarquement ?? ''} → ${p.ville_debarquement ?? ''}`;
               return {
                 id: String(p.numero ?? p.id),

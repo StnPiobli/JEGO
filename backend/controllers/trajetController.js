@@ -85,6 +85,8 @@ async function listerTrajets(req, res) {
               t.prix_base, t.categorie, t.statut, t.retard_minutes, t.prix_bagage_supplementaire,
               t.distribution_nourriture, b.supplement_premium,
               vd.nom_affiche AS ville_depart, va.nom_affiche AS ville_arrivee,
+              l.ville_depart AS code_ville_depart, l.ville_arrivee AS code_ville_arrivee,
+              t.bus_id, t.chauffeur_id,
               b.nom AS nom_bus, b.disposition, b.type_bus,
               c.prenom || ' ' || c.nom AS chauffeur,
               COALESCE(arrets.villes, ARRAY[]::text[]) AS arrets,
@@ -105,7 +107,7 @@ async function listerTrajets(req, res) {
            AND lp2.ordre < (SELECT MAX(ordre) FROM ligne_points WHERE ligne_id = t.ligne_id)
        ) AS arrets ON true
        LEFT JOIN LATERAL (
-         SELECT JSON_AGG(JSON_BUILD_OBJECT('ville', v3.nom_affiche, 'lieu', lp3.lieu_prise_en_charge) ORDER BY lp3.ordre) AS points
+         SELECT JSON_AGG(JSON_BUILD_OBJECT('ville', v3.nom_affiche, 'lieu', lp3.lieu_prise_en_charge, 'heure', lp3.heure_arrivee_estimee) ORDER BY lp3.ordre) AS points
          FROM ligne_points lp3
          JOIN villes v3 ON v3.code = lp3.ville
          WHERE lp3.ligne_id = t.ligne_id
@@ -482,7 +484,7 @@ async function passagersTrajet(req, res) {
 
     const passagers = await pool.query(
       `SELECT b.id, b.numero, b.statut, b.source_vente, b.qr_scanne,
-              b.prix_total_client, b.supplement_bagage, b.est_flexible,
+              b.prix_total_client, b.supplement_bagage, b.quantite_bagages, b.est_flexible,
               b.point_embarquement_ordre, b.point_debarquement_ordre,
               s.numero AS siege,
               v.nom, v.prenom, v.telephone,
@@ -604,28 +606,29 @@ async function supprimerTrajet(req, res) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce trajet est déjà annulé.' });
     }
+    if (trajet.statut === 'supprime') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce trajet est déjà supprimé.' });
+    }
 
     const { nombre, total } = await rembourserBilletsDuTrajet(
       client, trajetId, 'suppression_trajet',
       "Votre trajet a été supprimé par l'agence."
     );
 
-    if (nombre === 0) {
-      await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
-      await client.query(`DELETE FROM trajets WHERE id = $1`, [trajetId]);
-      await client.query('COMMIT');
-      return res.json({ message: 'Trajet supprimé.', billets_rembourses: 0, total_rembourse: 0 });
-    }
-
+    // Toujours un soft-delete : le trajet reste visible (grisé) plutôt
+    // que de disparaître, qu'il y ait eu des billets ou non.
     await client.query(
-      `UPDATE trajets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
+      `UPDATE trajets SET statut = 'supprime', mis_a_jour_le = NOW() WHERE id = $1`,
       [trajetId]
     );
     await client.query(`DELETE FROM soft_locks WHERE trajet_id = $1`, [trajetId]);
     await client.query('COMMIT');
 
     res.json({
-      message: `Trajet retiré. ${nombre} voyageur(s) remboursé(s) à 100% (${total} FCFA au total) et notifié(s).`,
+      message: nombre > 0
+        ? `Trajet supprimé. ${nombre} voyageur(s) remboursé(s) à 100% (${total} FCFA au total) et notifié(s).`
+        : 'Trajet supprimé.',
       billets_rembourses: nombre,
       total_rembourse: total
     });

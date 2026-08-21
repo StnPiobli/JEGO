@@ -528,27 +528,51 @@ async function listerTrajetsAdmin(req, res) {
     const trajets = await pool.query(
       `SELECT
           t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
-          t.statut, t.retard_minutes,
+          t.statut, t.retard_minutes, t.categorie, t.prix_base,
+          t.prix_bagage_supplementaire, t.distribution_nourriture,
           a.nom AS agence,
           vd.nom_affiche AS depart_affiche,
           va.nom_affiche AS arrivee_affiche,
           l.id AS ligne_id,
+          b.nom AS nom_bus, b.supplement_premium,
+          c.prenom || ' ' || c.nom AS chauffeur,
           (SELECT COUNT(*) FROM sieges s
             WHERE s.bus_id = t.bus_id
               AND s.statut NOT IN ('supprime_toilettes', 'desactive')) AS places_totales,
-          (SELECT COUNT(*) FROM billets b
-            WHERE b.trajet_id = t.id AND b.statut IN ('confirme', 'utilise')) AS places_vendues,
-          (SELECT COUNT(*) FROM billets b
-            WHERE b.trajet_id = t.id AND b.statut IN ('confirme', 'utilise')
-              AND b.source_vente = 'en_ligne') AS vendus_app,
-          (SELECT COUNT(*) FROM billets b
-            WHERE b.trajet_id = t.id AND b.statut IN ('confirme', 'utilise')
-              AND b.source_vente = 'physique') AS vendus_guichet
+          (SELECT COUNT(*) FROM billets b2
+            WHERE b2.trajet_id = t.id AND b2.statut IN ('confirme', 'utilise')) AS places_vendues,
+          (SELECT COUNT(*) FROM billets b2
+            WHERE b2.trajet_id = t.id AND b2.statut IN ('confirme', 'utilise')
+              AND b2.source_vente = 'en_ligne') AS vendus_app,
+          (SELECT COUNT(*) FROM billets b2
+            WHERE b2.trajet_id = t.id AND b2.statut IN ('confirme', 'utilise')
+              AND b2.source_vente = 'physique') AS vendus_guichet,
+          COALESCE(pointsDetail.points, '[]'::json) AS points_detail,
+          COALESCE(prixSections.troncons, '[]'::json) AS prix_sections
        FROM trajets t
        JOIN agences a ON a.id = t.agence_id
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
        JOIN villes va ON va.code = l.ville_arrivee
+       JOIN bus b ON b.id = t.bus_id
+       LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT('ville', v3.nom_affiche, 'lieu', lp3.lieu_prise_en_charge, 'heure', lp3.heure_arrivee_estimee) ORDER BY lp3.ordre) AS points
+         FROM ligne_points lp3
+         JOIN villes v3 ON v3.code = lp3.ville
+         WHERE lp3.ligne_id = t.ligne_id
+       ) AS pointsDetail ON true
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                  'depart', vd2.nom_affiche, 'arrivee', va2.nom_affiche, 'prix', ltp.prix
+                ) ORDER BY ltp.ordre_depart, ltp.ordre_arrivee) AS troncons
+         FROM ligne_troncon_prix ltp
+         JOIN ligne_points lpd ON lpd.ligne_id = ltp.ligne_id AND lpd.ordre = ltp.ordre_depart
+         JOIN ligne_points lpa ON lpa.ligne_id = ltp.ligne_id AND lpa.ordre = ltp.ordre_arrivee
+         JOIN villes vd2 ON vd2.code = lpd.ville
+         JOIN villes va2 ON va2.code = lpa.ville
+         WHERE ltp.ligne_id = t.ligne_id
+       ) AS prixSections ON true
        WHERE t.date_depart = $1
        ORDER BY t.heure_depart ASC`,
       [date]
@@ -639,6 +663,8 @@ async function listerTrajetsAdmin(req, res) {
       return {
         id: t.id,
         trajet: `${t.depart_affiche} → ${t.arrivee_affiche}`,
+        ville_depart: t.depart_affiche,
+        ville_arrivee: t.arrivee_affiche,
         agence: t.agence,
         depart: String(t.heure_depart).slice(0, 5),
         arrivee: String(t.heure_arrivee_estimee).slice(0, 5),
@@ -649,6 +675,15 @@ async function listerTrajetsAdmin(req, res) {
         color: t.retard_minutes > 0 ? 'amber' : (couleursStatut[t.statut] || 'grey'),
         app: parseInt(t.vendus_app) || 0,
         site: parseInt(t.vendus_guichet) || 0,
+        categorie: t.categorie,
+        nom_bus: t.nom_bus,
+        chauffeur: t.chauffeur,
+        prix_base: t.prix_base,
+        prix_bagage_supplementaire: t.prix_bagage_supplementaire,
+        distribution_nourriture: t.distribution_nourriture,
+        supplement_premium: t.supplement_premium,
+        points_detail: t.points_detail,
+        prix_sections: t.prix_sections,
         signalements: sesSignalements,
         passagers: sesPassagers,
       };

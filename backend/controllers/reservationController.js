@@ -13,6 +13,10 @@ const { normaliserTelephone } = require('../utils/telephone');
 async function planTrajet(req, res) {
   try {
     const trajetId = req.params.id;
+    // Tronçon souhaité par le client, choisi en amont côté agence.
+    // Sans tronçon précisé (rétrocompatibilité), on se rabat sur le
+    // trajet complet (comportement historique).
+    let { ordre_depart, ordre_arrivee } = req.query;
 
     const trajetResult = await pool.query(
       `SELECT
@@ -36,6 +40,21 @@ async function planTrajet(req, res) {
     }
     const trajet = trajetResult.rows[0];
 
+    if (ordre_depart === undefined || ordre_arrivee === undefined) {
+      const bornes = await pool.query(
+        `SELECT MIN(ordre) AS mini, MAX(ordre) AS maxi FROM ligne_points WHERE ligne_id = $1`,
+        [trajet.ligne_id]
+      );
+      ordre_depart = bornes.rows[0].mini ?? 0;
+      ordre_arrivee = bornes.rows[0].maxi ?? 1;
+    }
+    const a = parseInt(ordre_depart);
+    const b = parseInt(ordre_arrivee);
+
+    // Un siège n'est "pris" pour ce tronçon (a,b) que s'il existe une
+    // réservation confirmée (c,d) dessus dont l'intervalle chevauche
+    // réellement : NOT (a>=d OR c>=b). Un même siège reste donc
+    // vendable sur des tronçons non chevauchants du même trajet.
     const siegesResult = await pool.query(
       `SELECT
           s.id, s.numero, s.rangee, s.position, s.type_position,
@@ -52,9 +71,13 @@ async function planTrajet(req, res) {
          ON bil.siege_id = s.id
          AND bil.trajet_id = $1
          AND bil.statut = 'confirme'
+         AND NOT (
+           $3 >= COALESCE(bil.point_debarquement_ordre, 1)
+           OR COALESCE(bil.point_embarquement_ordre, 0) >= $4
+         )
        WHERE s.bus_id = $2
        ORDER BY s.rangee, s.position`,
-      [trajetId, trajet.bus_id]
+      [trajetId, trajet.bus_id, a, b]
     );
 
     res.json({
@@ -592,7 +615,7 @@ async function venteGuichet(req, res) {
     const trajetId = req.params.id;
     const {
       siege_id, nom_client, telephone_client, email_client,
-      supplement_bagage, est_premium_choisi,
+      supplement_bagage, est_premium_choisi, quantite_bagages,
       point_embarquement_ordre, point_debarquement_ordre
     } = req.body;
 
@@ -709,13 +732,13 @@ async function venteGuichet(req, res) {
     const billet = await client.query(
       `INSERT INTO billets
         (numero, trajet_id, voyageur_id, siege_id, agence_id,
-         type_billet, statut, supplement_bagage, supplement_siege,
+         type_billet, statut, supplement_bagage, quantite_bagages, supplement_siege,
          prix_total_client, prix_agence, marge_jego, frais_momo,
          qr_code, source_vente, point_embarquement_ordre, point_debarquement_ordre)
-       VALUES ($1,$2,$3,$4,$5,'standard','confirme',$6,$7,$8,$9,$10,0,$11,'physique',$12,$13)
+       VALUES ($1,$2,$3,$4,$5,'standard','confirme',$6,$7,$8,$9,$10,$11,0,$12,'physique',$13,$14)
        RETURNING id, numero, qr_code`,
       [numeroBillet, trajetId, voyageurId, siege_id, agenceId,
-       suppBagage, suppSiege, prixTotalClient, prixAgenceFinal, margeJego,
+       suppBagage, quantite_bagages ? parseInt(quantite_bagages) : 0, suppSiege, prixTotalClient, prixAgenceFinal, margeJego,
        qrCode, a, b]
     );
     const billetId = billet.rows[0].id;
@@ -738,7 +761,7 @@ async function venteGuichet(req, res) {
 
     if (email_client) {
       const trajetInfo = await pool.query(
-        `SELECT vd.nom_affiche AS depart, va.nom_affiche AS arrivee, t.date_depart, t.heure_depart
+        `SELECT vd.nom_affiche AS depart, va.nom_affiche AS arrivee, t.date_depart, t.heure_depart, t.ligne_id
          FROM trajets t
          JOIN lignes l ON l.id = t.ligne_id
          JOIN villes vd ON vd.code = l.ville_depart
@@ -750,6 +773,19 @@ async function venteGuichet(req, res) {
       const dateFr = ti ? new Date(ti.date_depart).toLocaleDateString('fr-FR') : '';
       const heureFr = ti ? String(ti.heure_depart).slice(0, 5) : '';
 
+      let arretsIntermediaires = [];
+      if (ti) {
+        const arretsResult = await pool.query(
+          `SELECT v.nom_affiche AS ville
+           FROM ligne_points lp
+           JOIN villes v ON v.code = lp.ville
+           WHERE lp.ligne_id = $1 AND lp.ordre > $2 AND lp.ordre < $3
+           ORDER BY lp.ordre`,
+          [ti.ligne_id, a, b]
+        );
+        arretsIntermediaires = arretsResult.rows.map((r) => r.ville);
+      }
+
       let pieceJointe;
       try {
         const pdfBuffer = await genererPdfBillet({
@@ -758,9 +794,12 @@ async function venteGuichet(req, res) {
           nomClient: nom_client,
           depart: ti ? ti.depart : '',
           arrivee: ti ? ti.arrivee : '',
+          arrets: arretsIntermediaires,
           dateDepart: dateFr,
           heureDepart: heureFr,
           siegeNumero: siege.numero,
+          siegePremium: siege.est_premium === true,
+          bagageQuantite: quantite_bagages ? parseInt(quantite_bagages) : 0,
           prixTotal: prixTotalClient
         });
         pieceJointe = { nom: `billet-${billet.rows[0].numero}.pdf`, contenu: pdfBuffer };

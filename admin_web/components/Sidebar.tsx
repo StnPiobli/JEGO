@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import ThemeToggle from "./ThemeToggle";
 import { apiFetch, getMembre, clearSession, initialesMembre, type Membre } from "@/lib/api";
 
-type CleBadge = "agences" | "litiges" | "moderation";
+type CleBadge = "agences" | "litiges" | "moderation" | "messages";
 
 type NavItem = {
   label: string;
@@ -40,7 +40,8 @@ const groups: NavGroup[] = [
       { label: "Litiges", href: "/litiges", badge: "litiges" },
       { label: "Finances", href: "/finances" },
       { label: "Configuration des frais", href: "/frais" },
-      { label: "Modération", href: "/moderation", badge: "moderation" },
+            { label: "Modération", href: "/moderation", badge: "moderation" },
+      { label: "Messages", href: "/messages", badge: "messages" },
     ],
   },
   {
@@ -70,7 +71,7 @@ const groups: NavGroup[] = [
 
 /** Compteurs réels affichés en pastille. 0 = pas de pastille affichée. */
 type Compteurs = Record<CleBadge, number>;
-const compteursVides: Compteurs = { agences: 0, litiges: 0, moderation: 0 };
+const compteursVides: Compteurs = { agences: 0, litiges: 0, moderation: 0, messages: 0 };
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -86,24 +87,39 @@ export default function Sidebar() {
     let annule = false;
     async function charger() {
       try {
-        // Agences en attente et litiges ouverts : routes réelles existantes.
-        const [ag, lit] = await Promise.allSettled([
+        // Agences en attente, litiges ouverts, conversations avec des
+        // messages non lus : routes réelles existantes.
+        const [ag, lit, msg] = await Promise.allSettled([
           apiFetch("/api/admin/agences-en-attente"),
           apiFetch("/api/litiges/admin/tous"),
+          apiFetch("/api/messages/admin/conversations"),
         ]);
         if (annule) return;
+        const conversationsNonLues = msg.status === "fulfilled"
+          ? (msg.value.conversations || []).filter((c: { non_lus: number }) => c.non_lus > 0).length
+          : 0;
         setCompteurs({
           agences: ag.status === "fulfilled" ? (ag.value.agences?.length ?? 0) : 0,
           litiges: lit.status === "fulfilled" ? (lit.value.litiges?.length ?? 0) : 0,
           // BRANCHEMENT : GET /api/admin/moderation → { commentaires: [...] }
           moderation: 0,
+          messages: conversationsNonLues,
         });
       } catch {
         if (!annule) setCompteurs(compteursVides);
       }
     }
     charger();
-    return () => { annule = true; };
+    // Rafraîchit aussi en tâche de fond, pas seulement au changement
+    // de page -- sinon un badge (nouveau message reçu, ou message lu
+    // dans un autre onglet) ne se met à jour qu'en changeant de route.
+    const intervalle = window.setInterval(charger, 12000);
+    window.addEventListener("jego-messages-lus", charger);
+    return () => {
+      annule = true;
+      window.clearInterval(intervalle);
+      window.removeEventListener("jego-messages-lus", charger);
+    };
   }, [pathname]);
 
   function seDeconnecter() {
@@ -112,7 +128,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="bg-green-900 text-on-dark px-4 py-7 flex flex-col sticky top-0 h-screen overflow-y-auto w-[248px] shrink-0">
+        <aside className="bg-green-900 text-on-dark px-4 py-7 flex flex-col sticky top-0 h-screen overflow-y-auto overscroll-contain w-[248px] shrink-0">
       <div className="flex items-center gap-2.5 px-2 pb-6">
         <div className="w-[34px] h-[34px] rounded-[9px] bg-green-300 flex items-center justify-center text-green-900 font-display font-bold text-base -rotate-3">
           J

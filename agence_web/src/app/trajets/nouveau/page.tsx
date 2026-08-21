@@ -156,12 +156,16 @@ export default function NouveauTrajet() {
       setErreur('Ville de depart, ville d\'arrivee, bus, date, heure de depart et heure d\'arrivee sont obligatoires.');
       return;
     }
+    if (!pointDepart.trim() || !pointArrivee.trim()) {
+      setErreur('Le lieu de prise en charge et le lieu de depose sont obligatoires.');
+      return;
+    }
     if (villeDepart === villeArrivee) {
       setErreur('La ville de depart et d\'arrivee ne peuvent pas etre identiques.');
       return;
     }
-    if (avecArrets && arrets.some((a) => !a.ville)) {
-      setErreur('Choisis une ville pour chaque arret ajoute (ou retire les arrets vides).');
+    if (avecArrets && arrets.some((a) => !a.ville || !a.heure || !a.lieuPriseEnCharge.trim())) {
+      setErreur('Chaque arret doit avoir une ville, une heure d\'arrivee estimee et un lieu de prise en charge.');
       return;
     }
     if (new Set(pointsOrdonnes).size !== pointsOrdonnes.length) {
@@ -185,10 +189,14 @@ export default function NouveauTrajet() {
       // 1. Créer la ligne, avec ses points et ses prix par tronçon.
       const points = pointsOrdonnes.map((ville, i) => {
         let lieu = '';
+        let heureArret: string | null = null;
         if (i === 0) lieu = pointDepart;
         else if (i === dernierOrdre) lieu = pointArrivee;
-        else lieu = arrets[i - 1]?.lieuPriseEnCharge || '';
-        return { ville, lieu_prise_en_charge: lieu || null };
+        else {
+          lieu = arrets[i - 1]?.lieuPriseEnCharge || '';
+          heureArret = arrets[i - 1]?.heure || null;
+        }
+        return { ville, lieu_prise_en_charge: lieu || null, heure_arrivee_estimee: heureArret };
       });
 
       const troncons_prix = Object.entries(prixCombinaisons)
@@ -333,9 +341,9 @@ export default function NouveauTrajet() {
               <div className="mt-3 space-y-3">
                 <div className="rounded-xl bg-purple/8 border border-purple/20 p-3">
                   <p className="text-[11px] text-ink-soft">
-                    L&apos;heure indiquée par arrêt est purement indicative pour toi -- elle n&apos;est
-                    pas encore affichée au voyageur. La ville et le lieu de prise en charge de
-                    chaque arrêt sont eux bien enregistrés et utilisés en recherche.
+                    Ville, heure d&apos;arrivée estimée et lieu de prise en charge sont
+                    obligatoires pour chaque arrêt -- ils sont enregistrés et affichés aux
+                    passagers et à ton équipe.
                   </p>
                 </div>
 

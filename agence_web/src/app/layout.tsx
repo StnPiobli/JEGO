@@ -33,7 +33,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+            <body className="font-sans">{children}</body>
     </html>
   );
 }

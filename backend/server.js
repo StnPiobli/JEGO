@@ -14,6 +14,7 @@ app.use(cors());
 // Fichiers publics (logos d'agence) — pas les documents officiels,
 // ceux-là restent servis via une route API authentifiée séparée.
 app.use('/uploads/agences/logos', express.static(path.join(__dirname, 'uploads', 'agences', 'logos')));
+app.use('/uploads/messages', express.static(path.join(__dirname, 'uploads', 'messages')));
 // express.json() doit laisser passer les envois de fichiers : la route
 // de téléversement lit le flux multipart brut elle-même.
 app.use((req, res, next) => {
@@ -38,6 +39,7 @@ app.use('/api/litiges', require('./routes/litigeRoutes'));
 app.use('/api/rapports', require('./routes/rapportRoutes'));
 app.use('/api/groupes', require('./routes/groupeRoutes'));
 app.use('/api/denonciations', require('./routes/denonciationRoutes'));
+app.use('/api/messages', require('./routes/messageRoutes'));
 const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
 
 // Route de test

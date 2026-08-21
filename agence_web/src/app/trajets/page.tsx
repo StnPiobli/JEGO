@@ -24,9 +24,13 @@ type Trajet = {
   heure_arrivee_estimee: string | null;
   prix_base: number;
   categorie: 'standard' | 'mixte' | 'vip';
-  statut: 'programme' | 'en_cours' | 'retard' | 'termine' | 'annule';
+  statut: 'programme' | 'en_cours' | 'retard' | 'termine' | 'annule' | 'supprime';
   ville_depart: string;
   ville_arrivee: string;
+  code_ville_depart?: string;
+  code_ville_arrivee?: string;
+  bus_id?: string;
+  chauffeur_id?: string | null;
   nom_bus: string;
   chauffeur?: string | null;
   retard_minutes?: number;
@@ -34,7 +38,7 @@ type Trajet = {
   distribution_nourriture?: boolean;
   supplement_premium?: number;
   prix_bagage_supplementaire?: number;
-  points_detail?: { ville: string; lieu: string | null }[];
+  points_detail?: { ville: string; lieu: string | null; heure?: string | null }[];
   prix_sections?: { depart: string; arrivee: string; prix: number }[];
 };
 
@@ -56,8 +60,22 @@ function estDeNuit(heureDepart: string): boolean {
 function estExpress(t: Trajet): boolean {
   return !t.arrets || t.arrets.length === 0;
 }
-const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Annulé' };
-const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red' };
+function departPasse(t: Trajet): boolean {
+  return new Date() > new Date(`${t.date_depart}T${t.heure_depart}`);
+}
+function chaineHoraires(t: Trajet): string {
+  const heures = [t.heure_depart];
+  if (t.points_detail && t.points_detail.length > 2) {
+    for (let i = 1; i < t.points_detail.length - 1; i++) {
+      const h = t.points_detail[i].heure;
+      if (h) heures.push(h);
+    }
+  }
+  if (t.heure_arrivee_estimee) heures.push(t.heure_arrivee_estimee);
+  return heures.join(' → ');
+}
+const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Terminé', supprime: 'Supprimé' };
+const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red', supprime: 'grey' };
 
 function identifiantAffichage(t: Trajet): string {
   const date = t.date_depart.replace(/-/g, '').slice(2);
@@ -272,11 +290,11 @@ export default function ProgrammationTrajets() {
           ) : (
             <div className="divide-y divide-line">
               {trajetsDuJour.map((t) => (
-                <div key={t.id} className={`px-5 py-4 transition-colors ${t.statut === 'annule' ? 'opacity-50 bg-off-white/40' : 'hover:bg-green-500/5'}`}>
+                <div key={t.id} className={`px-5 py-4 transition-colors ${['annule', 'supprime'].includes(t.statut) ? 'opacity-50 bg-off-white/40' : 'hover:bg-green-500/5'}`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
                       <span className="text-sm font-bold text-ink whitespace-nowrap mr-3">
-                        {t.heure_depart}{t.heure_arrivee_estimee ? ` → ${t.heure_arrivee_estimee}` : ''}
+                        {chaineHoraires(t)}
                       </span>
                       <span className="text-sm">
                         {(t.points_detail && t.points_detail.length > 0
@@ -330,12 +348,20 @@ export default function ProgrammationTrajets() {
                   )}
 
                   {t.statut === 'annule' ? (
-                    <p className="mt-2.5 text-[11.5px] text-ink-soft italic">Trajet annulé — plus aucune action possible.</p>
+                    <p className="mt-2.5 text-[11.5px] text-ink-soft italic">Trajet terminé — plus aucune action possible.</p>
+                  ) : t.statut === 'supprime' ? (
+                    <p className="mt-2.5 text-[11.5px] text-ink-soft italic">Trajet supprimé — plus aucune action possible.</p>
                   ) : (
                   <div className="mt-2.5 flex gap-1.5 flex-wrap">
-                    <Link href={`/trajets/plan?id=${t.id}`} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-ink text-white border border-ink">
-                      🎟️ Vendre un billet (guichet)
-                    </Link>
+                    {departPasse(t) ? (
+                      <span className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-line text-ink-soft cursor-not-allowed">
+                        🎟️ Vendre un billet (guichet)
+                      </span>
+                    ) : (
+                      <Link href={`/trajets/plan?id=${t.id}`} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-ink text-white border border-ink">
+                        🎟️ Vendre un billet (guichet)
+                      </Link>
+                    )}
                     {t.statut === 'programme' && (
                       <button onClick={() => { setDialogueChauffeur(t); setChauffeurChoisi(''); }} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-off-white border border-line text-ink">
                         Changer de chauffeur
@@ -350,6 +376,12 @@ export default function ProgrammationTrajets() {
                       </>
                     )}
                     <BtnMini variant="danger" onClick={() => setDialogueSuppression(t)}>Supprimer</BtnMini>
+                    <Link
+                      href={`/trajets/nouveau?dupliquer=1&ville_depart=${t.code_ville_depart ?? ''}&ville_arrivee=${t.code_ville_arrivee ?? ''}&bus_id=${t.bus_id ?? ''}&chauffeur_id=${t.chauffeur_id ?? ''}&point_depart=${encodeURIComponent(t.points_detail?.[0]?.lieu ?? '')}&point_arrivee=${encodeURIComponent(t.points_detail?.[(t.points_detail?.length ?? 1) - 1]?.lieu ?? '')}`}
+                      className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-off-white border border-line text-ink"
+                    >
+                      Dupliquer
+                    </Link>
                   </div>
                   )}
                 </div>

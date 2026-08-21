@@ -30,9 +30,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="grid grid-cols-[248px_1fr] min-h-screen">
+    <div className="grid grid-cols-[248px_1fr] h-screen overflow-hidden">
       <Sidebar />
-      <main className="px-10 py-7 pb-16">{children}</main>
+            <main className="px-10 py-7 pb-16 overflow-y-auto min-h-0">{children}</main>
     </div>
   );
 }

@@ -91,9 +91,9 @@ async function creerLigne(req, res) {
 
     for (let i = 0; i < pointsAUtiliser.length; i++) {
       await client.query(
-        `INSERT INTO ligne_points (ligne_id, ville, ordre, lieu_prise_en_charge)
-         VALUES ($1, $2, $3, $4)`,
-        [ligneId, pointsAUtiliser[i].ville, i, pointsAUtiliser[i].lieu_prise_en_charge || null]
+        `INSERT INTO ligne_points (ligne_id, ville, ordre, lieu_prise_en_charge, heure_arrivee_estimee)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [ligneId, pointsAUtiliser[i].ville, i, pointsAUtiliser[i].lieu_prise_en_charge || null, pointsAUtiliser[i].heure_arrivee_estimee || null]
       );
     }
 
@@ -143,7 +143,7 @@ async function listerLignes(req, res) {
 
     if (ligneIds.length > 0) {
       const points = await pool.query(
-        `SELECT lp.ligne_id, v.nom_affiche AS ville, lp.ordre, lp.lieu_prise_en_charge
+        `SELECT lp.ligne_id, v.nom_affiche AS ville, lp.ordre, lp.lieu_prise_en_charge, lp.heure_arrivee_estimee
          FROM ligne_points lp
          JOIN villes v ON v.code = lp.ville
          WHERE lp.ligne_id = ANY($1) ORDER BY lp.ligne_id, lp.ordre`,

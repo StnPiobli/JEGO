@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 // BRANCHÉ SUR LE VRAI BACKEND — vue globale billets & trajets, toutes agences.
 //   GET /api/admin/trajets?date=YYYY-MM-DD
 //   GET /api/admin/trajets/resume?date=YYYY-MM-DD
@@ -29,7 +29,36 @@ type Trajet = {
   app: number; site: number;
   signalements: Signalement[];
   passagers: Passager[];
+  categorie: "standard" | "mixte" | "vip";
+  nom_bus: string;
+  chauffeur: string | null;
+  prix_base: number;
+  prix_bagage_supplementaire: number | null;
+  distribution_nourriture: boolean;
+  supplement_premium: number | null;
+  points_detail: { ville: string; lieu: string | null; heure: string | null }[];
+  prix_sections: { depart: string; arrivee: string; prix: number }[];
 };
+
+function estDeNuit(heureDepart: string): boolean {
+  const heure = parseInt(heureDepart.slice(0, 2), 10);
+  return heure >= 22 || heure < 3;
+}
+function estExpress(t: Trajet): boolean {
+  return t.points_detail.length <= 2;
+}
+function chaineHoraires(t: Trajet): string {
+  const heures = [t.depart];
+  if (t.points_detail.length > 2) {
+    for (let i = 1; i < t.points_detail.length - 1; i++) {
+      const h = t.points_detail[i].heure;
+      if (h) heures.push(h);
+    }
+  }
+  if (t.arrivee) heures.push(t.arrivee);
+  return heures.join(" → ");
+}
+const libellesCategorie: Record<Trajet["categorie"], string> = { standard: "Standard", mixte: "Mixte", vip: "VIP" };
 
 type Detail = { label: string; valeur: string };
 type Resume = {
@@ -141,21 +170,58 @@ export default function BilletsPage() {
           <Panel key={t.id}>
             <div className="px-[18px] py-3.5">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <button onClick={() => toggleDeplier(t.id)} className="text-left">
                     <span className="text-ink-soft text-xs mr-1">{depliés.has(t.id) ? "▲" : "▼"}</span>
-                    <b className="text-[13.5px]">{t.trajet}</b>
+                    <b className="text-[13.5px]">{chaineHoraires(t)}</b>
+                    <span className="text-[13.5px] ml-2">
+                      {t.points_detail.length > 0
+                        ? t.points_detail.map((p, i, arr) => (
+                            <span key={i}>
+                              <span className="font-bold text-ink">{p.ville}</span>
+                              {p.lieu && <span className="text-ink-soft font-normal"> ({p.lieu})</span>}
+                              {i < arr.length - 1 && <span className="text-ink-soft font-normal"> → </span>}
+                            </span>
+                          ))
+                        : <span className="font-bold text-ink">{t.trajet}</span>}
+                    </span>
                   </button>
                   <div className="text-[11.5px] text-ink-soft mt-0.5">
-                    {t.agence} · {date.toLocaleDateString("fr-FR")} {t.depart} → arrivée prévue {t.arrivee} · {t.occ}
+                    {t.agence} · {date.toLocaleDateString("fr-FR")} · {t.occ}
                   </div>
+                  <div className="text-[11px] text-ink-soft mt-1">
+                    <span className="font-semibold text-ink">Chauffeur :</span> {t.chauffeur ?? "non assigné"}
+                    {" / "}<span className="font-semibold text-ink">bus :</span> {t.nom_bus}
+                    {" / "}<span className="font-semibold text-ink">Prix :</span> {t.prix_base} FCFA
+                    {t.categorie === "mixte" && t.supplement_premium != null && t.supplement_premium > 0 && (
+                      <>{" / "}<span className="font-semibold text-ink">Premium :</span> +{t.supplement_premium} FCFA</>
+                    )}
+                    {t.prix_bagage_supplementaire != null && (
+                      <>{" / "}<span className="font-semibold text-ink">Bagage :</span> {t.prix_bagage_supplementaire} FCFA</>
+                    )}
+                    {" / "}<span className="font-semibold text-ink">Repas :</span> {t.distribution_nourriture ? "inclus" : "non inclus"}
+                  </div>
+                  {t.prix_sections.length > 1 && (
+                    <div className="text-[11px] text-ink-soft mt-0.5">
+                      <span className="font-semibold text-ink">Sections :</span>{" "}
+                      {t.prix_sections.map((s, i) => (
+                        <span key={i}>
+                          {s.depart} → {s.arrivee} <span className="font-semibold text-ink">{s.prix} FCFA</span>
+                          {i < t.prix_sections.length - 1 ? " / " : ""}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 ml-3">
                   {t.signalements.length > 0 ? (
                     <BtnMini variant="danger" onClick={() => setSignalementsOuvert(t.id)}>⚠️ {t.signalements.length} signalement(s)</BtnMini>
                   ) : (
                     <span className="text-ink-soft text-[12px]">Aucun signalement</span>
                   )}
+                  <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
+                  {estDeNuit(t.depart) && <Badge color="grey">Nuit</Badge>}
+                  {estExpress(t) && <Badge color="grey">Express</Badge>}
                   <Badge color={t.color}>{t.statut}</Badge>
                 </div>
               </div>

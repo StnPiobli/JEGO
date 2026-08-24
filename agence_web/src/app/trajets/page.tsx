@@ -63,6 +63,13 @@ function estExpress(t: Trajet): boolean {
 function departPasse(t: Trajet): boolean {
   return new Date() > new Date(`${t.date_depart}T${t.heure_depart}`);
 }
+// Affichage seulement : dès que l'heure de départ est passée, on
+// montre "En cours" même si le chauffeur n'a pas encore déclaré son
+// départ depuis l'app -- sans jamais modifier la vraie donnée stockée.
+function statutAffiche(t: Trajet): Trajet['statut'] {
+  if (t.statut === 'programme' && departPasse(t)) return 'en_cours';
+  return t.statut;
+}
 function chaineHoraires(t: Trajet): string {
   const heures = [t.heure_depart];
   if (t.points_detail && t.points_detail.length > 2) {
@@ -271,7 +278,7 @@ export default function ProgrammationTrajets() {
                       <p className="text-[14px] font-bold text-ink">{t.ville_depart} → {t.ville_arrivee} <span className="font-mono text-[10px] text-ink-soft">{identifiantAffichage(t)}</span></p>
                       {t.arrets && t.arrets.length > 0 && <p className="text-[11px] text-ink-soft">Via {t.arrets.join(', ')}</p>}
                       <p className="text-[12px] text-ink-soft mt-1">{t.date_depart.split('-').reverse().join('/')} · {t.heure_depart} · {t.nom_bus}</p>
-                      <div className="mt-1.5"><Badge color={couleurStatut[t.statut]}>{libellesStatut[t.statut]}</Badge></div>
+                      <div className="mt-1.5"><Badge color={couleurStatut[statutAffiche(t)]}>{libellesStatut[statutAffiche(t)]}</Badge></div>
                     </div>
                   ))}
                 </div>
@@ -313,7 +320,7 @@ export default function ProgrammationTrajets() {
                       <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
                       {estDeNuit(t.heure_depart) && <Badge color="grey">Nuit</Badge>}
                       {estExpress(t) && <Badge color="grey">Express</Badge>}
-                      <Badge color={couleurStatut[t.statut]}>{libellesStatut[t.statut]}</Badge>
+                      <Badge color={couleurStatut[statutAffiche(t)]}>{libellesStatut[statutAffiche(t)]}</Badge>
                       {t.retard_minutes != null && t.retard_minutes > 0 && (
                         <Badge color="amber">{libelleRetard(t.retard_minutes)}</Badge>
                       )}
@@ -363,9 +370,15 @@ export default function ProgrammationTrajets() {
                       </Link>
                     )}
                     {t.statut === 'programme' && (
-                      <button onClick={() => { setDialogueChauffeur(t); setChauffeurChoisi(''); }} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-off-white border border-line text-ink">
-                        Changer de chauffeur
-                      </button>
+                      departPasse(t) ? (
+                        <span className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-line text-ink-soft cursor-not-allowed">
+                          Changer de chauffeur
+                        </span>
+                      ) : (
+                        <button onClick={() => { setDialogueChauffeur(t); setChauffeurChoisi(''); }} className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg mr-1.5 bg-off-white border border-line text-ink">
+                          Changer de chauffeur
+                        </button>
+                      )
                     )}
                     {t.statut !== 'termine' && (
                       <>
@@ -375,7 +388,11 @@ export default function ProgrammationTrajets() {
                         <BtnMini variant="danger" onClick={() => setDialogueArret(t)}>Arrêter le trajet</BtnMini>
                       </>
                     )}
-                    <BtnMini variant="danger" onClick={() => setDialogueSuppression(t)}>Supprimer</BtnMini>
+                    {departPasse(t) ? (
+                      <span className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-line text-ink-soft cursor-not-allowed">Supprimer</span>
+                    ) : (
+                      <BtnMini variant="danger" onClick={() => setDialogueSuppression(t)}>Supprimer</BtnMini>
+                    )}
                     <Link
                       href={`/trajets/nouveau?dupliquer=1&ville_depart=${t.code_ville_depart ?? ''}&ville_arrivee=${t.code_ville_arrivee ?? ''}&bus_id=${t.bus_id ?? ''}&chauffeur_id=${t.chauffeur_id ?? ''}&point_depart=${encodeURIComponent(t.points_detail?.[0]?.lieu ?? '')}&point_arrivee=${encodeURIComponent(t.points_detail?.[(t.points_detail?.length ?? 1) - 1]?.lieu ?? '')}`}
                       className="text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-off-white border border-line text-ink"

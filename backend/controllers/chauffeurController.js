@@ -57,9 +57,14 @@ async function listerChauffeurs(req, res) {
     const agenceId = req.utilisateur.id;
 
     const resultat = await pool.query(
-      `SELECT id, nom, prenom, telephone, email, statut, note_moyenne, nombre_voyages, desactive_urgence, date_naissance
-       FROM chauffeurs WHERE agence_id = $1
-       ORDER BY nom, prenom`,
+      `SELECT c.id, c.nom, c.prenom, c.telephone, c.email, c.statut, c.note_moyenne, c.desactive_urgence, c.date_naissance,
+              COALESCE(voyages.nb, 0) AS nombre_voyages
+       FROM chauffeurs c
+       LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS nb FROM trajets WHERE chauffeur_id = c.id AND statut = 'termine'
+       ) voyages ON true
+       WHERE c.agence_id = $1 AND c.statut != 'supprime'
+       ORDER BY c.nom, c.prenom`,
       [agenceId]
     );
 
@@ -792,9 +797,12 @@ async function supprimerChauffeur(req, res) {
     const agenceId = req.utilisateur.id;
     const { id } = req.params;
 
-    const check = await pool.query('SELECT id, nom, prenom FROM chauffeurs WHERE id = $1 AND agence_id = $2', [id, agenceId]);
+    const check = await pool.query('SELECT id, nom, prenom, statut FROM chauffeurs WHERE id = $1 AND agence_id = $2', [id, agenceId]);
     if (check.rows.length === 0) {
       return res.status(404).json({ error: 'Chauffeur introuvable dans votre agence' });
+    }
+    if (check.rows[0].statut === 'supprime') {
+      return res.status(400).json({ error: 'Ce chauffeur est déjà supprimé.' });
     }
 
     const actif = await pool.query(
@@ -805,8 +813,15 @@ async function supprimerChauffeur(req, res) {
       return res.status(409).json({ error: 'Ce chauffeur est assigné à un trajet à venir ou en cours — retire-le de ce(s) trajet(s) avant de le supprimer.' });
     }
 
-    await pool.query(`UPDATE trajets SET chauffeur_id = NULL WHERE chauffeur_id = $1`, [id]);
-    await pool.query('DELETE FROM chauffeurs WHERE id = $1', [id]);
+    // Soft-delete : un vrai DELETE échouerait sur la clé étrangère des
+    // avis déjà laissés pour ce chauffeur (et on perdrait la
+    // traçabilité de ses trajets déjà terminés/annulés). Le chauffeur
+    // reste rattaché à son historique, mais disparaît des listes et ne
+    // peut plus se connecter ni être assigné.
+    await pool.query(
+      `UPDATE chauffeurs SET statut = 'supprime', session_active = false, mis_a_jour_le = NOW() WHERE id = $1`,
+      [id]
+    );
 
     res.json({ message: 'Chauffeur supprimé' });
 

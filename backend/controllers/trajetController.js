@@ -245,11 +245,16 @@ async function assignerChauffeur(req, res) {
     }
 
     const trajetCheck = await pool.query(
-      'SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2',
+      `SELECT id, statut, TO_CHAR(date_depart, 'YYYY-MM-DD') AS date_depart, heure_depart
+       FROM trajets WHERE id = $1 AND agence_id = $2`,
       [trajetId, agenceId]
     );
     if (trajetCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const trajetInfo = trajetCheck.rows[0];
+    if (new Date() > new Date(`${trajetInfo.date_depart}T${trajetInfo.heure_depart}`)) {
+      return res.status(400).json({ error: 'L\'heure de départ de ce trajet est déjà passée — le chauffeur ne peut plus être changé.' });
     }
 
     const chauffeurCheck = await pool.query(
@@ -583,9 +588,8 @@ async function supprimerTrajet(req, res) {
     const trajetId = req.params.id;
 
     await client.query('BEGIN');
-
     const trajetCheck = await client.query(
-      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      `SELECT id, statut, TO_CHAR(date_depart, 'YYYY-MM-DD') AS date_depart, heure_depart FROM trajets WHERE id = $1 AND agence_id = $2`,
       [trajetId, agenceId]
     );
     if (trajetCheck.rows.length === 0) {
@@ -601,6 +605,10 @@ async function supprimerTrajet(req, res) {
     if (trajet.statut === 'termine') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce trajet est déjà terminé — suppression impossible, l\'historique est conservé.' });
+    }
+    if (new Date() > new Date(`${trajet.date_depart}T${trajet.heure_depart}`)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'L\'heure de départ de ce trajet est déjà passée — suppression impossible.' });
     }
     if (trajet.statut === 'annule') {
       await client.query('ROLLBACK');

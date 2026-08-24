@@ -27,12 +27,25 @@ type Passager = {
 type TrajetAvecPassagers = {
   id: string; numeroVoyage: string; date: string; heure: string; heureArrivee: string; trajet: string;
   capacite: number; demarre: boolean; passagers: Passager[];
+  pointsDetail: { ville: string; lieu: string | null; heure: string | null }[];
 };
 
 const AUJOURDHUI = todayInputDate();
 
 const stylesStatut = { confirme: 'bg-green-700/10 text-green-700', embarque: 'bg-ink/10 text-ink', annule: 'bg-red/10 text-red' };
 const libellesStatut = { confirme: 'Confirme', embarque: 'Embarque', annule: 'Annule' };
+
+function chaineHoraires(t: TrajetAvecPassagers): string {
+  const heures = [t.heure];
+  if (t.pointsDetail.length > 2) {
+    for (let i = 1; i < t.pointsDetail.length - 1; i++) {
+      const h = t.pointsDetail[i].heure;
+      if (h) heures.push(h);
+    }
+  }
+  if (t.heureArrivee) heures.push(t.heureArrivee);
+  return heures.join(' → ');
+}
 
 export default function Reservations() {
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
@@ -98,6 +111,7 @@ export default function Reservations() {
             capacite,
             demarre: t.statut === 'en_cours',
             passagers,
+            pointsDetail: (t.points_detail || []) as { ville: string; lieu: string | null; heure: string | null }[],
           } as TrajetAvecPassagers;
         }),
       );
@@ -203,7 +217,19 @@ export default function Reservations() {
                           <p className="text-[15px] font-extrabold text-ink">{t.trajet}</p>
                           <span className="text-[10px] font-mono text-ink-soft">{t.numeroVoyage} · #{t.id}</span>
                         </div>
-                        <p className="text-[12px] text-ink-soft">Départ {t.heure} · arrivée estimée {t.heureArrivee} {t.demarre && <span className="text-green-700 font-bold">· En cours</span>}</p>
+                                                <p className="text-[12px] text-ink-soft">
+                                                                            <span className="font-semibold text-ink mr-10">{chaineHoraires(t)}</span>
+                          {t.pointsDetail.length > 0
+                            ? t.pointsDetail.map((p, i, arr) => (
+                                <span key={i}>
+                                  <span className="font-bold text-ink">{p.ville}</span>
+                                  {p.lieu && <span className="text-ink-soft"> ({p.lieu})</span>}
+                                  {i < arr.length - 1 && <span className="text-ink-soft"> → </span>}
+                                </span>
+                              ))
+                            : <span className="font-bold text-ink">{t.trajet}</span>}
+                          {t.demarre && <span className="text-green-700 font-bold"> · En cours</span>}
+                        </p>
                       </div>
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgb(var(--c-ink-soft))" strokeWidth="2" className={`transition-transform shrink-0 ${ouvert ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
                     </div>

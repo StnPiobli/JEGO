@@ -2,6 +2,7 @@
 const { verserEscrowTrajet } = require('../services/escrowService');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -81,7 +82,7 @@ async function listerTrajets(req, res) {
     }
 
     const resultat = await pool.query(
-      `SELECT t.id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_estimee,
+      `SELECT t.id, t.numero, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_estimee,
               t.prix_base, t.categorie, t.statut, t.retard_minutes, t.prix_bagage_supplementaire,
               t.distribution_nourriture, b.supplement_premium,
               vd.nom_affiche AS ville_depart, va.nom_affiche AS ville_arrivee,
@@ -308,7 +309,7 @@ async function rembourserBilletsDuTrajet(client, trajetId, motifCode, texteNotif
       [billet.id]
     );
 
-    const reference = `REMB-${Date.now()}-${billet.id.slice(0, 4)}`;
+    const reference = genererIdentifiant('RMB');
     await client.query(
       `INSERT INTO remboursements
         (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)

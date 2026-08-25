@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
 const { journaliser } = require('../services/logService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // OUVRIR UN LITIGE (voyageur, avec billet)
@@ -23,7 +24,7 @@ async function ouvrirLitige(req, res) {
     }
     const b = billet.rows[0];
 
-    const numero = `LIT-${Date.now()}`;
+    const numero = genererIdentifiant('LIT');
 
     const resultat = await pool.query(
       `INSERT INTO litiges
@@ -175,7 +176,7 @@ async function trancherLitige(req, res) {
             `INSERT INTO remboursements
               (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
              VALUES ($1, $2, $3, 'litige', 100, 'traite', $4, NOW())`,
-            [l.billet_id, l.voyageur_id, e.montant_total, `REMB-LIT-${Date.now()}`]
+            [l.billet_id, l.voyageur_id, e.montant_total, genererIdentifiant('RMB')]
           );
           montantMouvemente = e.montant_total;
         }

@@ -148,9 +148,10 @@ class _VueConnexionState extends State<_VueConnexion> {
     }
 
     final estTel = RegExp(r'^\+?[0-9 ]{8,15}$').hasMatch(id);
-    if (!estTel) {
+    final estEmail = id.contains('@');
+    if (!estTel && !estEmail) {
       setState(() => _erreur =
-          'Connectez-vous avec votre numéro de téléphone.');
+          'Entrez votre numéro de téléphone ou votre adresse email.');
       return;
     }
 
@@ -160,6 +161,10 @@ class _VueConnexionState extends State<_VueConnexion> {
     });
 
     try {
+      // Le compte voyageur se retrouve par téléphone uniquement :
+      // inutile de l'interroger avec une adresse email, seuls les
+      // chauffeurs peuvent s'y connecter ainsi.
+      if (!estTel) throw ErreurApi('Compte voyageur introuvable par email');
       await ApiService.connecter(telephone: id, motDePasse: _cMdp.text);
       if (!mounted) return;
       setState(() => _enCours = false);
@@ -169,7 +174,7 @@ class _VueConnexionState extends State<_VueConnexion> {
       // Identifiants inconnus côté voyageur : peut-être un chauffeur.
       try {
         final rep = await ApiService.connecterChauffeur(
-          telephone: id,
+          identifiant: id,
           motDePasse: _cMdp.text,
         );
         final c = rep['chauffeur'] ?? {};
@@ -192,8 +197,10 @@ class _VueConnexionState extends State<_VueConnexion> {
           _enCours = false;
           // On affiche le message le plus parlant : un compte
           // désactivé doit être signalé comme tel, pas confondu
-          // avec un mot de passe erroné.
-          _erreur = eChauffeur.statut == 403
+          // avec un mot de passe erroné. Sur une adresse email, le
+          // refus voyageur est le nôtre et n'a rien à dire au
+          // lecteur : seul celui du serveur compte.
+          _erreur = (eChauffeur.statut == 403 || !estTel)
               ? eChauffeur.message
               : eVoyageur.message;
         });

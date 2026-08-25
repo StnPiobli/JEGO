@@ -192,11 +192,11 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
               passagers:
                   int.tryParse(widget.params['passagers'] ?? '1') ?? 1,
               villeDepart: _phaseRetour
-                  ? widget.params['ville_arrivee'] ?? ''
-                  : widget.params['ville_depart'] ?? '',
+                  ? widget.params['arrivee_affiche'] ?? ''
+                  : widget.params['depart_affiche'] ?? '',
               villeArrivee: _phaseRetour
-                  ? widget.params['ville_depart'] ?? ''
-                  : widget.params['ville_arrivee'] ?? '',
+                  ? widget.params['depart_affiche'] ?? ''
+                  : widget.params['arrivee_affiche'] ?? '',
               date: _phaseRetour
                   ? widget.params['date_retour'] ?? ''
                   : widget.params['date'] ?? '',
@@ -219,8 +219,10 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
 
   @override
   Widget build(BuildContext context) {
-    final de = widget.params['ville_depart'] ?? '';
-    final vers = widget.params['ville_arrivee'] ?? '';
+    // Noms affichés, pas les codes serveur : l'en-tête doit lire
+    // « Douala → Yaoundé », pas « douala → yaounde ».
+    final de = widget.params['depart_affiche'] ?? '';
+    final vers = widget.params['arrivee_affiche'] ?? '';
     final offres = _phaseRetour ? _retour : _aller;
 
     return Scaffold(

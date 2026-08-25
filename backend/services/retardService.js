@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { creerNotification } = require('./notificationService');
 const { crediterPoints } = require('./pointsService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : CALCUL DU RETARD À L'ARRIVÉE + BARÈME
@@ -71,7 +72,7 @@ async function appliquerBaremeRetard(client, trajetId) {
 
     for (const b of billets.rows) {
       const montant = Math.round(b.prix_total_client * pourcentage / 100);
-      const reference = `REMB-RET-${Date.now()}-${b.id.slice(0,4)}`;
+      const reference = genererIdentifiant('RMB');
       await client.query(
         `INSERT INTO remboursements
           (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)

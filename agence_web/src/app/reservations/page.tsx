@@ -103,7 +103,11 @@ export default function Reservations() {
           const date = String(t.date_depart ?? '').split('T')[0];
           return {
             id,
-            numeroVoyage: `JG-${date.replaceAll('-', '').slice(2)}-${heure.replace(':', '')}`,
+            // Numéro attribué en base à la création du trajet. Il était
+            // recalculé ici depuis la date et l'heure : il changeait à
+            // chaque modification d'horaire et différait de celui
+            // affiché ailleurs.
+            numeroVoyage: String(t.numero ?? ''),
             date,
             heure,
             heureArrivee,
@@ -215,7 +219,7 @@ export default function Reservations() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-[15px] font-extrabold text-ink">{t.trajet}</p>
-                          <span className="text-[10px] font-mono text-ink-soft">{t.numeroVoyage} · #{t.id}</span>
+                          <span className="text-[10px] font-mono text-ink-soft">{t.numeroVoyage}</span>
                         </div>
                                                 <p className="text-[12px] text-ink-soft">
                                                                             <span className="font-semibold text-ink mr-10">{chaineHoraires(t)}</span>

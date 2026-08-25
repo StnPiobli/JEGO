@@ -56,8 +56,16 @@ class TrajetChauffeur {
       return s.length >= 5 ? s.substring(0, 5) : s;
     }
 
+    // Chaque arrêt porte son heure de passage : « Bafoussam 11:00 ».
+    // Sans elle le chauffeur voit la liste de ses arrêts sans savoir
+    // quand il est attendu à chacun.
     final arrets = ((t['arrets'] as List?) ?? [])
-        .map((a) => a is Map ? '${a['nom_affiche'] ?? a['ville'] ?? ''}' : '$a')
+        .map((a) {
+          if (a is! Map) return '$a';
+          final nom = '${a['nom_affiche'] ?? a['ville'] ?? ''}';
+          final h = heure(a['heure']);
+          return h == '--:--' ? nom : '$nom $h';
+        })
         .where((a) => a.isNotEmpty)
         .toList();
 
@@ -71,6 +79,19 @@ class TrajetChauffeur {
       'point_depart': t['lieu_embarquement'] ?? t['depart_affiche'] ?? '',
       'point_arrivee': t['arrivee_affiche'] ?? '',
       'arrets': arrets,
+      // Itinéraire complet : chaque point avec son heure, son lieu de
+      // prise en charge et le mouvement de voyageurs qui s'y fait.
+      'itineraire': ((t['itineraire'] as List?) ?? [])
+          .whereType<Map>()
+          .map((p) => {
+                'ordre': int.tryParse('${p['ordre']}') ?? 0,
+                'ville': '${p['nom_affiche'] ?? ''}',
+                'heure': heure(p['heure']),
+                'lieu': '${p['lieu'] ?? ''}',
+                'montent': int.tryParse('${p['montent'] ?? 0}') ?? 0,
+                'descendent': int.tryParse('${p['descendent'] ?? 0}') ?? 0,
+              })
+          .toList(),
       'heure_depart': heure(t['heure_depart']),
       'heure_arrivee': heure(t['heure_arrivee_estimee']),
       'bus': t['nom_bus'] ?? '',
@@ -134,15 +155,17 @@ class TrajetChauffeur {
   static bool _memeJour(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  static Map<String, dynamic>? trajetDuJour(DateTime jour) {
-    for (final t in tous) {
+  /// TOUS les trajets d'une journée, dans l'ordre des départs. Un
+  /// chauffeur peut en avoir plusieurs le même jour ; n'en montrer
+  /// qu'un lui cachait le reste de sa journée.
+  static List<Map<String, dynamic>> trajetsDuJour(DateTime jour) {
+    final duJour = tous.where((t) {
       final d = t['date'] as DateTime?;
-      if (d == null) continue;
-      if (d.year == jour.year && d.month == jour.month && d.day == jour.day) {
-        return t;
-      }
-    }
-    return null;
+      if (d == null) return false;
+      return d.year == jour.year && d.month == jour.month && d.day == jour.day;
+    }).toList()
+      ..sort((a, b) => '${a['heure_depart']}'.compareTo('${b['heure_depart']}'));
+    return duJour;
   }
 
   static List<Map<String, dynamic>> get historique {

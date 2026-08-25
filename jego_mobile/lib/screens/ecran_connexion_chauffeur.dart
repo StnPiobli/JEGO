@@ -25,9 +25,10 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
 
   Future<void> _connecter() async {
     if (_enCours) return;
-    final tel = _ctrlIdentifiant.text.trim();
-    if (tel.isEmpty || _ctrlMdp.text.trim().isEmpty) {
-      setState(() => _erreur = 'Entrez votre numéro et votre mot de passe.');
+    final identifiant = _ctrlIdentifiant.text.trim();
+    if (identifiant.isEmpty || _ctrlMdp.text.trim().isEmpty) {
+      setState(() =>
+          _erreur = 'Entrez votre numéro ou votre email, et votre mot de passe.');
       return;
     }
 
@@ -38,14 +39,14 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
 
     try {
       final rep = await ApiService.connecterChauffeur(
-        telephone: tel,
+        identifiant: identifiant,
         motDePasse: _ctrlMdp.text,
       );
       final c = rep['chauffeur'] ?? {};
       SessionChauffeur.connecter(
         nom: '${c['nom'] ?? ''}',
         prenom: '${c['prenom'] ?? ''}',
-        telephone: '${c['telephone'] ?? tel}',
+        telephone: '${c['telephone'] ?? identifiant}',
         token: rep['token']?.toString(),
         chauffeurId: c['id']?.toString(),
         agence: c['nom_agence']?.toString(),
@@ -98,7 +99,8 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
               Text('Connecte-toi avec les identifiants fournis par ton agence.',
                   style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
               const SizedBox(height: 32),
-              _champ(_ctrlIdentifiant, 'Identifiant', Icons.person_outline_rounded),
+              _champ(_ctrlIdentifiant, 'Téléphone (6XXXXXXXX) ou email',
+                  Icons.person_outline_rounded),
               const SizedBox(height: 12),
               _champ(_ctrlMdp, 'Mot de passe', Icons.lock_outline_rounded, masque: true),
               if (_erreur != null)

@@ -27,7 +27,16 @@ async function rechercherTrajets(req, res) {
 
     const resultat = await pool.query(
       `SELECT
-          t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
+          t.id, t.date_depart,
+          -- Heures DU SEGMENT demandé, pas de la ligne entière. Un
+          -- voyageur qui descend à Bafoussam doit lire l'heure de
+          -- Bafoussam, pas celle du terminus. Les points intermédiaires
+          -- portent leur heure dans ligne_points ; les deux extrémités
+          -- de la ligne l'ont sur le trajet lui-même.
+          COALESCE(vdp.heure_arrivee_estimee, t.heure_depart) AS heure_depart,
+          COALESCE(vap.heure_arrivee_estimee, t.heure_arrivee_estimee) AS heure_arrivee_estimee,
+          t.heure_depart AS heure_depart_ligne,
+          t.heure_arrivee_estimee AS heure_arrivee_ligne,
           t.categorie, t.statut,
           vdp.ville AS code_depart, vap.ville AS code_arrivee,
           vdp.ordre AS ordre_depart, vap.ordre AS ordre_arrivee,
@@ -79,9 +88,28 @@ async function rechercherTrajets(req, res) {
        JOIN agences a ON a.id = t.agence_id
        WHERE t.date_depart = $3
          AND a.statut = 'actif'
-         AND t.statut = 'programme'
-         AND (t.date_depart > CURRENT_DATE OR (t.date_depart = CURRENT_DATE AND t.heure_depart > CURRENT_TIME))
-       ORDER BY t.heure_depart`,
+         AND t.statut IN ('programme', 'en_cours')
+         -- Le point de MONTÉE demandé ne doit pas être déjà dépassé.
+         -- Un bus parti de Douala roule encore vers Bafoussam : ses
+         -- places Bafoussam->Yaoundé restent vendables jusqu'à ce
+         -- qu'il y soit. Le terminus initial, lui, se ferme dès que le
+         -- départ est déclaré.
+         AND CASE
+               WHEN vdp.ordre = 0 THEN t.statut = 'programme'
+               ELSE NOT EXISTS (
+                 SELECT 1 FROM arrivees_arrets aa
+                 WHERE aa.trajet_id = t.id AND aa.ordre = vdp.ordre
+                   AND aa.heure_depart_reelle IS NOT NULL
+               )
+             END
+         -- Garde-fou indépendant du chauffeur : si celui-ci oublie de
+         -- déclarer son départ, la vente ferme quand même à l'heure
+         -- prévue de l'arrêt. Sans heure renseignée, on retombe sur
+         -- l'heure de départ de la ligne, plus prudente.
+         AND (t.date_depart > CURRENT_DATE
+              OR (t.date_depart = CURRENT_DATE
+                  AND COALESCE(vdp.heure_arrivee_estimee, t.heure_depart) > CURRENT_TIME))
+       ORDER BY COALESCE(vdp.heure_arrivee_estimee, t.heure_depart)`,
       [ville_depart, ville_arrivee, date_depart]
     );
 

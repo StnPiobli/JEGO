@@ -19,6 +19,7 @@ import { apiFetch } from '../lib/api';
 
 type Trajet = {
   id: string;
+  numero: string;
   date_depart: string;
   heure_depart: string;
   heure_arrivee_estimee: string | null;
@@ -84,12 +85,14 @@ function chaineHoraires(t: Trajet): string {
 const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Terminé', supprime: 'Supprimé' };
 const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red', supprime: 'grey' };
 
+// Le numéro de voyage vient de la base, attribué une seule fois à la
+// création du trajet. Il était auparavant recalculé ici depuis la date
+// et l'heure de départ : il changeait donc dès qu'on modifiait
+// l'horaire, deux agences pouvaient obtenir le même, et l'application
+// mobile — qui ne connaissait pas la recette — affichait l'identifiant
+// technique à la place.
 function identifiantAffichage(t: Trajet): string {
-  const date = t.date_depart.replace(/-/g, '').slice(2);
-  const heure = t.heure_depart.replace(':', '');
-  const abrevDepart = t.ville_depart.slice(0, 3).toUpperCase();
-  const abrevArrivee = t.ville_arrivee.slice(0, 3).toUpperCase();
-  return `JG-${date}-${heure}-${abrevDepart}${abrevArrivee}`;
+  return t.numero;
 }
 
 function libelleRetard(minutes: number) {

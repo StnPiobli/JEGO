@@ -8,6 +8,7 @@ import '../config/scan_hors_ligne.dart';
 import 'ecran_emploi_du_temps_chauffeur.dart';
 import 'ecran_historique_chauffeur.dart';
 import 'ecran_scan_billet.dart';
+import '../widgets/itineraire_trajet.dart';
 
 /// Accueil chauffeur. Regles temporelles :
 /// - Depart : impossible avant l'heure de depart programmee.
@@ -621,156 +622,6 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     );
   }
 
-  /// Feuille de route : liste des points de la ligne, avec le nombre
-  /// de passagers qui montent et descendent à chacun. Le chauffeur y
-  /// déclare son passage aux arrêts intermédiaires — un passager qui
-  /// descend en cours de route voit alors son billet clos à cet
-  /// arrêt, sans attendre le terminus.
-  Future<void> _ouvrirArrets(Map<String, dynamic> trajet) async {
-    final token = SessionChauffeur.token;
-    final trajetId = '${trajet['id']}';
-    if (token == null) {
-      setState(() => _erreurAction = 'Session expirée. Reconnectez-vous.');
-      return;
-    }
-
-    List<Map<String, dynamic>> arrets;
-    try {
-      arrets = await ApiService.arretsTrajet(trajetId, token);
-    } on ErreurApi catch (e) {
-      if (!mounted) return;
-      setState(() => _erreurAction = e.message);
-      return;
-    }
-    if (!mounted) return;
-
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, majFeuille) {
-          return Container(
-            margin: const EdgeInsets.all(14),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: JegoTheme.fondCarte,
-              borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Feuille de route',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text(
-                  'Déclarez votre passage à chaque arrêt. Le terminus se déclare avec le bouton « Declarer arrivee ».',
-                  style: TextStyle(
-                      color: JegoTheme.texteSecondaire, fontSize: 12.5),
-                ),
-                const SizedBox(height: 14),
-                ...arrets.map((a) {
-                  final ordre = int.tryParse('${a['ordre']}') ?? 0;
-                  final dernier = ordre == arrets.length - 1;
-                  final declare = a['declare'] == true;
-                  final departDeclare = a['depart_declare'] == true;
-                  final montent = int.tryParse('${a['montent'] ?? 0}') ?? 0;
-                  final descendent =
-                      int.tryParse('${a['descendent'] ?? 0}') ?? 0;
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 30,
-                          height: 30,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: declare
-                                ? JegoTheme.vert
-                                : JegoTheme.fond,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: JegoTheme.bordCarte),
-                          ),
-                          child: declare
-                              ? const Icon(Icons.check_rounded,
-                                  size: 16, color: Colors.white)
-                              : Text('$ordre',
-                                  style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800)),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('${a['nom_affiche'] ?? a['ville'] ?? ''}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14)),
-                              Text(
-                                '$montent montent · $descendent descendent',
-                                style: TextStyle(
-                                    color: JegoTheme.texteSecondaire,
-                                    fontSize: 11.5),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Consultation seulement : les déclarations se
-                        // font au bouton principal, qui indique lui-même
-                        // l'étape. Deux chemins pour la même action
-                        // finiraient par se contredire.
-                        if (ordre > 0 && !dernier)
-                          Text(
-                            departDeclare
-                                ? 'Quitté'
-                                : declare
-                                    ? 'À quai'
-                                    : 'À venir',
-                            style: TextStyle(
-                              color: departDeclare
-                                  ? JegoTheme.texteTernaire
-                                  : declare
-                                      ? JegoTheme.vert
-                                      : JegoTheme.texteSecondaire,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 6),
-                BoutonTactile(
-                  onTap: () => Navigator.of(ctx).pop(),
-                  child: Container(
-                    width: double.infinity,
-                    height: 46,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: JegoTheme.fond,
-                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-                      border: Border.all(color: JegoTheme.bordCarte),
-                    ),
-                    child: const Text('Fermer',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-
-    if (mounted) _rafraichir();
-  }
-
   void _scanner(Map<String, dynamic>? trajet) {
     if (!_peutScanner(trajet) || trajet == null) return;
     final reference = '${trajet['reference']}';
@@ -996,15 +847,6 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             ),
             const SizedBox(height: 12),
             _grosBouton(
-              icone: Icons.alt_route_rounded,
-              libelle: 'Feuille de route / arrêts',
-              couleur: JegoTheme.texte,
-              onTap: (_partiDeclare && trajet != null)
-                  ? () => _ouvrirArrets(trajet)
-                  : null,
-            ),
-            const SizedBox(height: 12),
-            _grosBouton(
               icone: Icons.qr_code_scanner_rounded,
               libelle: _peutScanner(trajet)
                   ? 'Scanner un billet'
@@ -1162,7 +1004,12 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             ],
           ),
           const SizedBox(height: 14),
-          _itineraireDirect(trajet),
+          ItineraireTrajet(
+            points: (trajet['itineraire'] as List?) ?? const [],
+            etats: _arrets,
+            partiDeclare: _partiDeclare,
+            arriveDeclaree: _arriveDeclaree,
+          ),
           const SizedBox(height: 16),
           const Divider(height: 1, color: JegoTheme.bordCarte),
           const SizedBox(height: 14),
@@ -1187,171 +1034,6 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  /// L'itinéraire complet de la carte d'accueil, de haut en bas. Le
-  /// départ et le terminus sont écrits plus grand : ce sont les deux
-  /// points que le chauffeur cherche en premier.
-  ///
-  /// La frise ne se contente pas de lister : elle montre où le bus en
-  /// est. Un point déjà quitté s'éteint, celui où le bus est à quai
-  /// ressort en vert, les suivants restent en attente.
-  Widget _itineraireDirect(Map<String, dynamic> trajet) {
-    final points = (trajet['itineraire'] as List?) ?? [];
-    if (points.length < 2) return const SizedBox.shrink();
-
-    Map<String, dynamic>? etatDe(int ordre) {
-      for (final a in _arrets) {
-        if ((int.tryParse('${a['ordre']}') ?? -1) == ordre) {
-          return Map<String, dynamic>.from(a);
-        }
-      }
-      return null;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < points.length; i++)
-            Builder(builder: (_) {
-              final p = points[i] as Map;
-              final ordre = p['ordre'] as int? ?? i;
-              final premier = i == 0;
-              final dernier = i == points.length - 1;
-              final borne = premier || dernier;
-              final etat = etatDe(ordre);
-
-              // Les extrémités tiennent leur état du trajet lui-même,
-              // les arrêts de ce que le chauffeur y a déclaré.
-              final quitte = premier
-                  ? _partiDeclare
-                  : dernier
-                      ? _arriveDeclaree
-                      : etat?['depart_declare'] == true;
-              final aQuai =
-                  !quitte && !borne && etat?['declare'] == true;
-
-              final montent = p['montent'] as int? ?? 0;
-              final descendent = p['descendent'] as int? ?? 0;
-              final mouvements = <String>[
-                if (montent > 0) '$montent monte${montent > 1 ? 'nt' : ''}',
-                if (descendent > 0)
-                  '$descendent descend${descendent > 1 ? 'ent' : ''}',
-              ];
-
-              final couleurPoint = quitte
-                  ? JegoTheme.texteTernaire
-                  : aQuai
-                      ? JegoTheme.vert
-                      : JegoTheme.texteSecondaire;
-
-              return IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Pastille + trait de liaison vers le point suivant.
-                    Column(
-                      children: [
-                        Container(
-                          width: borne ? 15 : 11,
-                          height: borne ? 15 : 11,
-                          margin: EdgeInsets.only(top: borne ? 4 : 3),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: quitte || aQuai || borne
-                                ? couleurPoint
-                                : Colors.transparent,
-                            border: Border.all(
-                                color: couleurPoint, width: borne ? 2.4 : 1.8),
-                          ),
-                        ),
-                        if (!dernier)
-                          Expanded(
-                            child: Container(
-                              width: 1.6,
-                              margin: const EdgeInsets.symmetric(vertical: 2),
-                              color: quitte
-                                  ? JegoTheme.texteTernaire
-                                  : JegoTheme.bordCarte,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 48,
-                      child: Text('${p['heure']}',
-                          style: TextStyle(
-                              fontSize: borne ? 15 : 12,
-                              fontWeight: FontWeight.w800,
-                              color: quitte
-                                  ? JegoTheme.texteTernaire
-                                  : borne
-                                      ? JegoTheme.vert
-                                      : JegoTheme.texte)),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: dernier ? 0 : 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text('${p['ville']}',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: borne ? 17 : 12.5,
-                                          fontWeight: borne
-                                              ? FontWeight.w800
-                                              : FontWeight.w700,
-                                          color: quitte
-                                              ? JegoTheme.texteTernaire
-                                              : JegoTheme.texte)),
-                                ),
-                                if (aQuai) ...[
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: JegoTheme.vert,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: const Text('A quai',
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w800)),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if ('${p['lieu']}'.isNotEmpty)
-                              Text('${p['lieu']}',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: JegoTheme.texteSecondaire)),
-                            if (mouvements.isNotEmpty && !quitte)
-                              Text(mouvements.join(' · '),
-                                  style: const TextStyle(
-                                      fontSize: 10.5,
-                                      color: JegoTheme.vert,
-                                      fontWeight: FontWeight.w700)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
         ],
       ),
     );

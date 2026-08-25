@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
+import '../widgets/itineraire_trajet.dart';
 
 class EcranHistoriqueChauffeur extends StatefulWidget {
   const EcranHistoriqueChauffeur({super.key});
@@ -127,7 +128,6 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                       final termine = TrajetChauffeur.estTermine(reference);
                       final retard = TrajetChauffeur.retardCumule(reference);
                       final scans = TrajetChauffeur.billetsScannes(reference);
-                      final arrets = (t['arrets'] as List).cast<String>();
                       final ouvert = _ouverts.contains(reference);
 
                       return Container(
@@ -190,14 +190,20 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                                   children: [
                                     const Divider(height: 1, color: JegoTheme.bordCarte),
                                     const SizedBox(height: 10),
-                                    _ligne('Depart', '${t['heure_depart']}'),
-                                    _ligne('Arrivee prevue', '${t['heure_arrivee']}'),
-                                    _ligne('Point de depart', '${t['point_depart']}'),
-                                    _ligne('Point d\'arrivee', '${t['point_arrivee']}'),
-                                    if (arrets.isNotEmpty) _ligne('Arrets', arrets.join(', ')),
+                                    // Itineraire complet : heures, lieux de
+                                    // prise en charge et mouvements de
+                                    // voyageurs, comme sur les deux autres
+                                    // ecrans chauffeur.
+                                    ItineraireTrajet(
+                                        points:
+                                            (t['itineraire'] as List?) ?? const []),
+                                    const SizedBox(height: 10),
                                     _ligne('Bus', '${t['bus']}'),
-                                    _ligne('Places',
-                                        '${t['places_reservees']} reservations / ${t['capacite']}'),
+                                    // Pas de rapport a la capacite : sur une
+                                    // ligne a troncons, un meme siege sert a
+                                    // plusieurs voyageurs successifs.
+                                    _ligne('Passagers',
+                                        '${t['places_reservees']} reservations'),
                                     _ligne('Billets scannes', '$scans',
                                         couleur: JegoTheme.vert),
                                     if (retard > 0)

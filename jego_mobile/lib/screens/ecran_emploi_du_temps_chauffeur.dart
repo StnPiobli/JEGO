@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
+import '../widgets/itineraire_trajet.dart';
 
 /// Vue semaine complete. Le titre "date debut — date fin" est cliquable
 /// pour choisir n'importe quelle semaine via un calendrier ; chaque jour
@@ -223,7 +224,8 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _itineraire(trajet),
+                ItineraireTrajet(
+                    points: (trajet['itineraire'] as List?) ?? const []),
                 const SizedBox(height: 10),
                 _ligne('Bus', '${trajet['bus']} · ${trajet['capacite']} places'),
                 _ligne('Passagers', '${trajet['places_reservees']} reserves'),
@@ -231,90 +233,6 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
               ],
             ),
           ),
-      ],
-    );
-  }
-
-  /// L'itinéraire tel que le chauffeur en a besoin sur la route :
-  /// chaque point dans l'ordre, avec l'heure, le lieu exact de prise en
-  /// charge, et le mouvement de voyageurs qui s'y fait. Sans le lieu il
-  /// cherche où s'arrêter ; sans les comptes il ne sait pas qui attendre.
-  Widget _itineraire(Map<String, dynamic> trajet) {
-    final points = (trajet['itineraire'] as List?) ?? [];
-    if (points.isEmpty) {
-      return _ligne('Depart', '${trajet['heure_depart']} · ${trajet['point_depart']}');
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < points.length; i++)
-          Builder(builder: (_) {
-            final p = points[i] as Map;
-            final premier = i == 0;
-            final dernier = i == points.length - 1;
-            final montent = p['montent'] as int? ?? 0;
-            final descendent = p['descendent'] as int? ?? 0;
-
-            final mouvements = <String>[
-              if (montent > 0) '$montent monte${montent > 1 ? 'nt' : ''}',
-              if (descendent > 0) '$descendent descend${descendent > 1 ? 'ent' : ''}',
-            ];
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Repère visuel : départ et terminus pleins, arrêts creux.
-                  Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: Icon(
-                      premier
-                          ? Icons.trip_origin_rounded
-                          : dernier
-                              ? Icons.place_rounded
-                              : Icons.circle_outlined,
-                      size: 13,
-                      color: premier || dernier
-                          ? JegoTheme.vert
-                          : JegoTheme.texteTernaire,
-                    ),
-                  ),
-                  const SizedBox(width: 9),
-                  SizedBox(
-                    width: 44,
-                    child: Text('${p['heure']}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: JegoTheme.texte)),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${p['ville']}',
-                            style: const TextStyle(
-                                fontSize: 12.5, fontWeight: FontWeight.w700)),
-                        if ('${p['lieu']}'.isNotEmpty)
-                          Text('${p['lieu']}',
-                              style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: JegoTheme.texteSecondaire)),
-                        if (mouvements.isNotEmpty)
-                          Text(mouvements.join(' · '),
-                              style: const TextStyle(
-                                  fontSize: 11,
-                                  color: JegoTheme.vert,
-                                  fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
       ],
     );
   }

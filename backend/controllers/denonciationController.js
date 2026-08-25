@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // ESPACE DÉNONCIATION VOYAGEUR
@@ -136,7 +137,7 @@ async function ouvrirDenonciation(req, res) {
       }
     }
 
-    const numero = `DEN-${Date.now()}`;
+    const numero = genererIdentifiant('DEN');
     let resultat;
     try {
       resultat = await client.query(

@@ -46,6 +46,8 @@ class Strings {
       'lignes_populaires': 'Lignes populaires',
       'erreur_villes_requises':
           'Renseignez la ville de départ et la ville d\'arrivée.',
+      'erreur_villes_liste':
+          'Choisissez les villes dans la liste proposée.',
       'erreur_date_requise': 'Choisissez une date de voyage.',
       'erreur_date_retour_requise': 'Choisissez une date de retour.',
       'erreur_max_passagers': 'Maximum 5 billets par réservation.',
@@ -381,6 +383,7 @@ class Strings {
       'lignes_populaires': 'Popular routes',
       'erreur_villes_requises':
           'Please fill in departure and arrival cities.',
+      'erreur_villes_liste': 'Pick both cities from the suggestions.',
       'erreur_date_requise': 'Please pick a travel date.',
       'erreur_date_retour_requise': 'Please pick a return date.',
       'erreur_max_passagers': 'Maximum 5 tickets per booking.',

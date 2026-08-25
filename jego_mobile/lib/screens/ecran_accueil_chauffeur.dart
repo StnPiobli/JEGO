@@ -16,8 +16,9 @@ import 'ecran_scan_billet.dart';
 ///   declaree.
 /// - Incident : impossible avant que le depart soit declare, bloque une
 ///   fois l'arrivee declaree.
-/// - Scan : s'ouvre 1h avant le depart, se bloque des que le depart ou
-///   l'arrivee sont declares.
+/// - Scan : s'ouvre 1h avant le depart, se ferme quand le depart est
+///   declare, puis se rouvre a chaque arret ou le chauffeur declare son
+///   arrivee et se referme quand il en declare le depart.
 /// - Une fois le depart declare, TOUTE la navigation (calendrier,
 ///   historique, deconnexion) est gelee -- seuls Retard, Incident et
 ///   Arrivee restent actifs, pour eviter toute manipulation du telephone
@@ -32,8 +33,29 @@ class EcranAccueilChauffeur extends StatefulWidget {
 }
 
 class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
-  bool _partiDeclare = false;
-  bool _arriveDeclaree = false;
+  /// Départ et arrivée sont lus sur le statut que renvoie le serveur,
+  /// jamais mémorisés localement. Deux booléens de session repartaient
+  /// à zéro à chaque ouverture de l'application : le chauffeur qui
+  /// fermait son téléphone après avoir déclaré son départ retrouvait
+  /// un itinéraire remis au début et un bouton « Declarer depart » que
+  /// le serveur refusait.
+  bool get _partiDeclare =>
+      const {'en_cours', 'termine'}
+          .contains(TrajetChauffeur.prochain?['statut']);
+  bool get _arriveDeclaree =>
+      TrajetChauffeur.prochain?['statut'] == 'termine';
+
+  /// Feuille de route relue au serveur : chaque point de la ligne avec
+  /// son état (arrivée déclarée, départ déclaré). C'est elle qui dicte
+  /// l'étape suivante du chauffeur et l'ouverture du scan — rien n'est
+  /// deviné localement.
+  List<Map<String, dynamic>> _arrets = [];
+
+  /// Le bus est à quai à un arrêt : arrivée déclarée, départ pas encore.
+  /// Seul moment, une fois la ligne entamée, où des voyageurs montent.
+  bool get _arretOuvert =>
+      _arrets.any((a) => a['embarquement_ouvert'] == true);
+
   Timer? _timerActualisation;
 
   @override
@@ -57,6 +79,9 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     if (!mounted) return;
     setState(() {});
 
+    await _relireEtatArrets();
+    if (!mounted) return;
+
     // Dès que le réseau revient, les billets scannés sans connexion
     // remontent au serveur.
     final bilan = await ScanHorsLigne.synchroniser();
@@ -65,13 +90,122 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     }
   }
 
+  /// Demande au serveur si le bus est actuellement à quai à un arrêt.
+  /// Sans réponse (hors ligne, trajet pas encore parti), on retombe sur
+  /// « fermé » : mieux vaut un scan refusé à tort qu'un embarquement
+  /// autorisé alors que le bus roule.
+  Future<void> _relireEtatArrets() async {
+    final trajet = TrajetChauffeur.prochain;
+    final token = SessionChauffeur.token;
+    if (trajet == null || token == null) {
+      if (_arrets.isNotEmpty && mounted) setState(() => _arrets = []);
+      return;
+    }
+    try {
+      final arrets = await ApiService.arretsTrajet('${trajet['id']}', token);
+      if (mounted) setState(() => _arrets = arrets);
+    } on ErreurApi {
+      // Hors ligne : on n'invente pas d'étape, le bouton se fige sur ce
+      // qui était connu plutôt que d'autoriser une déclaration à tort.
+    }
+  }
+
+  /// Étape suivante du chauffeur sur sa ligne, déduite de la feuille de
+  /// route. Un seul bouton l'accompagne de bout en bout : départ, puis
+  /// « Je suis arrivé à X », « Je quitte X » pour chaque arrêt, et enfin
+  /// l'arrivée au terminus qui clôt le trajet.
+  ({String libelle, IconData icone, VoidCallback? action})
+      _etapeSuivante(Map<String, dynamic>? trajet) {
+    if (trajet == null) {
+      return (libelle: 'Aucun trajet', icone: Icons.rocket_launch_rounded, action: null);
+    }
+
+    if (!_partiDeclare) {
+      final pret = _peutDeclarerDepart(trajet);
+      return (
+        libelle: pret ? 'Declarer depart' : 'Depart a ${trajet['heure_depart']}',
+        icone: Icons.rocket_launch_rounded,
+        action: pret ? _declarerDepart : null,
+      );
+    }
+
+    if (_arriveDeclaree) {
+      return (libelle: 'Trajet termine', icone: Icons.check_circle_rounded, action: null);
+    }
+
+    final token = SessionChauffeur.token;
+    final trajetId = '${trajet['id']}';
+    final intermediaires =
+        _arrets.where((a) => (int.tryParse('${a['ordre']}') ?? 0) > 0).toList();
+    final terminus = intermediaires.isNotEmpty ? intermediaires.last : null;
+    final escales = intermediaires.length > 1
+        ? intermediaires.sublist(0, intermediaires.length - 1)
+        : <Map<String, dynamic>>[];
+
+    String nom(Map<String, dynamic> a) => '${a['nom_affiche'] ?? a['ville'] ?? ''}';
+
+    // Le bus est à quai quelque part : l'étape est d'en repartir.
+    for (final a in escales) {
+      if (a['declare'] == true && a['depart_declare'] != true) {
+        final ordre = int.tryParse('${a['ordre']}') ?? 0;
+        return (
+          libelle: 'Je quitte ${nom(a)}',
+          icone: Icons.logout_rounded,
+          action: token == null
+              ? null
+              : () => _avancerEtape(() => ApiService.declarerDepartArret(
+                  trajetId: trajetId, ordre: ordre, token: token)),
+        );
+      }
+    }
+
+    // Sinon, le prochain arrêt non encore atteint.
+    for (final a in escales) {
+      if (a['declare'] != true) {
+        final ordre = int.tryParse('${a['ordre']}') ?? 0;
+        return (
+          libelle: 'Je suis arrive a ${nom(a)}',
+          icone: Icons.place_rounded,
+          action: token == null
+              ? null
+              : () => _avancerEtape(() => ApiService.declarerArretIntermediaire(
+                  trajetId: trajetId, ordre: ordre, token: token)),
+        );
+      }
+    }
+
+    // Toutes les escales sont passées : reste le terminus.
+    return (
+      libelle: terminus == null
+          ? 'Declarer arrivee'
+          : 'Je suis arrive a ${nom(terminus)}',
+      icone: Icons.check_circle_rounded,
+      action: () => _declarerArrivee(trajet),
+    );
+  }
+
+  /// Exécute l'étape puis relit la feuille de route : le bouton suivant
+  /// vient du serveur, jamais d'une supposition locale.
+  Future<void> _avancerEtape(Future<dynamic> Function() action) async {
+    try {
+      await action();
+      setState(() => _erreurAction = null);
+    } on ErreurApi catch (e) {
+      if (mounted) setState(() => _erreurAction = e.message);
+    }
+    await _rafraichir();
+  }
+
   @override
   void dispose() {
     _timerActualisation?.cancel();
     super.dispose();
   }
 
-  bool get _scanBloque => _partiDeclare || _arriveDeclaree;
+  /// Le scan est fermé quand le bus roule, et rouvert à chaque arrêt
+  /// où le chauffeur est arrivé sans en être reparti.
+  bool get _scanBloque =>
+      (_partiDeclare && !_arretOuvert) || _arriveDeclaree;
   bool get _incidentBloque => !_partiDeclare || _arriveDeclaree;
   bool get _navigationGelee => _partiDeclare && !_arriveDeclaree;
 
@@ -189,7 +323,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
       couleur: JegoTheme.vert,
       titre: 'Déclarer le départ ?',
       texte:
-          'Le scan de billets et toute la navigation seront gelés jusqu\'à l\'arrivée.',
+          "La navigation sera gelée jusqu’à l’arrivée. Le scan se ferme pendant la route et se rouvre à chaque arrêt.",
       onConfirme: () async {
         final token = SessionChauffeur.token;
         final trajetId = '${trajet['id']}';
@@ -201,10 +335,11 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
           // Le serveur fait foi : il refuse un départ déclaré trop tôt.
           await ApiService.declarerDepart(trajetId, token);
           if (!mounted) return;
-          setState(() {
-            _partiDeclare = true;
-            _erreurAction = null;
-          });
+          setState(() => _erreurAction = null);
+          // Recharge trajet et feuille de route : le statut passe à
+          // « en_cours » et le bouton annonce aussitôt le premier
+          // arrêt, au lieu d'attendre le rafraîchissement des 30 s.
+          await _rafraichir();
         } on ErreurApi catch (e) {
           if (!mounted) return;
           setState(() => _erreurAction = e.message);
@@ -475,11 +610,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
           await ApiService.declarerArrivee(trajetId, token);
           TrajetChauffeur.marquerTermine('${trajet['reference']}');
           if (!mounted) return;
-          setState(() {
-            _arriveDeclaree = false;
-            _partiDeclare = false;
-            _erreurAction = null;
-          });
+          setState(() => _erreurAction = null);
           // On recharge : le trajet suivant devient le prochain.
           await _rafraichir();
         } on ErreurApi catch (e) {
@@ -513,11 +644,6 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     }
     if (!mounted) return;
 
-    // Déclarée hors du builder : sinon elle serait remise à zéro à
-    // chaque reconstruction et le message d'erreur ne s'afficherait
-    // jamais.
-    String? erreurLocale;
-
     await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -548,6 +674,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                   final ordre = int.tryParse('${a['ordre']}') ?? 0;
                   final dernier = ordre == arrets.length - 1;
                   final declare = a['declare'] == true;
+                  final departDeclare = a['depart_declare'] == true;
                   final montent = int.tryParse('${a['montent'] ?? 0}') ?? 0;
                   final descendent =
                       int.tryParse('${a['descendent'] ?? 0}') ?? 0;
@@ -593,50 +720,31 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                             ],
                           ),
                         ),
-                        if (ordre > 0 && !dernier && !declare)
-                          BoutonTactile(
-                            onTap: () async {
-                              try {
-                                await ApiService.declarerArretIntermediaire(
-                                  trajetId: trajetId,
-                                  ordre: ordre,
-                                  token: token,
-                                );
-                                final frais = await ApiService.arretsTrajet(
-                                    trajetId, token);
-                                majFeuille(() {
-                                  arrets = frais;
-                                  erreurLocale = null;
-                                });
-                              } on ErreurApi catch (e) {
-                                majFeuille(() => erreurLocale = e.message);
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 7),
-                              decoration: BoxDecoration(
-                                color: JegoTheme.vert,
-                                borderRadius: BorderRadius.circular(
-                                    JegoTheme.rPetit),
-                              ),
-                              child: const Text('Arrivé',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800)),
+                        // Consultation seulement : les déclarations se
+                        // font au bouton principal, qui indique lui-même
+                        // l'étape. Deux chemins pour la même action
+                        // finiraient par se contredire.
+                        if (ordre > 0 && !dernier)
+                          Text(
+                            departDeclare
+                                ? 'Quitté'
+                                : declare
+                                    ? 'À quai'
+                                    : 'À venir',
+                            style: TextStyle(
+                              color: departDeclare
+                                  ? JegoTheme.texteTernaire
+                                  : declare
+                                      ? JegoTheme.vert
+                                      : JegoTheme.texteSecondaire,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                       ],
                     ),
                   );
                 }),
-                if (erreurLocale != null) ...[
-                  const SizedBox(height: 4),
-                  Text(erreurLocale!,
-                      style: const TextStyle(
-                          color: JegoTheme.danger, fontSize: 12)),
-                ],
                 const SizedBox(height: 6),
                 BoutonTactile(
                   onTap: () => Navigator.of(ctx).pop(),
@@ -858,15 +966,20 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               ),
             ],
             const SizedBox(height: 20),
-            _grosBouton(
-              icone: Icons.rocket_launch_rounded,
-              libelle: _peutDeclarerDepart(trajet) || _partiDeclare
-                  ? 'Declarer depart'
-                  : 'Depart a ${trajet != null ? trajet['heure_depart'] : ''}',
-              couleur: JegoTheme.vert,
-              onTap: _peutDeclarerDepart(trajet) ? _declarerDepart : null,
-              fait: _partiDeclare,
-            ),
+            // Bouton unique qui accompagne le chauffeur d'un bout à
+            // l'autre de sa ligne : départ, puis arrivée et départ de
+            // chaque arrêt, puis terminus. Il n'a jamais à choisir
+            // parmi plusieurs boutons quelle est son étape.
+            Builder(builder: (_) {
+              final etape = _etapeSuivante(trajet);
+              return _grosBouton(
+                icone: etape.icone,
+                libelle: etape.libelle,
+                couleur: JegoTheme.vert,
+                onTap: etape.action,
+                fait: _arriveDeclaree,
+              );
+            }),
             const SizedBox(height: 12),
             _grosBouton(
               icone: Icons.warning_amber_rounded,
@@ -892,20 +1005,14 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             ),
             const SizedBox(height: 12),
             _grosBouton(
-              icone: Icons.check_circle_rounded,
-              libelle: 'Declarer arrivee',
-              couleur: JegoTheme.vert,
-              onTap: (_partiDeclare && !_arriveDeclaree && trajet != null)
-                  ? () => _declarerArrivee(trajet)
-                  : null,
-              fait: _arriveDeclaree,
-            ),
-            const SizedBox(height: 12),
-            _grosBouton(
               icone: Icons.qr_code_scanner_rounded,
               libelle: _peutScanner(trajet)
                   ? 'Scanner un billet'
-                  : (_scanBloque ? 'Scanner (bloque)' : 'Scanner (ouvre 1h avant)'),
+                  : _arriveDeclaree
+                      ? 'Scanner (trajet termine)'
+                      : _partiDeclare
+                          ? 'Scanner (rouvre au prochain arret)'
+                          : 'Scanner (ouvre 1h avant)',
               couleur: JegoTheme.texte,
               onTap: _peutScanner(trajet) ? () => _scanner(trajet) : null,
             ),
@@ -1006,7 +1113,6 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
 
   Widget _carteTrajet(Map<String, dynamic> trajet) {
     final date = trajet['date'] as DateTime;
-    final arrets = (trajet['arrets'] as List).cast<String>();
     final retard = TrajetChauffeur.retardCumule('${trajet['reference']}');
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1056,93 +1162,196 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${trajet['ville_depart']}',
-                        style: const TextStyle(color: JegoTheme.texte, fontSize: 18, fontWeight: FontWeight.w800)),
-                    Text('${trajet['point_depart']}',
-                        style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 11)),
-                  ],
-                ),
-              ),
-              Column(
-                children: [
-                  Row(
-                    children: List.generate(
-                        4,
-                        (_) => Container(
-                              width: 4,
-                              height: 1.6,
-                              margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                              color: JegoTheme.bordCarte,
-                            )),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(color: JegoTheme.texte, shape: BoxShape.circle),
-                    child: const Icon(Icons.directions_bus_rounded, size: 15, color: Colors.white),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: List.generate(
-                        4,
-                        (_) => Container(
-                              width: 4,
-                              height: 1.6,
-                              margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                              color: JegoTheme.bordCarte,
-                            )),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('${trajet['ville_arrivee']}',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(color: JegoTheme.texte, fontSize: 18, fontWeight: FontWeight.w800)),
-                    Text('${trajet['point_arrivee']}',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 11)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (arrets.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.alt_route_rounded, size: 13, color: JegoTheme.texteTernaire),
-                const SizedBox(width: 5),
-                Text('Arrets : ${arrets.join(', ')}',
-                    style: TextStyle(color: JegoTheme.texteTernaire, fontSize: 11)),
-              ],
-            ),
-          ],
+          _itineraireDirect(trajet),
           const SizedBox(height: 16),
           const Divider(height: 1, color: JegoTheme.bordCarte),
           const SizedBox(height: 14),
+          // Départ et arrivée sont déjà lus en haut de la carte : on ne
+          // les répète pas ici.
           Row(
             children: [
               Expanded(
-                child: _infoTrajet(Icons.calendar_month_rounded, 'Depart', '${trajet['heure_depart']}'),
+                child: _infoTrajet(Icons.directions_bus_rounded, 'Bus', '${trajet['bus']}'),
+              ),
+              // Pas de « / capacité » : sur une ligne à tronçons, un
+              // même siège se vend à plusieurs voyageurs successifs. Le
+              // total de passagers peut donc dépasser le nombre de
+              // places, et le rapport n'aurait aucun sens.
+              Expanded(
+                child: _infoTrajet(Icons.people_alt_rounded, 'Passagers',
+                    '${trajet['places_reservees']}'),
               ),
               Expanded(
-                child: _infoTrajet(Icons.flag_circle_rounded, 'Arrivee prevue', '${trajet['heure_arrivee']}'),
-              ),
-              Expanded(
-                child: _infoTrajet(Icons.confirmation_number_rounded, 'Reference', '${trajet['reference']}',
+                child: _infoTrajet(Icons.confirmation_number_rounded, 'Numero', '${trajet['reference']}',
                     petit: true),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// L'itinéraire complet de la carte d'accueil, de haut en bas. Le
+  /// départ et le terminus sont écrits plus grand : ce sont les deux
+  /// points que le chauffeur cherche en premier.
+  ///
+  /// La frise ne se contente pas de lister : elle montre où le bus en
+  /// est. Un point déjà quitté s'éteint, celui où le bus est à quai
+  /// ressort en vert, les suivants restent en attente.
+  Widget _itineraireDirect(Map<String, dynamic> trajet) {
+    final points = (trajet['itineraire'] as List?) ?? [];
+    if (points.length < 2) return const SizedBox.shrink();
+
+    Map<String, dynamic>? etatDe(int ordre) {
+      for (final a in _arrets) {
+        if ((int.tryParse('${a['ordre']}') ?? -1) == ordre) {
+          return Map<String, dynamic>.from(a);
+        }
+      }
+      return null;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < points.length; i++)
+            Builder(builder: (_) {
+              final p = points[i] as Map;
+              final ordre = p['ordre'] as int? ?? i;
+              final premier = i == 0;
+              final dernier = i == points.length - 1;
+              final borne = premier || dernier;
+              final etat = etatDe(ordre);
+
+              // Les extrémités tiennent leur état du trajet lui-même,
+              // les arrêts de ce que le chauffeur y a déclaré.
+              final quitte = premier
+                  ? _partiDeclare
+                  : dernier
+                      ? _arriveDeclaree
+                      : etat?['depart_declare'] == true;
+              final aQuai =
+                  !quitte && !borne && etat?['declare'] == true;
+
+              final montent = p['montent'] as int? ?? 0;
+              final descendent = p['descendent'] as int? ?? 0;
+              final mouvements = <String>[
+                if (montent > 0) '$montent monte${montent > 1 ? 'nt' : ''}',
+                if (descendent > 0)
+                  '$descendent descend${descendent > 1 ? 'ent' : ''}',
+              ];
+
+              final couleurPoint = quitte
+                  ? JegoTheme.texteTernaire
+                  : aQuai
+                      ? JegoTheme.vert
+                      : JegoTheme.texteSecondaire;
+
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Pastille + trait de liaison vers le point suivant.
+                    Column(
+                      children: [
+                        Container(
+                          width: borne ? 15 : 11,
+                          height: borne ? 15 : 11,
+                          margin: EdgeInsets.only(top: borne ? 4 : 3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: quitte || aQuai || borne
+                                ? couleurPoint
+                                : Colors.transparent,
+                            border: Border.all(
+                                color: couleurPoint, width: borne ? 2.4 : 1.8),
+                          ),
+                        ),
+                        if (!dernier)
+                          Expanded(
+                            child: Container(
+                              width: 1.6,
+                              margin: const EdgeInsets.symmetric(vertical: 2),
+                              color: quitte
+                                  ? JegoTheme.texteTernaire
+                                  : JegoTheme.bordCarte,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 48,
+                      child: Text('${p['heure']}',
+                          style: TextStyle(
+                              fontSize: borne ? 15 : 12,
+                              fontWeight: FontWeight.w800,
+                              color: quitte
+                                  ? JegoTheme.texteTernaire
+                                  : borne
+                                      ? JegoTheme.vert
+                                      : JegoTheme.texte)),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: dernier ? 0 : 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text('${p['ville']}',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: borne ? 17 : 12.5,
+                                          fontWeight: borne
+                                              ? FontWeight.w800
+                                              : FontWeight.w700,
+                                          color: quitte
+                                              ? JegoTheme.texteTernaire
+                                              : JegoTheme.texte)),
+                                ),
+                                if (aQuai) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: JegoTheme.vert,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: const Text('A quai',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w800)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if ('${p['lieu']}'.isNotEmpty)
+                              Text('${p['lieu']}',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: JegoTheme.texteSecondaire)),
+                            if (mouvements.isNotEmpty && !quitte)
+                              Text(mouvements.join(' · '),
+                                  style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: JegoTheme.vert,
+                                      fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );

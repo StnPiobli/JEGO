@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // ANNULER SON BILLET (route protégée — voyageur)
@@ -79,7 +80,7 @@ async function annulerBillet(req, res) {
       );
 
       // Créer la ligne de remboursement
-      referenceRemb = `REMB-${Date.now()}`;
+      referenceRemb = genererIdentifiant('RMB');
       await client.query(
         `INSERT INTO remboursements
           (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)

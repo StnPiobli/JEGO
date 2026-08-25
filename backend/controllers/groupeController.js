@@ -2,6 +2,7 @@ const pool = require('../config/database');
 const { genererQR } = require('../utils/qr');
 const { creerNotification } = require('../services/notificationService');
 const { crediterPoints, calculerPointsGagnes } = require('../services/pointsService');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // RÉSERVER UN GROUPE (voyageur organisateur)
@@ -105,8 +106,7 @@ async function reserverGroupe(req, res) {
       const prixTotalSiege = prixAgenceSiege + commission;
       const fraisMomoSiege = Math.round(prixTotalSiege * 0.015);
 
-      const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
-      const numeroBillet = `JG-${dateStr}-${suffixe}`;
+      const numeroBillet = genererIdentifiant('BIL');
       const qrCode = genererQR(numeroBillet, trajet_id, siege.id);
 
       const billet = await client.query(

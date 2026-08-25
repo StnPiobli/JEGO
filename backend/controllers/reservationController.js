@@ -6,6 +6,7 @@ const { creerNotification, envoyerEmailDirect } = require('../services/notificat
 const { genererPdfBillet } = require('../services/pdfBilletService');
 const { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers } = require('../services/pointsService');
 const { normaliserTelephone } = require('../utils/telephone');
+const { genererIdentifiant } = require('../utils/identifiant');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -154,13 +155,49 @@ async function verrouillerSiege(req, res) {
       return res.status(400).json({ error: 'Ce siège est indisponible (hors service)' });
     }
 
+    // La vente se ferme arrêt par arrêt, pas d'un coup au départ de la
+    // ligne : tant que le bus n'est pas reparti du point de montée
+    // demandé, la place y reste réservable. Même règle que la
+    // recherche — sans quoi le voyageur verrait l'offre puis se ferait
+    // refuser au choix du siège.
     const trajetInfo = await client.query(
-      `SELECT date_depart, heure_depart, statut FROM trajets WHERE id = $1`,
-      [trajet_id]
+      `SELECT TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+              t.heure_depart, t.statut,
+              COALESCE(lp.heure_arrivee_estimee, t.heure_depart) AS heure_montee,
+              EXISTS (
+                SELECT 1 FROM arrivees_arrets aa
+                WHERE aa.trajet_id = t.id AND aa.ordre = $2
+                  AND aa.heure_depart_reelle IS NOT NULL
+              ) AS arret_quitte
+       FROM trajets t
+       LEFT JOIN ligne_points lp ON lp.ligne_id = t.ligne_id AND lp.ordre = $2
+       WHERE t.id = $1`,
+      [trajet_id, a]
     );
-    if (['en_cours', 'termine', 'annule'].includes(trajetInfo.rows[0].statut)) {
+    if (trajetInfo.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'La vente est fermée pour ce trajet (déjà parti, terminé ou annulé)' });
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+    const infoTrajet = trajetInfo.rows[0];
+
+    if (['termine', 'annule'].includes(infoTrajet.statut)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'La vente est fermée pour ce trajet (terminé ou annulé)' });
+    }
+    if (a === 0 && infoTrajet.statut === 'en_cours') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce bus est déjà parti : la vente est fermée à ce point de montée.' });
+    }
+    if (infoTrajet.arret_quitte) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Le bus est déjà reparti de ce point de montée.' });
+    }
+    // Garde-fou indépendant du chauffeur : passé l'heure prévue à ce
+    // point, on ne vend plus, même si le départ n'a pas été déclaré.
+    const heureMontee = new Date(`${infoTrajet.date_depart}T${infoTrajet.heure_montee}`);
+    if (new Date() > heureMontee) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'L\'heure de passage à ce point est dépassée : la vente est fermée.' });
     }
 
     // Chevauchement : le siège est pris pour (a,b) si un billet confirmé
@@ -468,9 +505,7 @@ async function payer(req, res) {
     const fraisMomo = prixTotalClient > 0 ? Math.round(prixTotalClient * 0.015) : 0;
     const referenceMomo = prixTotalClient > 0 ? `SIM-${operateur.toUpperCase()}-${Date.now()}` : 'GRATUIT-POINTS';
 
-    const dateStr = info.date_depart.replace(/-/g, '');
-    const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
-    const numeroBillet = `JG-${dateStr}-${suffixe}`;
+    const numeroBillet = genererIdentifiant('BIL');
     const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
 
     let voyageurProprietaire = voyageurId;
@@ -724,9 +759,7 @@ async function venteGuichet(req, res) {
       voyageurId = nouveau.rows[0].id;
     }
 
-    const dateStr = new Date(trajet.date_depart).toISOString().slice(0,10).replace(/-/g,'');
-    const suffixe = Math.random().toString(36).substring(2,6).toUpperCase();
-    const numeroBillet = `JG-${dateStr}-${suffixe}`;
+    const numeroBillet = genererIdentifiant('BIL');
     const qrCode = genererQR(numeroBillet, trajetId, siege_id);
 
     const billet = await client.query(
@@ -861,9 +894,16 @@ async function scannerBillet(req, res) {
 
     const billet = await pool.query(
       `SELECT b.id, b.numero, b.statut, b.qr_scanne, b.qr_scanne_le,
+              b.point_embarquement_ordre,
               s.numero AS siege_numero,
               v.nom, v.prenom,
-              t.chauffeur_id
+              t.id AS trajet_id, t.chauffeur_id, t.statut AS trajet_statut,
+              TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart,
+              -- Arrêt où le bus se trouve en ce moment : le dernier dont
+              -- l'arrivée est déclarée et le départ ne l'est pas encore.
+              (SELECT aa.ordre FROM arrivees_arrets aa
+                WHERE aa.trajet_id = t.id AND aa.heure_depart_reelle IS NULL
+                ORDER BY aa.ordre DESC LIMIT 1) AS arret_en_cours
        FROM billets b
        JOIN sieges s ON s.id = b.siege_id
        JOIN voyageurs v ON v.id = b.voyageur_id
@@ -887,6 +927,54 @@ async function scannerBillet(req, res) {
         valide: false,
         message: 'Billet REFUSÉ',
         raison: 'Ce billet n\'est pas pour votre trajet'
+      });
+    }
+
+    // ── Fenêtre d'embarquement ────────────────────────────────────
+    // Elle s'ouvre 1 h avant le départ, se ferme quand le bus part, et
+    // se rouvre à chaque arrêt tant que le chauffeur n'en a pas déclaré
+    // le départ. Cette règle vivait uniquement dans l'application :
+    // n'importe quel appel direct au serveur pouvait scanner un billet
+    // trois jours avant le voyage.
+    const OUVERTURE_AVANT_DEPART_MS = 60 * 60 * 1000;
+    let pointEmbarquement = null; // arrêt où l'on peut monter maintenant
+
+    if (b.trajet_statut === 'programme') {
+      const depart = new Date(`${b.date_depart}T${b.heure_depart}`);
+      if (new Date() < new Date(depart.getTime() - OUVERTURE_AVANT_DEPART_MS)) {
+        return res.status(400).json({
+          valide: false,
+          message: 'Billet REFUSÉ',
+          raison: `L'embarquement ouvre une heure avant le départ (${String(b.heure_depart).slice(0, 5)}).`
+        });
+      }
+      pointEmbarquement = 0;
+    } else if (b.trajet_statut === 'en_cours') {
+      if (b.arret_en_cours === null) {
+        return res.status(400).json({
+          valide: false,
+          message: 'Billet REFUSÉ',
+          raison: 'Le bus est en route entre deux arrêts : l\'embarquement est fermé.'
+        });
+      }
+      pointEmbarquement = parseInt(b.arret_en_cours);
+    } else {
+      return res.status(400).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Ce trajet est terminé ou annulé.'
+      });
+    }
+
+    // Un voyageur qui monte plus loin ne peut pas être à bord ici. Un
+    // voyageur monté plus tôt et oublié au scan reste acceptable : on
+    // rattrape, on ne punit pas le passager pour un oubli du chauffeur.
+    const ordreMontee = parseInt(b.point_embarquement_ordre ?? 0);
+    if (ordreMontee > pointEmbarquement) {
+      return res.status(400).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Ce passager monte à un arrêt que le bus n\'a pas encore atteint.'
       });
     }
 

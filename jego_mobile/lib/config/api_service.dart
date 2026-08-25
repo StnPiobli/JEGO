@@ -290,6 +290,7 @@ class ApiService {
     return villes.map<Map<String, dynamic>>((v) => {
           'code': v['code'],
           'nom': v['nom_affiche'] ?? v['code'],
+          'region': v['region'] ?? '',
         }).toList();
   }
 
@@ -470,12 +471,15 @@ class ApiService {
   // ═══════════════════════════════════════════════════
   // ESPACE CHAUFFEUR
   // ═══════════════════════════════════════════════════
+  /// L'identifiant est indifféremment le numéro de téléphone — dans
+  /// n'importe quelle écriture, `678787823` comme `+237 678787823` —
+  /// ou l'adresse email du chauffeur.
   static Future<Map<String, dynamic>> connecterChauffeur({
-    required String telephone,
+    required String identifiant,
     required String motDePasse,
   }) async {
     final rep = await _post(ApiConfig.connexionChauffeur, {
-      'telephone': telephone,
+      'identifiant': identifiant,
       'mot_de_passe': motDePasse,
     });
     return Map<String, dynamic>.from(rep);
@@ -554,6 +558,21 @@ class ApiService {
   }) async {
     final r = await http
         .put(Uri.parse('${ApiConfig.baseUrl}/api/chauffeurs/trajets/$trajetId/arret'),
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+            body: jsonEncode({'ordre': ordre}))
+        .timeout(_delai);
+    return Map<String, dynamic>.from(_traiter(r));
+  }
+
+  /// Déclare que le bus repart d'un arrêt. Ferme l'embarquement à ce
+  /// point : plus de vente, plus de scan.
+  static Future<Map<String, dynamic>> declarerDepartArret({
+    required String trajetId,
+    required int ordre,
+    required String token,
+  }) async {
+    final r = await http
+        .put(Uri.parse('${ApiConfig.baseUrl}/api/chauffeurs/trajets/$trajetId/arret/depart'),
             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
             body: jsonEncode({'ordre': ordre}))
         .timeout(_delai);

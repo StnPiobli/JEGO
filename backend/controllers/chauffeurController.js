@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { genererToken } = require('../utils/jwt');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
+const { normaliserTelephone } = require('../utils/telephone');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN COMPTE CHAUFFEUR (par l'agence uniquement)
@@ -21,8 +22,19 @@ async function creerChauffeur(req, res) {
       return res.status(400).json({ error: 'Tous les champs sont obligatoires' });
     }
 
-    // Vérifier que le téléphone n'est pas déjà utilisé
-    const telExiste = await pool.query('SELECT id FROM chauffeurs WHERE telephone = $1', [telephone]);
+    // Numéro mis en forme AVANT enregistrement : sans cela le même
+    // numéro se retrouve en base sous plusieurs écritures selon ce que
+    // l'agence a tapé, et le chauffeur ne peut plus se connecter qu'en
+    // reproduisant exactement la sienne.
+    const telNormalise = normaliserTelephone(telephone);
+
+    // Doublon cherché sur les 9 chiffres finaux, pour rattraper les
+    // comptes déjà enregistrés dans un autre format.
+    const telExiste = await pool.query(
+      `SELECT id FROM chauffeurs
+       WHERE RIGHT(REGEXP_REPLACE(telephone, '[^0-9]', '', 'g'), 9) = RIGHT($1, 9)`,
+      [telNormalise]
+    );
     if (telExiste.rows.length > 0) {
       return res.status(409).json({ error: 'Ce numéro de téléphone est déjà utilisé par un chauffeur' });
     }
@@ -36,7 +48,7 @@ async function creerChauffeur(req, res) {
         (agence_id, nom, prenom, email, date_naissance, lieu_naissance, telephone, mot_de_passe)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, nom, prenom, email, telephone, statut`,
-      [agenceId, nom, prenom, email, date_naissance, lieu_naissance, telephone, motDePasseChiffre]
+      [agenceId, nom, prenom, email, date_naissance, lieu_naissance, telNormalise, motDePasseChiffre]
     );
 
     res.status(201).json({
@@ -80,16 +92,31 @@ async function listerChauffeurs(req, res) {
 // ═══════════════════════════════════════════════════
 async function connexionChauffeur(req, res) {
   try {
-    const { telephone, mot_de_passe } = req.body;
+    // `identifiant` accepte le téléphone comme l'email. `telephone`
+    // reste accepté pour ne pas casser les versions déjà installées.
+    const { identifiant, telephone, mot_de_passe } = req.body;
+    const saisie = (identifiant || telephone || '').trim();
 
-    if (!telephone || !mot_de_passe) {
-      return res.status(400).json({ error: 'Téléphone et mot de passe requis' });
+    if (!saisie || !mot_de_passe) {
+      return res.status(400).json({ error: 'Identifiant et mot de passe requis' });
     }
 
-    const resultat = await pool.query('SELECT * FROM chauffeurs WHERE telephone = $1', [telephone]);
+    // Les numéros ont été enregistrés dans tous les formats possibles
+    // (« +237 678787823 », « 237699888777 »…) parce que rien ne les
+    // mettait en forme à la création. On compare donc les 9 chiffres
+    // finaux, seuls stables : l'indicatif, le plus et les espaces ne
+    // décident plus si un chauffeur peut se connecter.
+    const telNormalise = normaliserTelephone(saisie);
+    const resultat = await pool.query(
+      `SELECT * FROM chauffeurs
+       WHERE RIGHT(REGEXP_REPLACE(telephone, '[^0-9]', '', 'g'), 9) = RIGHT($1, 9)
+          OR LOWER(email) = LOWER($2)
+       LIMIT 1`,
+      [telNormalise, saisie]
+    );
 
     if (resultat.rows.length === 0) {
-      return res.status(401).json({ error: 'Téléphone ou mot de passe incorrect' });
+      return res.status(401).json({ error: 'Identifiant ou mot de passe incorrect' });
     }
 
     const chauffeur = resultat.rows[0];
@@ -102,7 +129,7 @@ async function connexionChauffeur(req, res) {
     // Vérifier le mot de passe
     const motDePasseValide = await bcrypt.compare(mot_de_passe, chauffeur.mot_de_passe);
     if (!motDePasseValide) {
-      return res.status(401).json({ error: 'Téléphone ou mot de passe incorrect' });
+      return res.status(401).json({ error: 'Identifiant ou mot de passe incorrect' });
     }
 
     // Générer un token de type chauffeur
@@ -141,7 +168,12 @@ async function mesTrajets(req, res) {
 
     const resultat = await pool.query(
       `SELECT
-          t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
+          t.id, t.numero,
+          -- Date en texte, jamais en horodatage : renvoyée brute, elle
+          -- part en heure universelle (« 2026-08-26T22:00:00Z » pour le
+          -- 27 août au Cameroun) et l'application affiche la veille.
+          TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+          t.heure_depart, t.heure_arrivee_estimee,
           t.statut,
           vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
           b.nom AS nom_bus, b.disposition,
@@ -152,8 +184,12 @@ async function mesTrajets(req, res) {
           (SELECT lp.lieu_prise_en_charge FROM ligne_points lp
            WHERE lp.ligne_id = l.id ORDER BY lp.ordre LIMIT 1) AS lieu_embarquement,
           -- Arrêts intermédiaires, dans l'ordre de la ligne
+          -- L'heure de passage accompagne chaque arrêt : sans elle, le
+          -- chauffeur lit « Bafoussam, Bangangté » sans savoir quand il
+          -- est attendu à l'un ou à l'autre.
           COALESCE((
-            SELECT json_agg(json_build_object('ville', lp.ville, 'nom_affiche', v2.nom_affiche, 'ordre', lp.ordre)
+            SELECT json_agg(json_build_object('ville', lp.ville, 'nom_affiche', v2.nom_affiche,
+                                              'ordre', lp.ordre, 'heure', lp.heure_arrivee_estimee)
                             ORDER BY lp.ordre)
             FROM ligne_points lp
             JOIN villes v2 ON v2.code = lp.ville
@@ -161,6 +197,30 @@ async function mesTrajets(req, res) {
               AND lp.ordre > 0
               AND lp.ordre < (SELECT MAX(ordre) FROM ligne_points WHERE ligne_id = l.id)
           ), '[]'::json) AS arrets,
+          -- Itinéraire complet, terminus compris : pour chaque point,
+          -- l'heure, le lieu exact de prise en charge, et combien de
+          -- voyageurs y montent et y descendent. C'est ce que le
+          -- chauffeur doit avoir sous les yeux avant de partir.
+          COALESCE((
+            SELECT json_agg(json_build_object(
+                     'ordre', lp.ordre,
+                     'nom_affiche', v3.nom_affiche,
+                     'heure', CASE WHEN lp.ordre = 0 THEN t.heure_depart
+                                   ELSE COALESCE(lp.heure_arrivee_estimee, t.heure_arrivee_estimee) END,
+                     'lieu', lp.lieu_prise_en_charge,
+                     'montent', (SELECT COUNT(*) FROM billets bl
+                                 WHERE bl.trajet_id = t.id
+                                   AND bl.statut IN ('confirme','utilise')
+                                   AND bl.point_embarquement_ordre = lp.ordre),
+                     'descendent', (SELECT COUNT(*) FROM billets bl
+                                    WHERE bl.trajet_id = t.id
+                                      AND bl.statut IN ('confirme','utilise')
+                                      AND bl.point_debarquement_ordre = lp.ordre)
+                   ) ORDER BY lp.ordre)
+            FROM ligne_points lp
+            JOIN villes v3 ON v3.code = lp.ville
+            WHERE lp.ligne_id = l.id
+          ), '[]'::json) AS itineraire,
           (SELECT COUNT(*) FROM billets bil
            WHERE bil.trajet_id = t.id AND bil.statut IN ('confirme','utilise')) AS nb_passagers,
           ((t.date_depart + t.heure_depart) <= (NOW() + INTERVAL '30 minutes')) AS vente_fermee_ligne
@@ -182,6 +242,7 @@ async function mesTrajets(req, res) {
     const trajets = resultat.rows.map(t => {
       const base = {
         id: t.id,
+        numero: t.numero,
         date_depart: t.date_depart,
         heure_depart: t.heure_depart,
         heure_arrivee_estimee: t.heure_arrivee_estimee,
@@ -193,6 +254,7 @@ async function mesTrajets(req, res) {
         arrivee_affiche: t.arrivee,
         lieu_embarquement: t.lieu_embarquement,
         arrets: t.arrets || [],
+        itineraire: t.itineraire || [],
         nom_bus: t.nom_bus,
         disposition: t.disposition,
         capacite: parseInt(t.capacite) || 0,
@@ -747,6 +809,67 @@ async function declarerArriveeArret(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
+// DÉCLARER LE DÉPART D'UN ARRÊT (chauffeur)
+//
+// Ferme l'embarquement à cet arrêt. Tant que le chauffeur n'a pas
+// appuyé, il peut continuer à scanner les billets des voyageurs qui
+// montent ici — c'est précisément ce qui manquait : le départ du
+// terminus fermait l'embarquement pour tout le trajet, y compris pour
+// des arrêts que le bus atteindrait des heures plus tard.
+// ═══════════════════════════════════════════════════
+async function declarerDepartArret(req, res) {
+  try {
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+    const chauffeurId = req.utilisateur.id;
+    const trajetId = req.params.id;
+    const { ordre } = req.body;
+
+    if (ordre === undefined || ordre === null) {
+      return res.status(400).json({ error: 'L\'ordre de l\'arrêt est obligatoire' });
+    }
+    const ordreNum = parseInt(ordre);
+    if (!Number.isFinite(ordreNum) || ordreNum < 1) {
+      return res.status(400).json({
+        error: 'Ordre invalide. Le départ du point 0 se déclare avec la déclaration de départ du trajet.'
+      });
+    }
+
+    const arret = await pool.query(
+      `SELECT aa.id, aa.ville, aa.heure_depart_reelle
+       FROM arrivees_arrets aa
+       JOIN trajets t ON t.id = aa.trajet_id
+       WHERE aa.trajet_id = $1 AND aa.ordre = $2 AND t.chauffeur_id = $3`,
+      [trajetId, ordreNum, chauffeurId]
+    );
+    if (arret.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Vous devez d\'abord déclarer votre arrivée à cet arrêt.'
+      });
+    }
+    if (arret.rows[0].heure_depart_reelle) {
+      return res.status(409).json({ error: 'Le départ de cet arrêt a déjà été déclaré.' });
+    }
+
+    const maj = await pool.query(
+      `UPDATE arrivees_arrets SET heure_depart_reelle = NOW()
+       WHERE id = $1
+       RETURNING ordre, ville, heure_reelle, heure_depart_reelle`,
+      [arret.rows[0].id]
+    );
+
+    res.json({
+      message: 'Départ de l\'arrêt déclaré. L\'embarquement est fermé ici.',
+      arret: maj.rows[0]
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
 // VOIR LES ARRÊTS D'UN TRAJET (chauffeur)
 // Le chauffeur voit sa feuille de route : chaque point, s'il est
 // déjà déclaré, et combien de passagers y descendent.
@@ -768,9 +891,13 @@ async function arretsTrajet(req, res) {
 
     const resultat = await pool.query(
       `SELECT lp.ordre, lp.ville, v.nom_affiche, lp.lieu_prise_en_charge,
-              lp.heure_passage_prevue,
-              aa.heure_reelle, aa.retard_minutes,
+              lp.heure_passage_prevue, lp.heure_arrivee_estimee,
+              aa.heure_reelle, aa.retard_minutes, aa.heure_depart_reelle,
               (aa.id IS NOT NULL) AS declare,
+              (aa.heure_depart_reelle IS NOT NULL) AS depart_declare,
+              -- Embarquement ouvert ici : le bus y est arrivé et n'en
+              -- est pas reparti.
+              (aa.id IS NOT NULL AND aa.heure_depart_reelle IS NULL) AS embarquement_ouvert,
               (SELECT COUNT(*) FROM billets b
                WHERE b.trajet_id = $1 AND b.statut IN ('confirme','utilise')
                  AND b.point_embarquement_ordre = lp.ordre) AS montent,
@@ -830,4 +957,4 @@ async function supprimerChauffeur(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, arretsTrajet, supprimerChauffeur };
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur };

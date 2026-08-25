@@ -5,7 +5,7 @@ const {
   mesTrajets, declarerDepart, declarerArriveeChauffeur,
   desactiverUrgence, reactiverChauffeur,
   changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur,
-  declarerArriveeArret, arretsTrajet, supprimerChauffeur
+  declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur
 } = require('../controllers/chauffeurController');
 const { authentifier, verifierChauffeurActif, verifierAgenceActive } = require('../middleware/auth');
 
@@ -30,5 +30,7 @@ router.put('/trajets/:id/arrivee', authentifier, verifierChauffeurActif, declare
 // Feuille de route et déclaration de passage aux arrêts intermédiaires
 router.get('/trajets/:id/arrets', authentifier, verifierChauffeurActif, arretsTrajet);
 router.put('/trajets/:id/arret', authentifier, verifierChauffeurActif, declarerArriveeArret);
+// Départ d'un arrêt : ferme l'embarquement à ce point
+router.put('/trajets/:id/arret/depart', authentifier, verifierChauffeurActif, declarerDepartArret);
 
 module.exports = router;

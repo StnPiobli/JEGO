@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
+import '../config/api_service.dart';
 import '../config/theme_jego.dart';
-import '../config/villes.dart';
 import '../l10n/strings.dart';
 import '../widgets/fond_immersif.dart';
 import '../widgets/selecteur_date.dart';
@@ -20,6 +20,16 @@ class EcranAccueilRecherche extends StatefulWidget {
 class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   final _ctrlDepart = TextEditingController();
   final _ctrlArrivee = TextEditingController();
+
+  /// Codes serveur des villes choisies (ex. `yaounde`). Le backend
+  /// cherche les trajets par code, jamais par nom affiché : « Yaoundé »
+  /// ne correspond à rien en base. Tant qu'une ville n'a pas été
+  /// choisie dans la liste, son code est nul et la recherche est
+  /// refusée — plutôt que de partir avec un texte libre qui ne
+  /// remonterait aucun trajet sans expliquer pourquoi.
+  String? _codeDepart;
+  String? _codeArrivee;
+
   DateTime? _dateAller;
   DateTime? _dateRetour;
   TimeOfDay? _heure;
@@ -30,6 +40,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
 
   bool _erreurMaxPassagers = false;
   bool _erreurVilles = false;
+  String _cleErreurVilles = 'erreur_villes_requises';
   bool _erreurDate = false;
   bool _erreurDateRetour = false;
 
@@ -105,10 +116,13 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   }
 
   void _echanger() {
-    final tmp = _ctrlDepart.text;
+    final tmpTexte = _ctrlDepart.text;
+    final tmpCode = _codeDepart;
     setState(() {
       _ctrlDepart.text = _ctrlArrivee.text;
-      _ctrlArrivee.text = tmp;
+      _ctrlArrivee.text = tmpTexte;
+      _codeDepart = _codeArrivee;
+      _codeArrivee = tmpCode;
     });
   }
 
@@ -116,20 +130,23 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
     final depart = _ctrlDepart.text.trim();
     final arrivee = _ctrlArrivee.text.trim();
 
+    final champsVides = depart.isEmpty || arrivee.isEmpty;
+    final villesNonChoisies = _codeDepart == null || _codeArrivee == null;
+
     setState(() {
-      _erreurVilles = depart.isEmpty || arrivee.isEmpty;
+      _erreurVilles = champsVides || villesNonChoisies;
+      _cleErreurVilles =
+          champsVides ? 'erreur_villes_requises' : 'erreur_villes_liste';
       _erreurDate = _dateAller == null;
       _erreurDateRetour = _allerRetour && _dateRetour == null;
     });
     if (_erreurVilles || _erreurDate || _erreurDateRetour) return;
 
-    final departResolu = Villes.abreviations[depart.toLowerCase()] ?? depart;
-    final arriveeResolue =
-        Villes.abreviations[arrivee.toLowerCase()] ?? arrivee;
-
     final params = <String, String>{
-      'ville_depart': departResolu,
-      'ville_arrivee': arriveeResolue,
+      'ville_depart': _codeDepart!,
+      'ville_arrivee': _codeArrivee!,
+      'depart_affiche': depart,
+      'arrivee_affiche': arrivee,
       'date': DateFormat('yyyy-MM-dd').format(_dateAller!),
       'passagers': _passagers.toString(),
       'aller_retour': _allerRetour ? '1' : '0',
@@ -316,16 +333,20 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                               controller: _ctrlDepart,
                               libelle: Strings.t('ville_depart'),
                               icone: Icons.trip_origin_rounded,
-                              onChange: () =>
-                                  setState(() => _erreurVilles = false),
+                              onVilleChoisie: (code) => setState(() {
+                                _codeDepart = code;
+                                _erreurVilles = false;
+                              }),
                             ),
                             const SizedBox(height: 8),
                             _ChampVille(
                               controller: _ctrlArrivee,
                               libelle: Strings.t('ville_arrivee'),
                               icone: Icons.place_rounded,
-                              onChange: () =>
-                                  setState(() => _erreurVilles = false),
+                              onVilleChoisie: (code) => setState(() {
+                                _codeArrivee = code;
+                                _erreurVilles = false;
+                              }),
                             ),
                           ],
                         ),
@@ -355,7 +376,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                         ),
                       ],
                     ),
-                    _erreurSousCase(_erreurVilles, 'erreur_villes_requises'),
+                    _erreurSousCase(_erreurVilles, _cleErreurVilles),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -599,12 +620,22 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               Row(
                 children: [
                   Expanded(
-                      child: _carteLigne('Douala', 'Yaoundé',
-                          const Color(0xFFDCF2E5), const Color(0xFFA7DEC0))),
+                      child: _carteLigne(
+                          'Douala',
+                          'douala',
+                          'Yaoundé',
+                          'yaounde',
+                          const Color(0xFFDCF2E5),
+                          const Color(0xFFA7DEC0))),
                   const SizedBox(width: 10),
                   Expanded(
-                      child: _carteLigne('Douala', 'Bafoussam',
-                          const Color(0xFFD3EDDE), const Color(0xFF95D5B2))),
+                      child: _carteLigne(
+                          'Douala',
+                          'douala',
+                          'Bafoussam',
+                          'bafoussam',
+                          const Color(0xFFD3EDDE),
+                          const Color(0xFF95D5B2))),
                 ],
               )
                   .animate(delay: 400.ms)
@@ -852,12 +883,17 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
     );
   }
 
-  Widget _carteLigne(String de, String vers, Color fond, Color colline) {
+  /// Ligne populaire : on renseigne le nom affiché ET le code, sinon
+  /// la recherche partirait sans code et serait refusée.
+  Widget _carteLigne(String de, String codeDe, String vers, String codeVers,
+      Color fond, Color colline) {
     return BoutonTactile(
       onTap: () {
         setState(() {
           _ctrlDepart.text = de;
           _ctrlArrivee.text = vers;
+          _codeDepart = codeDe;
+          _codeArrivee = codeVers;
           _erreurVilles = false;
         });
       },
@@ -902,29 +938,72 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   }
 }
 
-class _ChampVille extends StatelessWidget {
+/// Champ de saisie d'une ville, alimenté par l'autocomplétion du
+/// serveur (les 50 villes de la base, avec leurs abréviations).
+///
+/// Le champ remonte deux choses au parent : le nom affiché, qui reste
+/// dans le contrôleur de texte, et le CODE de la ville, seul accepté
+/// par la recherche de trajets. Tant que le voyageur n'a pas choisi
+/// une ville dans la liste, le code vaut `null`.
+class _ChampVille extends StatefulWidget {
   final TextEditingController controller;
   final String libelle;
   final IconData icone;
-  final VoidCallback? onChange;
+
+  /// Appelé avec le code serveur quand une ville est choisie dans la
+  /// liste, et avec `null` dès que le texte est modifié à la main :
+  /// le code retenu ne correspondrait alors plus à ce qui est affiché.
+  final ValueChanged<String?> onVilleChoisie;
 
   const _ChampVille({
     required this.controller,
     required this.libelle,
     required this.icone,
-    this.onChange,
+    required this.onVilleChoisie,
   });
 
   @override
+  State<_ChampVille> createState() => _ChampVilleState();
+}
+
+class _ChampVilleState extends State<_ChampVille> {
+  /// Dernière saisie lancée. Sert à ignorer la réponse d'une requête
+  /// partie avant une frappe plus récente.
+  String _saisieEnCours = '';
+
+  /// Interroge le serveur après une courte pause. Sans cette pause,
+  /// chaque lettre tapée déclencherait un appel réseau — coûteux sur
+  /// une connexion mobile camerounaise.
+  Future<Iterable<Map<String, dynamic>>> _suggestions(
+      TextEditingValue valeur) async {
+    final saisie = valeur.text.trim();
+    if (saisie.length < 2) return const [];
+
+    _saisieEnCours = saisie;
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (_saisieEnCours != saisie) return const [];
+
+    try {
+      return await ApiService.chercherVilles(saisie);
+    } on ErreurApi {
+      // Serveur injoignable : aucune suggestion, et le voyageur ne
+      // peut pas lancer une recherche qui échouerait de toute façon.
+      return const [];
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Autocomplete<String>(
-      optionsBuilder: (TextEditingValue valeur) {
-        if (valeur.text.isEmpty) return const Iterable<String>.empty();
-        return Villes.suggestions(valeur.text);
-      },
+    final controller = widget.controller;
+    final libelle = widget.libelle;
+    final icone = widget.icone;
+
+    return Autocomplete<Map<String, dynamic>>(
+      optionsBuilder: _suggestions,
+      displayStringForOption: (ville) => '${ville['nom']}',
       onSelected: (choix) {
-        controller.text = choix;
-        onChange?.call();
+        controller.text = '${choix['nom']}';
+        widget.onVilleChoisie('${choix['code']}');
       },
       optionsViewBuilder: (context, onSelected, options) {
         return Align(
@@ -947,6 +1026,7 @@ class _ChampVille extends StatelessWidget {
                 itemCount: options.length,
                 itemBuilder: (context, i) {
                   final option = options.elementAt(i);
+                  final region = '${option['region'] ?? ''}';
                   return InkWell(
                     onTap: () => onSelected(option),
                     child: Padding(
@@ -957,9 +1037,17 @@ class _ChampVille extends StatelessWidget {
                           const Icon(Icons.location_on_rounded,
                               size: 15, color: JegoTheme.vert),
                           const SizedBox(width: 8),
-                          Text(option,
-                              style: const TextStyle(
-                                  color: JegoTheme.texte, fontSize: 13.5)),
+                          Expanded(
+                            child: Text('${option['nom']}',
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: JegoTheme.texte, fontSize: 13.5)),
+                          ),
+                          if (region.isNotEmpty)
+                            Text(region,
+                                style: const TextStyle(
+                                    color: JegoTheme.texteTernaire,
+                                    fontSize: 11.5)),
                         ],
                       ),
                     ),
@@ -971,12 +1059,10 @@ class _ChampVille extends StatelessWidget {
         );
       },
       fieldViewBuilder: (context, ctrlInterne, focusNode, onSubmit) {
-        ctrlInterne.addListener(() {
-          controller.text = ctrlInterne.text;
-        });
-        if (controller.text.isNotEmpty &&
-            ctrlInterne.text != controller.text &&
-            !focusNode.hasFocus) {
+        // Le parent peut remplir le champ de l'extérieur (échange des
+        // deux villes, ligne populaire) : on recopie sa valeur tant
+        // que le champ n'a pas le curseur.
+        if (ctrlInterne.text != controller.text && !focusNode.hasFocus) {
           ctrlInterne.text = controller.text;
         }
         return Container(
@@ -987,7 +1073,12 @@ class _ChampVille extends StatelessWidget {
           child: TextField(
             controller: ctrlInterne,
             focusNode: focusNode,
-            onChanged: (_) => onChange?.call(),
+            onChanged: (texte) {
+              controller.text = texte;
+              // Texte modifié à la main : le code retenu ne vaut plus
+              // rien, il faudra rechoisir une ville dans la liste.
+              widget.onVilleChoisie(null);
+            },
             style: const TextStyle(color: JegoTheme.texte, fontSize: 14),
             cursorColor: JegoTheme.vert,
             decoration: InputDecoration(

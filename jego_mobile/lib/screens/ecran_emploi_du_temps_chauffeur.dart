@@ -111,11 +111,8 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
               itemCount: 7,
               itemBuilder: (context, i) {
                 final jour = _debutSemaine.add(Duration(days: i));
-                final trajet = TrajetChauffeur.trajetDuJour(jour);
+                final trajets = TrajetChauffeur.trajetsDuJour(jour);
                 final aujourdhui = _estAujourdhui(jour);
-                final cle = '${jour.year}-${jour.month}-${jour.day}';
-                final ouvert = _ouverts.contains(cle);
-                final arrets = trajet == null ? <String>[] : (trajet['arrets'] as List).cast<String>();
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 10),
@@ -124,77 +121,54 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                     borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
                     border: Border.all(color: aujourdhui ? JegoTheme.vert.withOpacity(0.3) : JegoTheme.bordCarte),
                   ),
-                  child: Column(
-                    children: [
-                      BoutonTactile(
-                        onTap: trajet == null
-                            ? null
-                            : () => setState(() {
-                                  ouvert ? _ouverts.remove(cle) : _ouverts.add(cle);
-                                }),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SizedBox(
-                                width: 56,
-                                child: Column(
+                              Text(joursSemaine[i],
+                                  style: TextStyle(
+                                      color: aujourdhui ? JegoTheme.vert : JegoTheme.texteSecondaire,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700)),
+                              Text('${jour.day}',
+                                  style: TextStyle(
+                                      color: aujourdhui ? JegoTheme.vert : JegoTheme.texte,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800)),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: trajets.isEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Text('Aucun trajet',
+                                      style: TextStyle(
+                                          color: JegoTheme.texteTernaire, fontSize: 12.5)),
+                                )
+                              : Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(joursSemaine[i],
-                                        style: TextStyle(
-                                            color: aujourdhui ? JegoTheme.vert : JegoTheme.texteSecondaire,
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w700)),
-                                    Text('${jour.day}',
-                                        style: TextStyle(
-                                            color: aujourdhui ? JegoTheme.vert : JegoTheme.texte,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w800)),
+                                    for (var k = 0; k < trajets.length; k++) ...[
+                                      if (k > 0)
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(vertical: 8),
+                                          child: Divider(
+                                              height: 1, color: JegoTheme.bordCarte),
+                                        ),
+                                      _carteTrajet(trajets[k]),
+                                    ],
                                   ],
                                 ),
-                              ),
-                              Expanded(
-                                child: trajet == null
-                                    ? Text('Aucun trajet',
-                                        style: TextStyle(color: JegoTheme.texteTernaire, fontSize: 12.5))
-                                    : Row(
-                                        children: [
-                                          const Icon(Icons.directions_bus_rounded, size: 15, color: JegoTheme.vert),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text('${trajet['ville_depart']} → ${trajet['ville_arrivee']}',
-                                                style: const TextStyle(
-                                                    color: JegoTheme.texte,
-                                                    fontSize: 12.5,
-                                                    fontWeight: FontWeight.w700)),
-                                          ),
-                                        ],
-                                      ),
-                              ),
-                              if (trajet != null)
-                                Icon(ouvert ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                                    size: 20, color: JegoTheme.texteTernaire),
-                            ],
-                          ),
                         ),
-                      ),
-                      if (ouvert && trajet != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                          child: Column(
-                            children: [
-                              const Divider(height: 1, color: JegoTheme.bordCarte),
-                              const SizedBox(height: 10),
-                              _ligne('Depart', '${trajet['heure_depart']} · ${trajet['point_depart']}'),
-                              _ligne('Arrivee prevue', '${trajet['heure_arrivee']} · ${trajet['point_arrivee']}'),
-                              if (arrets.isNotEmpty) _ligne('Arrets', arrets.join(', ')),
-                              _ligne('Bus', '${trajet['bus']} · ${trajet['capacite']} places'),
-                              _ligne('Reference', '${trajet['reference']}'),
-                            ],
-                          ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },
@@ -202,6 +176,146 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
           ),
         ],
       ),
+    );
+  }
+
+  /// Un trajet de la journée, repliable indépendamment des autres.
+  /// La clé de dépliage est la référence du trajet, pas la date : deux
+  /// trajets le même jour s'ouvrent et se ferment séparément.
+  Widget _carteTrajet(Map<String, dynamic> trajet) {
+    final cle = '${trajet['reference']}';
+    final ouvert = _ouverts.contains(cle);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        BoutonTactile(
+          onTap: () => setState(() {
+            ouvert ? _ouverts.remove(cle) : _ouverts.add(cle);
+          }),
+          child: Row(
+            children: [
+              const Icon(Icons.directions_bus_rounded, size: 15, color: JegoTheme.vert),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${trajet['ville_depart']} → ${trajet['ville_arrivee']}',
+                        style: const TextStyle(
+                            color: JegoTheme.texte,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700)),
+                    Text('${trajet['heure_depart']}',
+                        style: TextStyle(
+                            color: JegoTheme.texteSecondaire, fontSize: 11.5)),
+                  ],
+                ),
+              ),
+              Icon(ouvert ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  size: 20, color: JegoTheme.texteTernaire),
+            ],
+          ),
+        ),
+        if (ouvert)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _itineraire(trajet),
+                const SizedBox(height: 10),
+                _ligne('Bus', '${trajet['bus']} · ${trajet['capacite']} places'),
+                _ligne('Passagers', '${trajet['places_reservees']} reserves'),
+                _ligne('Numero', '${trajet['reference']}'),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// L'itinéraire tel que le chauffeur en a besoin sur la route :
+  /// chaque point dans l'ordre, avec l'heure, le lieu exact de prise en
+  /// charge, et le mouvement de voyageurs qui s'y fait. Sans le lieu il
+  /// cherche où s'arrêter ; sans les comptes il ne sait pas qui attendre.
+  Widget _itineraire(Map<String, dynamic> trajet) {
+    final points = (trajet['itineraire'] as List?) ?? [];
+    if (points.isEmpty) {
+      return _ligne('Depart', '${trajet['heure_depart']} · ${trajet['point_depart']}');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < points.length; i++)
+          Builder(builder: (_) {
+            final p = points[i] as Map;
+            final premier = i == 0;
+            final dernier = i == points.length - 1;
+            final montent = p['montent'] as int? ?? 0;
+            final descendent = p['descendent'] as int? ?? 0;
+
+            final mouvements = <String>[
+              if (montent > 0) '$montent monte${montent > 1 ? 'nt' : ''}',
+              if (descendent > 0) '$descendent descend${descendent > 1 ? 'ent' : ''}',
+            ];
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Repère visuel : départ et terminus pleins, arrêts creux.
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Icon(
+                      premier
+                          ? Icons.trip_origin_rounded
+                          : dernier
+                              ? Icons.place_rounded
+                              : Icons.circle_outlined,
+                      size: 13,
+                      color: premier || dernier
+                          ? JegoTheme.vert
+                          : JegoTheme.texteTernaire,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  SizedBox(
+                    width: 44,
+                    child: Text('${p['heure']}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: JegoTheme.texte)),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${p['ville']}',
+                            style: const TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w700)),
+                        if ('${p['lieu']}'.isNotEmpty)
+                          Text('${p['lieu']}',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: JegoTheme.texteSecondaire)),
+                        if (mouvements.isNotEmpty)
+                          Text(mouvements.join(' · '),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: JegoTheme.vert,
+                                  fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+      ],
     );
   }
 

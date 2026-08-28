@@ -16,6 +16,7 @@ import LayoutAgence from '../components/LayoutAgence';
 import { Panel, Badge, ToastDemo } from '../components/ui';
 import TelephoneInput from '../components/TelephoneInput';
 import { apiFetch } from '../lib/api';
+import { formatTelephone } from '../lib/format';
 
 type Chauffeur = {
   id: string;
@@ -271,7 +272,7 @@ export default function ChauffeursPage() {
                       <div className="w-11 h-11 rounded-full bg-green-500 flex items-center justify-center text-white font-display font-bold shrink-0">{initiales(c.prenom, c.nom)}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-ink">{c.prenom} {c.nom}</p>
-                        <p className="text-xs text-ink-soft font-mono">{c.telephone}</p>
+                        <p className="text-xs text-ink-soft font-mono whitespace-nowrap">{formatTelephone(c.telephone)}</p>
                       </div>
                       <Badge color={!c.desactive_urgence ? 'green' : 'red'}>{!c.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
                     </div>
@@ -334,7 +335,7 @@ export default function ChauffeursPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[17px] font-display font-bold text-white truncate">{chauffeurVu.prenom} {chauffeurVu.nom}</p>
-                  <p className="text-[12px] text-white/70 font-mono">{chauffeurVu.telephone}</p>
+                  <p className="text-[12px] text-white/70 font-mono whitespace-nowrap">{formatTelephone(chauffeurVu.telephone)}</p>
                 </div>
                 <Badge color={!chauffeurVu.desactive_urgence ? 'green' : 'red'}>{!chauffeurVu.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
               </div>

@@ -72,7 +72,7 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
 
   Future<void> _signalerFausseArrivee() async {
     final confirme =
-        await confirmerFausseArrivee(context, '${widget.billet['id']}');
+        await confirmerFausseArrivee(context, widget.billet);
     if (confirme) {
       setState(() => _fausseArriveeSignalee = true);
     }
@@ -123,7 +123,7 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                               color: JegoTheme.danger.withOpacity(0.14),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.report_rounded,
+                            child: Icon(Icons.report_rounded,
                                 color: JegoTheme.danger, size: 20),
                           ),
                           const SizedBox(width: 12),
@@ -132,7 +132,7 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'Le trajet n\'est pas terminé pour vous ?',
                                   style: TextStyle(
                                     fontSize: 13.5,
@@ -152,7 +152,7 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded,
+                          Icon(Icons.chevron_right_rounded,
                               color: JegoTheme.danger, size: 20),
                         ],
                       ),
@@ -170,7 +170,7 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                 else if (_fausseArriveeSignalee)
                   _CarteBloquee().animate().fadeIn(duration: 350.ms)
                 else ...[
-                  const Text(
+                  Text(
                     'Notez votre voyage',
                     style: TextStyle(
                       fontSize: 16,
@@ -206,9 +206,9 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                     child: TextField(
                       controller: _commentaire,
                       maxLines: 4,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texte, fontSize: 13.5),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText:
                             'Un commentaire à partager (optionnel)',
                         hintStyle:
@@ -271,7 +271,7 @@ class _CarteBloquee extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.hourglass_top_rounded,
+          Icon(Icons.hourglass_top_rounded,
               color: JegoTheme.texteTernaire, size: 22),
           const SizedBox(width: 12),
           Expanded(
@@ -304,7 +304,7 @@ class _EnTeteNotation extends StatelessWidget {
       clipper: _VagueClipperNotation(),
       child: Container(
         height: 152,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -323,7 +323,7 @@ class _EnTeteNotation extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
+                      color: JegoTheme.fondCarte.withOpacity(0.16),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.arrow_back_rounded,
@@ -400,7 +400,7 @@ class _LigneNotation extends StatelessWidget {
           Expanded(
             child: Text(
               critere.libelle,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: JegoTheme.texte,
@@ -455,11 +455,11 @@ class _CarteMerci extends StatelessWidget {
               color: JegoTheme.vert.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.check_rounded,
+            child: Icon(Icons.check_rounded,
                 color: JegoTheme.vert, size: 32),
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Merci pour votre avis',
             style: TextStyle(
               fontSize: 16,

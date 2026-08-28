@@ -113,7 +113,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
           ordreArrivee: ordreArrivee,
         );
 
-        await ApiService.payer(
+        final emis = await ApiService.payer(
           trajetId: trajetId,
           siegeId: siegeId,
           operateur: _operateur!.code,
@@ -130,6 +130,14 @@ class _EcranPaiementState extends State<EcranPaiement> {
                   : null,
           utiliserReduction: r.pointsReduction > 0,
         );
+
+        // Le numero et le QR viennent du serveur : ce sont eux qui
+        // seront scannes a l'embarquement. Rien n'est fabrique ici.
+        final billet = emis['billet'];
+        if (billet is Map) {
+          r.billetsEmis[r.siegesAller[i]] =
+              Map<String, dynamic>.from(billet);
+        }
       }
 
       if (!mounted) return;
@@ -178,26 +186,26 @@ class _EcranPaiementState extends State<EcranPaiement> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
                  const SizedBox(width: 14),
                   Text(
                     Strings.t('paiement_titre'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const Spacer(),
-                  const TimerSoftLock(),
+                  TimerSoftLock(),
                 ],
               ),
             ),
@@ -237,7 +245,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                   const SizedBox(height: 18),
                   Text(
                     Strings.t('paiement_choisir_op'),
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texte,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800),
@@ -291,7 +299,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                             Expanded(
                               child: Text(
                                 op.nom,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texte,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700),
@@ -315,7 +323,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                   const SizedBox(height: 8),
                   Text(
                     Strings.t('paiement_numero'),
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texte,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800),
@@ -333,7 +341,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                       padding: const EdgeInsets.only(top: 6, left: 4),
                       child: Text(
                         Strings.t('paiement_erreur'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.danger,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -388,7 +396,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      const SizedBox(
+                      SizedBox(
                         width: 90,
                         height: 90,
                         child: CircularProgressIndicator(
@@ -406,7 +414,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                 const SizedBox(height: 22),
                 Text(
                   Strings.t('paiement_verif_titre'),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800),
@@ -415,7 +423,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                 Text(
                   Strings.t('paiement_verif_texte'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteSecondaire,
                       fontSize: 13,
                       height: 1.5),
@@ -429,7 +437,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                   },
                   child: Text(
                     Strings.t('annuler'),
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texteSecondaire,
                         fontSize: 13,
                         fontWeight: FontWeight.w700),
@@ -460,13 +468,13 @@ class _EcranPaiementState extends State<EcranPaiement> {
                     color: JegoTheme.danger.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.close_rounded,
+                  child: Icon(Icons.close_rounded,
                       color: JegoTheme.danger, size: 44),
                 ),
                 const SizedBox(height: 20),
                 Text(
                   Strings.t('paiement_echec_titre'),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 18,
                       fontWeight: FontWeight.w800),
@@ -475,7 +483,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                 Text(
                   _messageEchec ?? Strings.t('paiement_echec_texte'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteSecondaire, fontSize: 13),
                 ),
                 const SizedBox(height: 24),

@@ -6,6 +6,7 @@ import '../l10n/strings.dart';
 import 'connexion_inscription.dart';
 import 'fiche_agence.dart';
 import 'selection_siege.dart';
+import '../config/nature_trajet.dart';
 
 /// Page Informations du voyage. Mode : 'simple' | 'aller' | 'retour'.
 class EcranDetailTrajet extends StatelessWidget {
@@ -48,7 +49,7 @@ class EcranDetailTrajet extends StatelessWidget {
     }
     if (!Session.connecte.value) {
       final ok = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const EcranConnexionInscription()),
+        MaterialPageRoute(builder: (_) => EcranConnexionInscription()),
       );
       if (ok != true) return;
     }
@@ -123,7 +124,6 @@ class EcranDetailTrajet extends StatelessWidget {
     final arrets = (offre['arrets_liste'] as List?) ?? [];
     final nbArrets = offre['nombre_arrets'] ?? 0;
     final prix = offre['prix'] as int;
-    final prixPremium = offre['prix_siege_premium'] ?? 0;
     final total = prix * passagers;
 
     return Scaffold(
@@ -140,19 +140,19 @@ class EcranDetailTrajet extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border:
                             Border.all(color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     Strings.t('detail_titre'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
@@ -171,7 +171,7 @@ class EcranDetailTrajet extends StatelessWidget {
                         mode == 'aller'
                             ? Strings.t('resultats_aller')
                             : Strings.t('resultats_retour'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.vert,
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -201,13 +201,13 @@ class EcranDetailTrajet extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle_rounded,
+                            Icon(Icons.check_circle_rounded,
                                 size: 16, color: JegoTheme.vert),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 '${Strings.t('voyage_aller_label')} $dateAller · ${offreAller!['heure_depart']}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: JegoTheme.texte,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -231,14 +231,14 @@ class EcranDetailTrajet extends StatelessWidget {
                             ),
                             Column(
                               children: [
-                                const Icon(Icons.arrow_forward_rounded,
+                                Icon(Icons.arrow_forward_rounded,
                                     color: JegoTheme.vert, size: 20),
                                 const SizedBox(height: 2),
                                 Text(
                                   nbArrets == 0
                                       ? Strings.t('trajet_direct')
                                       : '$nbArrets ${Strings.t('arrets')}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: JegoTheme.texteTernaire,
                                       fontSize: 10.5),
                                 ),
@@ -268,7 +268,7 @@ class EcranDetailTrajet extends StatelessWidget {
                               _infoMini(Icons.schedule_rounded,
                                   '${offre['heure_depart']} → ${offre['heure_arrivee']}'),
                               _infoMini(Icons.style_rounded,
-                                  '${offre['categorie']}'),
+                                  NatureTrajet.etiquettes(offre).join(' · ')),
                             ],
                           ),
                         ),
@@ -277,14 +277,14 @@ class EcranDetailTrajet extends StatelessWidget {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.alt_route_rounded,
+                              Icon(Icons.alt_route_rounded,
                                   size: 15,
                                   color: JegoTheme.texteSecondaire),
                               const SizedBox(width: 6),
                               Expanded(
                                 child: Text(
                                   '${Strings.t('arrets_label')} ${arrets.join(', ')}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: JegoTheme.texteSecondaire,
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -318,7 +318,7 @@ class EcranDetailTrajet extends StatelessWidget {
                               borderRadius:
                                   BorderRadius.circular(JegoTheme.rPetit),
                             ),
-                            child: const Icon(Icons.directions_bus_rounded,
+                            child: Icon(Icons.directions_bus_rounded,
                                 color: JegoTheme.vert, size: 22),
                           ),
                           const SizedBox(width: 12),
@@ -328,7 +328,7 @@ class EcranDetailTrajet extends StatelessWidget {
                               children: [
                                 Text(
                                   '${offre['nom_agence']}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: JegoTheme.texte,
                                     fontSize: 14.5,
                                     fontWeight: FontWeight.w800,
@@ -336,11 +336,11 @@ class EcranDetailTrajet extends StatelessWidget {
                                 ),
                                 Row(
                                   children: [
-                                    const Icon(Icons.star_rounded,
+                                    Icon(Icons.star_rounded,
                                         size: 15, color: JegoTheme.etoile),
                                     Text(
                                       ' ${offre['note_moyenne']} · ${Strings.t('voir_avis')}',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color: JegoTheme.texteSecondaire,
                                           fontSize: 12),
                                     ),
@@ -349,7 +349,7 @@ class EcranDetailTrajet extends StatelessWidget {
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded,
+                          Icon(Icons.chevron_right_rounded,
                               color: JegoTheme.texteTernaire),
                         ],
                       ),
@@ -386,7 +386,7 @@ class EcranDetailTrajet extends StatelessWidget {
                                     const SizedBox(width: 6),
                                     Text(
                                       _libelleEquipement('$e'),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: JegoTheme.texteSecondaire,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
@@ -406,41 +406,12 @@ class EcranDetailTrajet extends StatelessWidget {
                   const SizedBox(height: 12),
                   _carte(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _titreBloc(Strings.t('options_payantes')),
-                        const SizedBox(height: 4),
-                        _ligneOption(Icons.event_seat_rounded,
-                            Strings.t('opt_siege_premium'),
-                            '+$prixPremium FCFA'),
-                        _ligneOption(
-                            Icons.published_with_changes_rounded,
-                            Strings.t('opt_billet_flexible'),
-                            '+${(prix * 0.10).round()} FCFA'),
-                        _ligneOption(Icons.luggage_rounded,
-                            Strings.t('opt_bagage'),
-                            Strings.t('opt_selon_agence')),
-                        const SizedBox(height: 4),
-                        Text(
-                          Strings.t('options_note'),
-                          style: const TextStyle(
-                              color: JegoTheme.texteTernaire, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  )
-                      .animate(delay: 240.ms)
-                      .fadeIn(duration: 400.ms)
-                      .slideY(begin: 0.1),
-                  const SizedBox(height: 12),
-                  _carte(
-                    child: Column(
                       children: [
                         _lignePrix(
                             '${Strings.t('prix_billet')} × $passagers',
                             '${prix * passagers} FCFA',
                             gras: false),
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
                           child: Divider(
                               height: 1, color: JegoTheme.bordCarte),
@@ -473,14 +444,14 @@ class EcranDetailTrajet extends StatelessWidget {
                     children: [
                       Text(
                         _libelleBouton,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.surVert,
                           fontSize: 15.5,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Icon(Icons.arrow_forward_rounded,
+                      Icon(Icons.arrow_forward_rounded,
                           color: JegoTheme.surVert, size: 20),
                     ],
                   ),
@@ -509,7 +480,7 @@ class EcranDetailTrajet extends StatelessWidget {
   Widget _titreBloc(String texte) {
     return Text(
       texte,
-      style: const TextStyle(
+      style: TextStyle(
         color: JegoTheme.texte,
         fontSize: 13.5,
         fontWeight: FontWeight.w800,
@@ -524,7 +495,7 @@ class EcranDetailTrajet extends StatelessWidget {
       children: [
         Text(
           ville,
-          style: const TextStyle(
+          style: TextStyle(
             color: JegoTheme.texte,
             fontSize: 19,
             fontWeight: FontWeight.w800,
@@ -534,12 +505,12 @@ class EcranDetailTrajet extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.location_on_rounded,
+            Icon(Icons.location_on_rounded,
                 size: 12, color: JegoTheme.vert),
             const SizedBox(width: 2),
             Text(
               point,
-              style: const TextStyle(
+              style: TextStyle(
                 color: JegoTheme.texteSecondaire,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -559,40 +530,13 @@ class EcranDetailTrajet extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           texte,
-          style: const TextStyle(
+          style: TextStyle(
             color: JegoTheme.texte,
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
           ),
         ),
       ],
-    );
-  }
-
-  Widget _ligneOption(IconData icone, String libelle, String prix) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icone, size: 17, color: JegoTheme.texteSecondaire),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              libelle,
-              style:
-                  const TextStyle(color: JegoTheme.texte, fontSize: 12.5),
-            ),
-          ),
-          Text(
-            prix,
-            style: const TextStyle(
-              color: JegoTheme.vert,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
     );
   }
 

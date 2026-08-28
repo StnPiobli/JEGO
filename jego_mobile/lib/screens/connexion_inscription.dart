@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import '../config/api.dart';
-import '../config/session.dart';
 import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
 import 'ecran_accueil_chauffeur.dart';
@@ -10,9 +10,14 @@ import '../l10n/strings.dart';
 import '../widgets/champ_telephone.dart';
 import '../widgets/selecteur_date.dart';
 import 'conditions_utilisation.dart';
+import '../widgets/logos_sociaux.dart';
+import '../config/auth_google.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import '../widgets/bouton_google_stub.dart'
+    if (dart.library.js_interop) '../widgets/bouton_google_web.dart';
 
 /// Connexion / Inscription premium.
-/// Connexion : telephone OU email + boutons sociaux (Google/Facebook/Apple).
+/// Connexion : telephone OU email, ou compte Google.
 /// Inscription : 4 etapes (1-2-3-4), robustesse mdp en direct,
 /// telephones avec indicatif pays et format valide, CGU cliquables et
 /// obligatoires, erreurs en petit texte rouge sous les champs.
@@ -51,12 +56,12 @@ class _EcranConnexionInscriptionState
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.close_rounded,
+                      child: Icon(Icons.close_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
@@ -65,7 +70,7 @@ class _EcranConnexionInscriptionState
                     _modeInscription
                         ? Strings.t('auth_inscription')
                         : Strings.t('auth_connexion'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
@@ -124,9 +129,56 @@ class _VueConnexionState extends State<_VueConnexion> {
   bool _mdpVisible = false;
   bool _enCours = false;
   String? _erreur;
+  StreamSubscription<GoogleSignInAuthenticationEvent>? _ecouteGoogle;
+
+  /// Le bouton dessiné par Google est conservé tel quel. Le reconstruire
+  /// à chaque `setState` — donc à chaque frappe dans un champ — lui
+  /// faisait recréer son cadre et se redimensionner sans arrêt.
+  Widget? _boutonGoogle;
+
+  /// Vrai une fois Google initialisé. Sans cette attente, le bouton
+  /// était dessiné une première fois avant l'initialisation, puis
+  /// redessiné aussitôt après : un sursaut visible à l'ouverture.
+  bool _googlePret = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _preparerGoogle();
+  }
+
+  /// Google doit être initialisé avant de savoir s'il accepte notre
+  /// bouton, et avant de pouvoir dessiner le sien sur le web.
+  Future<void> _preparerGoogle() async {
+    try {
+      await AuthGoogle.preparer();
+    } catch (_) {
+      // Identifiant client absent ou mal formé : le bouton restera
+      // inerte, le reste de l'écran continue de fonctionner.
+      return;
+    }
+    if (!mounted) return;
+
+    _googlePret = true;
+
+    _ecouteGoogle = AuthGoogle.evenements.listen((evenement) {
+      if (evenement is GoogleSignInAuthenticationEventSignIn) {
+        final jeton = evenement.user.authentication.idToken;
+        if (jeton != null) _terminerGoogle(jeton);
+      }
+    }, onError: (_) {});
+
+    setState(() {});
+
+    // Propose d'emblée les comptes déjà connus, pour éviter au voyageur
+    // de retaper son adresse. S'il n'y en a aucun, rien ne s'affiche et
+    // le bouton reste disponible.
+    AuthGoogle.proposerComptesConnus();
+  }
 
   @override
   void dispose() {
+    _ecouteGoogle?.cancel();
     _cIdentifiant.dispose();
     _cMdp.dispose();
     super.dispose();
@@ -161,10 +213,6 @@ class _VueConnexionState extends State<_VueConnexion> {
     });
 
     try {
-      // Le compte voyageur se retrouve par téléphone uniquement :
-      // inutile de l'interroger avec une adresse email, seuls les
-      // chauffeurs peuvent s'y connecter ainsi.
-      if (!estTel) throw ErreurApi('Compte voyageur introuvable par email');
       await ApiService.connecter(telephone: id, motDePasse: _cMdp.text);
       if (!mounted) return;
       setState(() => _enCours = false);
@@ -188,7 +236,7 @@ class _VueConnexionState extends State<_VueConnexion> {
         if (!mounted) return;
         setState(() => _enCours = false);
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
+          MaterialPageRoute(builder: (_) => EcranAccueilChauffeur()),
         );
         return;
       } on ErreurApi catch (eChauffeur) {
@@ -197,10 +245,8 @@ class _VueConnexionState extends State<_VueConnexion> {
           _enCours = false;
           // On affiche le message le plus parlant : un compte
           // désactivé doit être signalé comme tel, pas confondu
-          // avec un mot de passe erroné. Sur une adresse email, le
-          // refus voyageur est le nôtre et n'a rien à dire au
-          // lecteur : seul celui du serveur compte.
-          _erreur = (eChauffeur.statut == 403 || !estTel)
+          // avec un mot de passe erroné.
+          _erreur = eChauffeur.statut == 403
               ? eChauffeur.message
               : eVoyageur.message;
         });
@@ -208,12 +254,316 @@ class _VueConnexionState extends State<_VueConnexion> {
     }
   }
 
-  /// La connexion par Google / Facebook / Apple n'est pas encore
-  /// raccordée côté serveur. Tant qu'elle ne l'est pas, on le dit
-  /// clairement au lieu d'ouvrir une session qui n'existe pas.
-  void _connexionSociale(String fournisseur) {
-    setState(() => _erreur =
-        'La connexion $fournisseur arrive bientôt. Utilisez votre numéro de téléphone pour le moment.');
+
+  /// Mot de passe oublié, en deux temps : on demande un code, puis le
+  /// nouveau mot de passe. Le serveur répond toujours la même chose à la
+  /// première étape — savoir si un compte existe n'appartient à
+  /// personne d'autre qu'à son propriétaire.
+  Future<void> _motDePasseOublie() async {
+    final ctrlId = TextEditingController(text: _cIdentifiant.text.trim());
+    final ctrlCode = TextEditingController();
+    final ctrlMdp = TextEditingController();
+    bool codeDemande = false;
+    bool mdpVisible = false;
+    bool occupe = false;
+    String? info;
+    String? erreur;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, maj) {
+          Future<void> demander() async {
+            if (ctrlId.text.trim().isEmpty) {
+              maj(() => erreur = 'Entrez votre numéro ou votre email.');
+              return;
+            }
+            maj(() { occupe = true; erreur = null; });
+            try {
+              final m = await ApiService.demanderReinitialisation(ctrlId.text.trim());
+              maj(() { occupe = false; codeDemande = true; info = m; });
+            } on ErreurApi catch (e) {
+              maj(() { occupe = false; erreur = e.message; });
+            }
+          }
+
+          Future<void> valider() async {
+            if (ctrlCode.text.trim().length < 4 || ctrlMdp.text.length < 8) {
+              maj(() => erreur =
+                  "Entrez le code reçu et un mot de passe d'au moins 8 caractères.");
+              return;
+            }
+            maj(() { occupe = true; erreur = null; });
+            try {
+              await ApiService.reinitialiserMotDePasse(
+                identifiant: ctrlId.text.trim(),
+                code: ctrlCode.text.trim(),
+                nouveauMotDePasse: ctrlMdp.text,
+              );
+              if (ctx.mounted) Navigator.of(ctx).pop();
+              if (mounted) {
+                setState(() {
+                  _cIdentifiant.text = ctrlId.text.trim();
+                  _cMdp.clear();
+                  _erreur = null;
+                });
+              }
+            } on ErreurApi catch (e) {
+              maj(() { occupe = false; erreur = e.message; });
+            }
+          }
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(JegoTheme.rMoyen)),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(Strings.t('mdp_oublie_titre'),
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    codeDemande
+                        ? 'Entrez le code reçu par email, puis votre nouveau mot de passe.'
+                        : 'Entrez votre numéro de téléphone ou votre email. Nous vous enverrons un code.',
+                    style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12.5),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: ctrlId,
+                    enabled: !codeDemande,
+                    decoration: InputDecoration(
+                        labelText: Strings.t('tel_ou_email'),
+                        border: OutlineInputBorder()),
+                  ),
+                  if (codeDemande) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: ctrlCode,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                          labelText: Strings.t('code_recu'), border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: ctrlMdp,
+                      obscureText: !mdpVisible,
+                      decoration: InputDecoration(
+                        labelText: Strings.t('nouveau_mdp'),
+                        border: const OutlineInputBorder(),
+                        // Voir ce qu'on tape évite de se tromper sur un
+                        // mot de passe qu'on ne pourra pas relire.
+                        suffixIcon: IconButton(
+                          icon: Icon(mdpVisible
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded),
+                          onPressed: () => maj(() => mdpVisible = !mdpVisible),
+                          tooltip: mdpVisible ? 'Masquer' : 'Afficher',
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (info != null) ...[
+                    const SizedBox(height: 8),
+                    Text(info!,
+                        style: TextStyle(
+                            color: JegoTheme.vert, fontSize: 12)),
+                  ],
+                  if (erreur != null) ...[
+                    const SizedBox(height: 8),
+                    Text(erreur!,
+                        style: TextStyle(
+                            color: JegoTheme.danger, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      BoutonTactile(
+                        onTap: () => Navigator.of(ctx).pop(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          child: Text(Strings.t('act_fermer'),
+                              style: TextStyle(
+                                  color: JegoTheme.texteSecondaire,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      BoutonTactile(
+                        onTap: occupe ? () {} : (codeDemande ? valider : demander),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: occupe
+                                ? JegoTheme.texteTernaire
+                                : JegoTheme.vert,
+                            borderRadius:
+                                BorderRadius.circular(JegoTheme.rPetit),
+                          ),
+                          child: Text(
+                              codeDemande ? 'Valider' : 'Envoyer le code',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Connexion Google. Le jeton d'identité part au serveur, qui vérifie
+  /// sa signature auprès de Google avant d'ouvrir quoi que ce soit.
+  Future<void> _connexionGoogle() async {
+    if (_enCours) return;
+    setState(() {
+      _erreur = null;
+      _enCours = true;
+    });
+    try {
+      // On ne traite pas le jeton ici : la connexion, qu'elle vienne de
+      // ce bouton ou de celui que Google dessine sur le web, remonte par
+      // le flux d'événements. Un seul chemin, donc un seul appel au
+      // serveur.
+      await AuthGoogle.demarrer();
+    } on ErreurApi catch (e) {
+      if (mounted) setState(() { _enCours = false; _erreur = e.message; });
+    } catch (e) {
+      // Le voyageur a fermé la fenêtre de Google, ou le compte a été
+      // refusé : rien à signaler comme une panne.
+      if (mounted) setState(() => _enCours = false);
+    }
+  }
+
+  /// Envoie le jeton au serveur. S'il manque le numéro de téléphone —
+  /// Google ne le donne jamais — on le demande avant de créer le compte,
+  /// plutôt que de laisser un compte incomplet en base.
+  Future<void> _terminerGoogle(String jeton, {String? telephone}) async {
+    final aCompleter =
+        await ApiService.connecterGoogle(jeton: jeton, telephone: telephone);
+
+    if (!mounted) return;
+
+    if (aCompleter == null) {
+      setState(() => _enCours = false);
+      Navigator.of(context).pop(true);
+      return;
+    }
+
+    setState(() => _enCours = false);
+    final saisi = await _demanderTelephone('${aCompleter['prenom'] ?? ''}');
+    if (saisi == null || !mounted) return;
+
+    setState(() => _enCours = true);
+    try {
+      await _terminerGoogle(jeton, telephone: saisi);
+    } on ErreurApi catch (e) {
+      if (mounted) setState(() { _enCours = false; _erreur = e.message; });
+    }
+  }
+
+  Future<String?> _demanderTelephone(String prenom) {
+    final ctrl = TextEditingController();
+    Pays pays = PaysTelephone.cameroun;
+    String? erreurLocale;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, maj) => Dialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JegoTheme.rMoyen)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  prenom.isEmpty ? 'Votre numéro' : 'Bienvenue $prenom',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Il ne manque que votre numéro de téléphone : c'est lui qui identifie votre compte et qui sert au paiement.",
+                  style: TextStyle(
+                      color: JegoTheme.texteSecondaire, fontSize: 12.5),
+                ),
+                const SizedBox(height: 14),
+                ChampTelephone(
+                  controller: ctrl,
+                  pays: pays,
+                  onPays: (p) => maj(() => pays = p),
+                  libelle: Strings.t('champ_telephone'),
+                ),
+                if (erreurLocale != null) ...[
+                  const SizedBox(height: 6),
+                  Text(erreurLocale!,
+                      style: TextStyle(
+                          color: JegoTheme.danger, fontSize: 12)),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    BoutonTactile(
+                      onTap: () => Navigator.of(ctx).pop(),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text(Strings.t('act_annuler'),
+                            style: TextStyle(
+                                color: JegoTheme.texteSecondaire,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    BoutonTactile(
+                      onTap: () {
+                        final v = ctrl.text.trim();
+                        if (v.length < pays.longueur) {
+                          maj(() => erreurLocale =
+                              'Entrez un numéro de téléphone valide.');
+                          return;
+                        }
+                        Navigator.of(ctx).pop('${pays.indicatif}$v');
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: JegoTheme.vert,
+                          borderRadius:
+                              BorderRadius.circular(JegoTheme.rPetit),
+                        ),
+                        child: Text(Strings.t('act_continuer'),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -231,7 +581,7 @@ class _VueConnexionState extends State<_VueConnexion> {
               border: Border.all(
                   color: JegoTheme.vert.withOpacity(0.3), width: 1),
             ),
-            child: const Icon(Icons.person_rounded,
+            child: Icon(Icons.person_rounded,
                 size: 36, color: JegoTheme.vert),
           ),
         ).animate().scale(
@@ -242,7 +592,7 @@ class _VueConnexionState extends State<_VueConnexion> {
         Center(
           child: Text(
             Strings.t('connexion_bienvenue'),
-            style: const TextStyle(
+            style: TextStyle(
               color: JegoTheme.texte,
               fontSize: 20,
               fontWeight: FontWeight.w800,
@@ -253,7 +603,7 @@ class _VueConnexionState extends State<_VueConnexion> {
         Center(
           child: Text(
             Strings.t('connexion_sous_titre'),
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texteSecondaire, fontSize: 13),
           ),
         ).animate(delay: 160.ms).fadeIn(duration: 400.ms),
@@ -293,7 +643,7 @@ class _VueConnexionState extends State<_VueConnexion> {
                   padding: const EdgeInsets.only(top: 6, left: 4),
                   child: Text(
                     _erreur!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.danger,
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,
@@ -305,11 +655,11 @@ class _VueConnexionState extends State<_VueConnexion> {
                 alignment: Alignment.centerRight,
                 child: BoutonTactile(
                   onTap: () {
-                    // Flux mot de passe oublie — a construire (SMS/email)
+                    _motDePasseOublie();
                   },
                   child: Text(
                     Strings.t('mdp_oublie'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.vert,
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
@@ -329,17 +679,17 @@ class _VueConnexionState extends State<_VueConnexion> {
         // ---- Connexion sociale (connecte OU cree le compte) ----
         Row(
           children: [
-            const Expanded(
+            Expanded(
                 child: Divider(color: JegoTheme.bordCarte, height: 1)),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
                 Strings.t('continuer_avec'),
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 12),
               ),
             ),
-            const Expanded(
+            Expanded(
                 child: Divider(color: JegoTheme.bordCarte, height: 1)),
           ],
         ).animate(delay: 360.ms).fadeIn(duration: 400.ms),
@@ -347,34 +697,20 @@ class _VueConnexionState extends State<_VueConnexion> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _boutonSocial(
-              onTap: () => _connexionSociale('google'),
-              enfant: Image.network(
-                'https://cdnjs.cloudflare.com/ajax/libs/browser-logos/74.0.0/google/google.png',
-                width: 26,
-                height: 26,
-                errorBuilder: (context, error, stack) => const Text(
-                  'G',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF4285F4),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            _boutonSocial(
-              onTap: () => _connexionSociale('facebook'),
-              enfant: const Icon(Icons.facebook,
-                  size: 26, color: Color(0xFF1877F2)),
-            ),
-            const SizedBox(width: 14),
-            _boutonSocial(
-              onTap: () => _connexionSociale('apple'),
-              enfant:
-                  const Icon(Icons.apple, size: 26, color: Colors.black),
-            ),
+            // Google interdit de lancer sa connexion depuis un bouton
+            // maison sur le web : il impose le sien. Ailleurs, le nôtre
+            // fait le travail.
+            if (!_googlePret)
+              // Place réservée, aux dimensions du bouton de Google, pour
+              // que son apparition ne décale rien.
+              const SizedBox(height: 44, width: 250)
+            else if (AuthGoogle.boutonMaisonPossible)
+              _boutonSocial(
+                onTap: _connexionGoogle,
+                enfant: LogoGoogle(taille: 26),
+              )
+            else
+              (_boutonGoogle ??= boutonGoogleDessineParGoogle()),
           ],
         ).animate(delay: 420.ms).fadeIn(duration: 450.ms).slideY(begin: 0.15),
         const SizedBox(height: 20),
@@ -383,7 +719,7 @@ class _VueConnexionState extends State<_VueConnexion> {
           children: [
             Text(
               Strings.t('pas_de_compte'),
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texteSecondaire, fontSize: 13),
             ),
             const SizedBox(width: 5),
@@ -391,7 +727,7 @@ class _VueConnexionState extends State<_VueConnexion> {
               onTap: widget.versInscription,
               child: Text(
                 Strings.t('creer_compte'),
-                style: const TextStyle(
+                style: TextStyle(
                   color: JegoTheme.vert,
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
@@ -413,7 +749,7 @@ class _VueConnexionState extends State<_VueConnexion> {
         height: 58,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: JegoTheme.fondCarte,
           shape: BoxShape.circle,
           border: Border.all(color: JegoTheme.bordCarte, width: 1),
           boxShadow: JegoTheme.ombreDouce,
@@ -645,7 +981,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                 width: actif ? 34 : 28,
                 height: actif ? 34 : 28,
                 decoration: BoxDecoration(
-                  color: fait || actif ? JegoTheme.vert : Colors.white,
+                  color: fait || actif ? JegoTheme.vert : JegoTheme.fondCarte,
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: fait || actif
@@ -678,7 +1014,7 @@ class _VueInscriptionState extends State<_VueInscription> {
           padding: const EdgeInsets.only(top: 4, bottom: 2),
           child: Text(
             Strings.t('etape_${_etape + 1}_titre'),
-            style: const TextStyle(
+            style: TextStyle(
               color: JegoTheme.texte,
               fontSize: 15.5,
               fontWeight: FontWeight.w800,
@@ -687,7 +1023,7 @@ class _VueInscriptionState extends State<_VueInscription> {
         ),
         Text(
           Strings.t('champs_obligatoires'),
-          style: const TextStyle(
+          style: TextStyle(
               color: JegoTheme.texteTernaire, fontSize: 11),
         ),
         Expanded(
@@ -713,7 +1049,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                     padding: const EdgeInsets.only(top: 8, left: 4),
                     child: Text(
                       _erreur!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: JegoTheme.danger,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -736,13 +1072,13 @@ class _VueInscriptionState extends State<_VueInscription> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 18, vertical: 15),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: JegoTheme.fondCarte,
                       borderRadius:
                           BorderRadius.circular(JegoTheme.rMoyen),
                       border: Border.all(
                           color: JegoTheme.bordCarte, width: 1),
                     ),
-                    child: const Icon(Icons.arrow_back_rounded,
+                    child: Icon(Icons.arrow_back_rounded,
                         size: 20, color: JegoTheme.texte),
                   ),
                 ),
@@ -765,7 +1101,7 @@ class _VueInscriptionState extends State<_VueInscription> {
             children: [
               Text(
                 Strings.t('deja_compte'),
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texteSecondaire, fontSize: 13),
               ),
               const SizedBox(width: 5),
@@ -773,7 +1109,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                 onTap: widget.versConnexion,
                 child: Text(
                   Strings.t('auth_connexion'),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.vert,
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -869,13 +1205,13 @@ class _VueInscriptionState extends State<_VueInscription> {
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(Icons.info_outline_rounded,
+                Icon(Icons.info_outline_rounded,
                     size: 14, color: JegoTheme.texteTernaire),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     Strings.t('info_un_numero'),
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texteTernaire, fontSize: 11.5),
                   ),
                 ),
@@ -933,7 +1269,7 @@ class _VueInscriptionState extends State<_VueInscription> {
           children: [
             Text(
               Strings.t('urgence_explication'),
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texteSecondaire, fontSize: 12.5),
             ),
             const SizedBox(height: 12),
@@ -964,7 +1300,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                     height: 24,
                     decoration: BoxDecoration(
                       color:
-                          _cguAcceptees ? JegoTheme.vert : Colors.white,
+                          _cguAcceptees ? JegoTheme.vert : JegoTheme.fondCarte,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: _cguAcceptees
@@ -986,7 +1322,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                     children: [
                       Text(
                         '${Strings.t('cgu_je_accepte')} ',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texte, fontSize: 13),
                       ),
                       BoutonTactile(
@@ -994,13 +1330,13 @@ class _VueInscriptionState extends State<_VueInscription> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) =>
-                                  const EcranConditionsUtilisation(),
+                                  EcranConditionsUtilisation(),
                             ),
                           );
                         },
                         child: Text(
                           Strings.t('cgu_lien'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: JegoTheme.vert,
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
@@ -1009,7 +1345,7 @@ class _VueInscriptionState extends State<_VueInscription> {
                           ),
                         ),
                       ),
-                      const Text(
+                      Text(
                         ' *',
                         style: TextStyle(
                             color: JegoTheme.danger,
@@ -1024,7 +1360,7 @@ class _VueInscriptionState extends State<_VueInscription> {
             const SizedBox(height: 10),
             Text(
               Strings.t('declaration_honneur'),
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texteTernaire, fontSize: 11),
             ),
           ],
@@ -1076,7 +1412,7 @@ class _CarteFormulaire extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: JegoTheme.fondCarte,
         borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
         border: Border.all(color: JegoTheme.bordCarte, width: 1),
         boxShadow: JegoTheme.ombreDouce,
@@ -1118,11 +1454,11 @@ class ChampJego extends StatelessWidget {
         keyboardType: clavier,
         obscureText: masque,
         onChanged: onChange,
-        style: const TextStyle(color: JegoTheme.texte, fontSize: 14),
+        style: TextStyle(color: JegoTheme.texte, fontSize: 14),
         cursorColor: JegoTheme.vert,
         decoration: InputDecoration(
           hintText: libelle,
-          hintStyle: const TextStyle(
+          hintStyle: TextStyle(
               color: JegoTheme.texteTernaire, fontSize: 13.5),
           prefixIcon: Icon(icone, size: 18, color: JegoTheme.vert),
           suffixIcon: suffixe == null

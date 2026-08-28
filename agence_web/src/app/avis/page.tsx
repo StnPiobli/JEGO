@@ -1,11 +1,11 @@
 'use client';
 
-// ✅ BRANCHÉ (repli démo) — GET /api/avis/agences/:id (route PUBLIQUE,
+// BRANCHÉ SUR LE VRAI BACKEND — GET /api/avis/agences/:id (route PUBLIQUE,
 // aucune authentification requise). ⚠️ La vraie réponse ne contient PAS
 // le trajet concerné (ni son ID) — seulement note_globale, note_service,
 // note_conduite, note_horaires, note_confort, commentaire, cree_le,
 // voyageur_prenom. Le trajet/ID affiché ci-dessous n'est donc réel qu'en
-// mode démo ; en mode réel il est marqué "non fourni par l'API".
+// marqué "non fourni par l'API".
 
 import { useEffect, useState, useMemo } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
@@ -23,22 +23,15 @@ type Avis = {
   commentaire: string | null;
   cree_le: string;
   voyageur_prenom: string;
-  // Démo uniquement — absents de la vraie réponse API :
+  // Optionnels : non fournis par la réponse API actuelle.
   trajet?: string;
   trajet_id?: string;
 };
-
-const avisDemo: Avis[] = [
-  { note_globale: 5, note_service: 5, note_conduite: 5, note_horaires: 4, note_confort: 5, commentaire: 'Chauffeur ponctuel et très courtois, bus confortable.', cree_le: new Date().toISOString(), voyageur_prenom: 'Jean', trajet: 'Douala → Yaoundé', trajet_id: 'TRJ-4821' },
-  { note_globale: 3, note_service: 3, note_conduite: 4, note_horaires: 2, note_confort: 3, commentaire: "Retard important non annoncé à l'avance.", cree_le: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(), voyageur_prenom: 'Nadine', trajet: 'Yaoundé → Douala', trajet_id: 'TRJ-4796' },
-  { note_globale: 4, note_service: 4, note_conduite: 4, note_horaires: 4, note_confort: 4, commentaire: null, cree_le: new Date(Date.now() - 6 * 24 * 3600 * 1000).toISOString(), voyageur_prenom: 'Paul', trajet: 'Douala → Bafoussam', trajet_id: 'TRJ-4650' },
-];
 
 export default function AvisPage() {
   const [avis, setAvis] = useState<Avis[]>([]);
   const [noteMoyenne, setNoteMoyenne] = useState<number | null>(null);
   const [nombreAvis, setNombreAvis] = useState<number | null>(null);
-  const [modeDemo, setModeDemo] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [dateChoisie, setDateChoisie] = useState(todayInputDate());
@@ -49,21 +42,15 @@ export default function AvisPage() {
     setChargement(true);
     setErreur(null);
     const agenceLocale = getAgenceLocale();
-    if (!agenceLocale) {
-      setAvis(avisDemo);
-      setModeDemo(true);
-      setChargement(false);
-      return;
-    }
+    if (!agenceLocale) { setAvis([]); setChargement(false); return; }
     try {
       const data = await apiFetch(`/api/avis/agences/${agenceLocale.id}`);
       setAvis(data.avis || []);
       setNoteMoyenne(data.agence?.note_moyenne ?? null);
       setNombreAvis(data.agence?.nombre_avis ?? null);
-      setModeDemo(false);
-    } catch {
-      setAvis(avisDemo);
-      setModeDemo(true);
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : "Impossible de charger les avis.");
+      setAvis([]);
     } finally {
       setChargement(false);
     }
@@ -92,19 +79,11 @@ export default function AvisPage() {
         <h1 className="text-[28px] font-extrabold text-ink mb-1">Avis & notes</h1>
         <p className="text-[13px] text-ink-soft mb-4">Commentaires laissés par les voyageurs, avec le trajet concerné.</p>
 
-        <div className="flex items-center justify-between gap-3 mb-5">
-          {modeDemo ? (
-            <div className="text-xs font-semibold text-amber bg-amber-bg rounded-lg px-3 py-2">Mode démo — données factices (trajet/ID non fournis par la vraie route)</div>
-          ) : <div />}
-          <button onClick={() => { setAvis(avisDemo); setModeDemo(true); }} className="text-[11px] font-bold text-green-700 underline shrink-0">
-            Voir des données de démonstration
-          </button>
-        </div>
         {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
 
         <div className="grid grid-cols-2 gap-3.5 mb-6">
-          <StatCard num={noteMoyenne != null ? `⭐ ${noteMoyenne}` : (modeDemo ? '⭐ 4.2' : '—')} label="Note moyenne" />
-          <StatCard num={nombreAvis != null ? String(nombreAvis) : (modeDemo ? String(avis.length) : '—')} label="Nombre d'avis" />
+          <StatCard num={noteMoyenne != null ? `⭐ ${noteMoyenne}` : '—'} label="Note moyenne" />
+          <StatCard num={nombreAvis != null ? String(nombreAvis) : '—'} label="Nombre d'avis" />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-3">

@@ -7,6 +7,7 @@ import '../widgets/champ_telephone.dart';
 import '../widgets/timer_softlock.dart';
 import 'connexion_inscription.dart' show ChampJego;
 import 'paiement.dart';
+import '../widgets/bouton_info.dart';
 
 class EcranOptionsReservation extends StatefulWidget {
   final Reservation reservation;
@@ -113,26 +114,26 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border:
                             Border.all(color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     Strings.t('options_titre'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const Spacer(),
-                  const TimerSoftLock(),
+                  TimerSoftLock(),
                 ],
               ),
             ),
@@ -260,7 +261,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                 ),
                 child: Text(
                   titre,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.vert,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
@@ -272,7 +273,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
           const SizedBox(height: 8),
           for (var i = 0; i < r.passagers; i++) ...[
             if (i > 0)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
                 child: Divider(height: 1, color: JegoTheme.bordCarte),
               ),
@@ -281,12 +282,12 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                 padding: const EdgeInsets.only(top: 4, bottom: 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.person_rounded,
+                    Icon(Icons.person_rounded,
                         size: 15, color: JegoTheme.texteSecondaire),
                     const SizedBox(width: 6),
                     Text(
                       '${Strings.t('voyageur')} ${i + 1}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 13,
                           fontWeight: FontWeight.w800),
@@ -304,7 +305,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                     color: JegoTheme.champ,
                     borderRadius: BorderRadius.circular(JegoTheme.rPetit),
                   ),
-                  child: const Icon(Icons.luggage_rounded,
+                  child: Icon(Icons.luggage_rounded,
                       size: 19, color: JegoTheme.texteSecondaire),
                 ),
                 const SizedBox(width: 10),
@@ -312,16 +313,27 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        Strings.t('opt_bagage_supp'),
-                        style: const TextStyle(
-                            color: JegoTheme.texte,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              Strings.t('opt_bagage_supp'),
+                              style: TextStyle(
+                                  color: JegoTheme.texte,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          BoutonInfo(
+                            taille: 14,
+                            titre: Strings.t('info_bagage_titre'),
+                            texte: Strings.t('info_bagage_texte'),
+                          ),
+                        ],
                       ),
                       Text(
                         '${Strings.t('bagage_inclus')} · +${Reservation.prixBagage} FCFA/${Strings.t('bagage_unite')}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texteTernaire, fontSize: 10.5),
                       ),
                     ],
@@ -346,6 +358,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
               sousTitre:
                   '${Strings.t('opt_flexible_desc')} · +$coutFlex FCFA',
               valeur: flexible[i],
+              cleInfo: 'flexible',
               onChange: (v) => setState(() => flexible[i] = v),
             ),
             const SizedBox(height: 10),
@@ -355,6 +368,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
               titre: Strings.t('opt_cadeau'),
               sousTitre: Strings.t('opt_cadeau_desc'),
               valeur: cadeau[i],
+              cleInfo: 'cadeau',
               onChange: (v) => setState(() {
                 cadeau[i] = v;
                 _erreurCadeau = false;
@@ -395,7 +409,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   Strings.t('cadeau_erreur'),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: JegoTheme.danger,
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w600,
@@ -427,7 +441,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
           child: Center(
             child: Text(
               '$valeur',
-              style: const TextStyle(
+              style: TextStyle(
                 color: JegoTheme.vert,
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
@@ -457,12 +471,14 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
     );
   }
 
+  /// [cleInfo] ajoute un « i » qui explique l'option en une phrase.
   Widget _ligneToggle({
     required IconData icone,
     required String titre,
     required String sousTitre,
     required bool valeur,
     required ValueChanged<bool> onChange,
+    String? cleInfo,
   }) {
     return Row(
       children: [
@@ -480,16 +496,28 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                titre,
-                style: const TextStyle(
-                    color: JegoTheme.texte,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      titre,
+                      style: TextStyle(
+                          color: JegoTheme.texte,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (cleInfo != null)
+                    BoutonInfo(
+                      taille: 14,
+                      titre: Strings.t('info_${cleInfo}_titre'),
+                      texte: Strings.t('info_${cleInfo}_texte'),
+                    ),
+                ],
               ),
               Text(
                 sousTitre,
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 10.5),
               ),
             ],
@@ -516,8 +544,8 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
         child: Container(
           width: 21,
           height: 21,
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: JegoTheme.fondCarte,
             shape: BoxShape.circle,
           ),
         ),
@@ -533,12 +561,12 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
         children: [
           Row(
             children: [
-              const Icon(Icons.stars_rounded,
+              Icon(Icons.stars_rounded,
                   size: 18, color: JegoTheme.etoile),
               const SizedBox(width: 8),
               Text(
                 Strings.t('points_titre'),
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texte,
                     fontSize: 13.5,
                     fontWeight: FontWeight.w800),
@@ -546,7 +574,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
               const Spacer(),
               Text(
                 '${Reservation.pointsDisponibles} pts',
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.vert,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w800),
@@ -635,7 +663,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
               if (detail.isNotEmpty)
                 Text(
                   detail,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteTernaire, fontSize: 11),
                 ),
             ],
@@ -665,7 +693,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
             _ligneRecap(Strings.t('recap_points'),
                 '-${r.pointsReduction} FCFA',
                 vert: true),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Divider(height: 1, color: JegoTheme.bordCarte),
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/billets_store.dart';
 import '../config/theme_jego.dart';
 import 'dialogues_voyage.dart';
+import '../l10n/strings.dart';
 
 /// Popup central affiche au moment ou l'arrivee est declaree, avec le choix
 /// direct entre noter le voyage ou signaler une fausse arrivee. Remplace
@@ -37,7 +38,7 @@ class _PopupArrivee extends StatelessWidget {
     Navigator.of(dialogContext).pop();
     final context = SoftLock.navKey.currentContext;
     if (context == null) return;
-    await confirmerFausseArrivee(context, '${billet['id']}');
+    await confirmerFausseArrivee(context, billet);
   }
 
   @override
@@ -83,7 +84,7 @@ class _PopupArrivee extends StatelessWidget {
                   Container(
                     width: 54,
                     height: 54,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [JegoTheme.vert, JegoTheme.vertVif],
                       ),
@@ -96,7 +97,7 @@ class _PopupArrivee extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            const Text(
+            Text(
               'Trajet terminé 🎉',
               style: TextStyle(
                 fontSize: 19,
@@ -108,7 +109,7 @@ class _PopupArrivee extends StatelessWidget {
             RichText(
               textAlign: TextAlign.center,
               text: TextSpan(
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   color: JegoTheme.texte,
                   height: 1.4,
@@ -117,13 +118,13 @@ class _PopupArrivee extends StatelessWidget {
                   const TextSpan(text: 'Votre trajet '),
                   TextSpan(
                     text: '${billet['ville_depart']}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800, color: JegoTheme.vert),
                   ),
                   const TextSpan(text: ' → '),
                   TextSpan(
                     text: '${billet['ville_arrivee']}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800, color: JegoTheme.vert),
                   ),
                   const TextSpan(text: ' est terminé.'),
@@ -146,17 +147,17 @@ class _PopupArrivee extends StatelessWidget {
                 height: 50,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
+                  gradient: LinearGradient(
                     colors: [JegoTheme.vert, JegoTheme.vertVif],
                   ),
                   borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.star_rounded, color: Colors.white, size: 18),
                     SizedBox(width: 8),
-                    Text('Noter mon voyage',
+                    Text(Strings.t('noter_voyage'),
                         style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
@@ -181,7 +182,7 @@ class _PopupArrivee extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.report_rounded,
+                    Icon(Icons.report_rounded,
                         color: JegoTheme.danger, size: 16),
                     const SizedBox(width: 8),
                     Text(
@@ -192,6 +193,24 @@ class _PopupArrivee extends StatelessWidget {
                           fontSize: 13),
                     ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // Pour qui ne veut donner aucun avis : on referme, sans rien
+            // envoyer. Le trajet reste consultable dans l'historique.
+            BoutonTactile(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(
+                width: double.infinity,
+                height: 42,
+                alignment: Alignment.center,
+                child: Text(
+                  Strings.t('act_annuler'),
+                  style: TextStyle(
+                      color: JegoTheme.texteSecondaire,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13),
                 ),
               ),
             ),

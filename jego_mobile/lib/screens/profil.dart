@@ -10,13 +10,15 @@ import '../config/wallet_store.dart';
 import 'connexion_inscription.dart';
 import 'ecran_a_venir.dart';
 import 'ecran_a_propos.dart';
-import 'ecran_adresses.dart';
 import 'ecran_centre_aide.dart';
 import 'ecran_mes_avis.dart';
-import 'ecran_moyens_paiement.dart';
 import 'ecran_nous_contacter.dart';
 import 'ecran_preferences_voyage.dart';
 import 'wallet.dart';
+import '../widgets/bouton_info.dart';
+import '../config/photo_profil.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
 
 /// Ecran Profil voyageur. Reagit a l'etat de connexion et a la langue.
 class EcranProfil extends StatelessWidget {
@@ -26,7 +28,7 @@ class EcranProfil extends StatelessWidget {
   static int get pointsJego => Session.pointsFidelite;
 
   /// Fonds d'avatar JEGO proposes (degrades). Index stocke dans Session.
-  static const List<List<Color>> fondsAvatar = [
+  static List<List<Color>> fondsAvatar = [
     [JegoTheme.vertVif, JegoTheme.vert],
     [Color(0xFF4A90D9), Color(0xFF2C5FA8)],
     [Color(0xFFE6B84C), Color(0xFFCB8E1E)],
@@ -71,7 +73,7 @@ class _ProfilNonConnecte extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               Strings.t('profil_titre'),
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte,
                   fontSize: 24,
                   fontWeight: FontWeight.w800),
@@ -85,7 +87,7 @@ class _ProfilNonConnecte extends StatelessWidget {
               color: JegoTheme.vert.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.person_rounded,
+            child: Icon(Icons.person_rounded,
                 size: 52, color: JegoTheme.vert),
           ).animate().scale(
               begin: const Offset(0.6, 0.6),
@@ -94,7 +96,7 @@ class _ProfilNonConnecte extends StatelessWidget {
           const SizedBox(height: 20),
           Text(
             Strings.t('profil_non_connecte_titre'),
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texte,
                 fontSize: 18,
                 fontWeight: FontWeight.w800),
@@ -103,7 +105,7 @@ class _ProfilNonConnecte extends StatelessWidget {
           Text(
             Strings.t('profil_non_connecte_texte'),
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texteSecondaire,
                 fontSize: 13.5,
                 height: 1.4),
@@ -113,7 +115,7 @@ class _ProfilNonConnecte extends StatelessWidget {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                    builder: (_) => const EcranConnexionInscription()),
+                    builder: (_) => EcranConnexionInscription()),
               );
             },
             child: Container(
@@ -170,7 +172,11 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
   }
 
   // -------- Photo de profil : galerie / appareil / fond JEGO --------
+  /// Message d'echec affiche DANS la feuille photo.
+  String? _erreurPhoto;
+
   void _changerPhoto() {
+    _erreurPhoto = null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -178,7 +184,8 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => SafeArea(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, majFeuille) => SafeArea(
         child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -196,34 +203,74 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                 const SizedBox(height: 16),
                 Text(
                   Strings.t('profil_photo_titre'),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 16,
                       fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 16),
+                if (_erreurPhoto != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: JegoTheme.danger.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                      border:
+                          Border.all(color: JegoTheme.danger.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error_outline_rounded,
+                            size: 18, color: JegoTheme.danger),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _erreurPhoto!,
+                            style: TextStyle(
+                                color: JegoTheme.danger,
+                                fontSize: 12.5,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _optionPhoto(
                   icone: Icons.photo_library_rounded,
                   libelle: Strings.t('profil_photo_galerie'),
+                  onTap: () => _prendrePhoto(ctx, majFeuille, ImageSource.gallery),
                 ),
-                const SizedBox(height: 8),
-                _optionPhoto(
-                  icone: Icons.photo_camera_rounded,
-                  libelle: Strings.t('profil_photo_appareil'),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  Strings.t('profil_photo_bientot'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: JegoTheme.texteTernaire, fontSize: 11),
-                ),
+                if (PhotoProfil.appareilDisponible) ...[
+                  const SizedBox(height: 8),
+                  _optionPhoto(
+                    icone: Icons.photo_camera_rounded,
+                    libelle: Strings.t('profil_photo_appareil'),
+                    onTap: () =>
+                        _prendrePhoto(ctx, majFeuille, ImageSource.camera),
+                  ),
+                ],
+                if (PhotoProfil.image.value != null) ...[
+                  const SizedBox(height: 8),
+                  _optionPhoto(
+                    icone: Icons.delete_outline_rounded,
+                    libelle: Strings.t('profil_photo_retirer'),
+                    onTap: () async {
+                      await PhotoProfil.retirer();
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                    },
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     Strings.t('profil_photo_fond'),
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texteSecondaire,
                         fontSize: 12.5,
                         fontWeight: FontWeight.w800),
@@ -272,12 +319,17 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
           ),
         ),
       ),
+      ),
     );
   }
 
-  Widget _optionPhoto({required IconData icone, required String libelle}) {
-    return Opacity(
-      opacity: 0.45,
+  Widget _optionPhoto({
+    required IconData icone,
+    required String libelle,
+    required VoidCallback onTap,
+  }) {
+    return BoutonTactile(
+      onTap: onTap,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -291,7 +343,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
             const SizedBox(width: 12),
             Text(
               libelle,
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte,
                   fontSize: 14.5,
                   fontWeight: FontWeight.w700),
@@ -300,6 +352,25 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
         ),
       ),
     );
+  }
+
+  /// Galerie ou appareil photo. Une feuille refermee sans choisir n'est
+  /// pas une erreur : on ne dit quelque chose que si la selection a
+  /// echoue pour de bon.
+  Future<void> _prendrePhoto(BuildContext feuille,
+      void Function(VoidCallback) majFeuille, ImageSource source) async {
+    majFeuille(() => _erreurPhoto = null);
+    try {
+      final choisie = await PhotoProfil.choisir(source);
+      if (!feuille.mounted) return;
+      if (choisie) Navigator.of(feuille).pop();
+    } catch (e) {
+      if (!feuille.mounted) return;
+      // La cause exacte, pas un message passe-partout : « verifiez vos
+      // reglages » n'aide personne quand le vrai probleme est ailleurs.
+      majFeuille(() =>
+          _erreurPhoto = '${Strings.t('profil_photo_echec')}\n\n$e');
+    }
   }
 
   // -------- Modification des infos --------
@@ -311,7 +382,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => const _FeuilleEditInfos(),
+      builder: (ctx) => _FeuilleEditInfos(),
     );
     if (resultat == true && mounted) setState(() {});
   }
@@ -339,7 +410,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                   color: JegoTheme.danger.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.logout_rounded,
+                child: Icon(Icons.logout_rounded,
                     color: JegoTheme.danger, size: 28),
               ),
               const SizedBox(height: 12),
@@ -350,7 +421,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               Text(
                 Strings.t('profil_deconnexion_confirme'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texteSecondaire, fontSize: 12.5),
               ),
               const SizedBox(height: 18),
@@ -368,7 +439,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(Strings.t('annuler'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
                       ),
@@ -425,12 +496,12 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               // ---- Wallet JEGO ----
               BoutonTactile(
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const EcranWallet()),
+                  MaterialPageRoute(builder: (_) => EcranWallet()),
                 ),
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       colors: [JegoTheme.vert, JegoTheme.vertVif],
                     ),
                     borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
@@ -442,7 +513,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                         width: 42,
                         height: 42,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.16),
+                          color: JegoTheme.fondCarte.withOpacity(0.16),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -487,31 +558,19 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
 
               // ---- Mes informations ----
               _bloc(
-                titre: 'Mes informations',
+                titre: Strings.t('mes_informations'),
                 icone: Icons.badge_outlined,
                 enfants: [
                   _ligneAction(
                     icone: Icons.person_outline_rounded,
-                    libelle: 'Informations personnelles',
+                    libelle: Strings.t('infos_personnelles'),
                     onTap: _modifierInfos,
                   ),
                   _ligneAction(
-                    icone: Icons.credit_card_rounded,
-                    libelle: Strings.t('profil_moyens_paiement'),
-                    onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranMoyensPaiement())),
-                  ),
-                  _ligneAction(
-                    icone: Icons.location_on_outlined,
-                    libelle: 'Adresses enregistrées',
-                    onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranAdresses())),
-                  ),
-                  _ligneAction(
                     icone: Icons.tune_rounded,
-                    libelle: 'Préférences de voyage',
+                    libelle: Strings.t('preferences_voyage'),
                     onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranPreferencesVoyage())),
+                        MaterialPageRoute(builder: (_) => EcranPreferencesVoyage())),
                   ),
                 ],
               ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.1),
@@ -520,14 +579,14 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
 
               // ---- Mes activites ----
               _bloc(
-                titre: 'Mes activités',
+                titre: Strings.t('mes_activites'),
                 icone: Icons.local_activity_outlined,
                 enfants: [
                   _ligneAction(
                     icone: Icons.rate_review_outlined,
-                    libelle: 'Mes avis',
+                    libelle: Strings.t('mes_avis_titre'),
                     onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranMesAvis())),
+                        MaterialPageRoute(builder: (_) => EcranMesAvis())),
                   ),
                 ],
               ).animate(delay: 260.ms).fadeIn().slideY(begin: 0.1),
@@ -541,21 +600,21 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                 enfants: [
                   _ligneAction(
                     icone: Icons.help_outline_rounded,
-                    libelle: 'Centre d\'aide',
+                    libelle: Strings.t('aide_titre'),
                     onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranCentreAide())),
+                        MaterialPageRoute(builder: (_) => EcranCentreAide())),
                   ),
                   _ligneAction(
                     icone: Icons.chat_bubble_outline_rounded,
-                    libelle: 'Nous contacter',
+                    libelle: Strings.t('contact_titre'),
                     onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranNousContacter())),
+                        MaterialPageRoute(builder: (_) => EcranNousContacter())),
                   ),
                   _ligneAction(
                     icone: Icons.info_outline_rounded,
-                    libelle: 'À propos de JEGO',
+                    libelle: Strings.t('a_propos'),
                     onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const EcranAPropos())),
+                        MaterialPageRoute(builder: (_) => EcranAPropos())),
                   ),
                 ],
               ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.1),
@@ -568,12 +627,12 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.logout_rounded,
+                    Icon(Icons.logout_rounded,
                         color: JegoTheme.danger, size: 18),
                     const SizedBox(width: 8),
                     Text(
                       Strings.t('profil_deconnexion'),
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.danger,
                           fontSize: 14.5,
                           fontWeight: FontWeight.w800),
@@ -602,7 +661,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               clipper: _VagueClipperProfil(),
               child: Container(
                 height: 126,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -642,26 +701,40 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Container(
-                    width: 112,
-                    height: 112,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: fond,
+                  ValueListenableBuilder<Uint8List?>(
+                    valueListenable: PhotoProfil.image,
+                    builder: (context, photo, _) => Container(
+                      width: 112,
+                      height: 112,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        gradient: photo == null
+                            ? LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: fond,
+                              )
+                            : null,
+                        image: photo == null
+                            ? null
+                            : DecorationImage(
+                                image: MemoryImage(photo),
+                                fit: BoxFit.cover,
+                              ),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: JegoTheme.fond, width: 4),
+                        boxShadow: JegoTheme.ombreDouce,
                       ),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: JegoTheme.fond, width: 4),
-                      boxShadow: JegoTheme.ombreDouce,
-                    ),
-                    child: Text(
-                      _initiales,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 40,
-                          fontWeight: FontWeight.w800),
+                      // Les initiales ne servent que faute de photo.
+                      child: photo != null
+                          ? null
+                          : Text(
+                              _initiales,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 40,
+                                  fontWeight: FontWeight.w800),
+                            ),
                     ),
                   ),
                   Positioned(
@@ -678,7 +751,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                               color: JegoTheme.bordCarte, width: 1.5),
                           boxShadow: JegoTheme.ombreDouce,
                         ),
-                        child: const Icon(Icons.photo_camera_rounded,
+                        child: Icon(Icons.photo_camera_rounded,
                             size: 17, color: JegoTheme.vert),
                       ),
                     ),
@@ -695,7 +768,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
             child: Text(
               nomComplet.isEmpty ? 'JEGO' : nomComplet,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte,
                   fontSize: 19,
                   fontWeight: FontWeight.w800),
@@ -728,10 +801,10 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.verified_rounded,
+                    Icon(Icons.verified_rounded,
                         size: 14, color: JegoTheme.vert),
                     const SizedBox(width: 5),
-                    const Text(
+                    Text(
                       'Client vérifié',
                       style: TextStyle(
                           color: JegoTheme.vert,
@@ -754,28 +827,33 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.stars_rounded,
+                      Icon(Icons.stars_rounded,
                           size: 14, color: JegoTheme.etoile),
                       const SizedBox(width: 4),
                       Text(
                         '${_fmtPoints(EcranProfil.pointsJego)} ${Strings.t('profil_points')}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texteSecondaire,
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600),
+                      ),
+                      BoutonInfo(
+                        taille: 13,
+                        titre: Strings.t('info_points_titre'),
+                        texte: Strings.t('info_points_texte'),
                       ),
                       const SizedBox(width: 8),
                       Container(
                         width: 3,
                         height: 3,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                             color: JegoTheme.texteTernaire,
                             shape: BoxShape.circle),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         '${billets.length} ${Strings.t('profil_voyages_court')}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texteSecondaire,
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600),
@@ -793,7 +871,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
             child: Center(
               child: Text(
                 '${Strings.t('profil_membre_depuis')} ${FormatDate.moisAnnee(Session.membreDepuis)}',
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texteTernaire,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600),
@@ -829,7 +907,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               const SizedBox(width: 6),
               Text(
                 titre.toUpperCase(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.vert,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
@@ -850,7 +928,7 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
               for (var i = 0; i < enfants.length; i++) ...[
                 enfants[i],
                 if (i < enfants.length - 1)
-                  const Divider(
+                  Divider(
                       height: 1,
                       indent: 16,
                       endIndent: 16,
@@ -879,12 +957,12 @@ class _ProfilConnecteState extends State<_ProfilConnecte> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(libelle,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600)),
             ),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 color: JegoTheme.texteTernaire, size: 20),
           ],
         ),
@@ -992,7 +1070,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.help_outline_rounded,
+              Icon(Icons.help_outline_rounded,
                   color: JegoTheme.vert, size: 30),
               const SizedBox(height: 10),
               Text(Strings.t('profil_confirmer_titre'),
@@ -1014,7 +1092,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(Strings.t('annuler'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
                       ),
@@ -1089,7 +1167,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                 const SizedBox(height: 16),
                 Text(
                   Strings.t('profil_modifier_titre'),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 16,
                       fontWeight: FontWeight.w800),
@@ -1127,7 +1205,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         _erreurMdp!,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.danger,
                             fontSize: 12,
                             fontWeight: FontWeight.w600),
@@ -1197,7 +1275,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
               cursorColor: JegoTheme.vert,
               decoration: InputDecoration(
                 labelText: libelle,
-                labelStyle: const TextStyle(
+                labelStyle: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 12.5),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -1238,7 +1316,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          const Icon(Icons.phone_rounded, size: 18, color: JegoTheme.vert),
+          Icon(Icons.phone_rounded, size: 18, color: JegoTheme.vert),
           const SizedBox(width: 10),
           BoutonTactile(
             onTap: actif ? _choisirIndicatif : null,
@@ -1273,7 +1351,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
               cursorColor: JegoTheme.vert,
               decoration: InputDecoration(
                 labelText: Strings.t('champ_telephone'),
-                labelStyle: const TextStyle(
+                labelStyle: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 12.5),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -1346,7 +1424,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                                 fontWeight: FontWeight.w700)),
                         const Spacer(),
                         Text(p.indicatif,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texteSecondaire,
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w700)),
@@ -1382,14 +1460,14 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
                   if (_erreurMdp != null) _erreurMdp = null;
                 });
               },
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte,
                   fontSize: 14,
                   fontWeight: FontWeight.w600),
               cursorColor: JegoTheme.vert,
               decoration: InputDecoration(
                 labelText: label,
-                labelStyle: const TextStyle(
+                labelStyle: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 12.5),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -1447,7 +1525,7 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
-              const Icon(Icons.lock_rounded,
+              Icon(Icons.lock_rounded,
                   size: 18, color: JegoTheme.vert),
               const SizedBox(width: 10),
               Expanded(

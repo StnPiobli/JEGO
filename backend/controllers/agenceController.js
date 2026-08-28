@@ -97,7 +97,8 @@ async function connexion(req, res) {
         telephone: agence.telephone,
         ville: agence.ville,
         statut: agence.statut,
-        badge_certifie: agence.badge_certifie
+        badge_certifie: agence.badge_certifie,
+        motif_desactivation: agence.motif_desactivation
       },
       token
     });

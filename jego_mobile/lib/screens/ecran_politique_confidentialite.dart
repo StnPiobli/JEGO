@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 class EcranPolitiqueConfidentialite extends StatelessWidget {
   const EcranPolitiqueConfidentialite({super.key});
@@ -11,8 +12,8 @@ class EcranPolitiqueConfidentialite extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Politique de confidentialite',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('politique_confidentialite'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: ListView(
@@ -27,7 +28,7 @@ class EcranPolitiqueConfidentialite extends StatelessWidget {
           _section('Conservation',
               'Vos donnees sont conservees le temps de votre utilisation du service, puis supprimees sur demande.'),
           const SizedBox(height: 8),
-          Text('Derniere mise a jour : juillet 2026 -- version provisoire.',
+          Text(Strings.t('politique_maj'),
               style: TextStyle(color: JegoTheme.texteTernaire, fontSize: 11)),
         ],
       ),
@@ -41,7 +42,7 @@ class EcranPolitiqueConfidentialite extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(titre,
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte, fontSize: 14.5, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
           Text(texte,

@@ -3,10 +3,10 @@ const router = express.Router();
 const {
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
-  listerVoyageurs, modifierStatutVoyageur,
+  listerVoyageurs, modifierStatutVoyageur, activiteStats, activiteEvenements, activiteDetail, agenceTrajets,
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
   listerTrajetsAdmin, resumeTrajetsAdmin,
-  resumeFinances, serieFinances, transactionsFinances,
+  resumeFinances, serieFinances, transactionsFinances, detailFinances,
   derniereTransaction, resumeJournal, tachesATraiter,
   resumePoints, pointsParVoyageur, usagesPoints,
   moderationListe, moderationTraiter, listerLogs
@@ -37,6 +37,10 @@ router.put('/parametres/:cle', authentifier, verifierPermission('modifier_parame
 
 // Voyageurs
 router.get('/voyageurs', authentifier, adminSeul, listerVoyageurs);
+router.get('/activite', authentifier, adminSeul, activiteStats);
+router.get('/activite/evenements', authentifier, adminSeul, activiteEvenements);
+router.get('/activite/detail', authentifier, adminSeul, activiteDetail);
+router.get('/agences/:id/trajets', authentifier, adminSeul, agenceTrajets);
 router.put('/voyageurs/:id/statut', authentifier, adminSeul, modifierStatutVoyageur);
 
 // Agences — liste filtrable, distincte de la file de validation
@@ -65,6 +69,7 @@ router.get('/trajets/resume', authentifier, adminSeul, resumeTrajetsAdmin);
 router.get('/finances/resume', authentifier, adminSeul, resumeFinances);
 router.get('/finances/serie', authentifier, adminSeul, serieFinances);
 router.get('/finances/transactions', authentifier, adminSeul, transactionsFinances);
+router.get('/finances/detail', authentifier, adminSeul, detailFinances);
 router.get('/finances/derniere-transaction', authentifier, adminSeul, derniereTransaction);
 
 // Tableau de bord

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// DEMO : le message n'est envoye nulle part reellement -- juste une
 /// confirmation visuelle. Au branchement, appel a une vraie API support
@@ -30,8 +31,8 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Nous contacter',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('contact_titre'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: _envoye
@@ -48,15 +49,15 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
                         color: JegoTheme.vert.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.check_circle_rounded,
+                      child: Icon(Icons.check_circle_rounded,
                           color: JegoTheme.vert, size: 34),
                     ),
                     const SizedBox(height: 16),
-                    const Text('Message envoye',
+                    Text(Strings.t('message_envoye'),
                         style: TextStyle(
                             color: JegoTheme.texte, fontSize: 16, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 8),
-                    Text('On te repond au plus vite.',
+                    Text(Strings.t('message_reponse'),
                         textAlign: TextAlign.center,
                         style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
                   ],
@@ -66,7 +67,7 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
           : ListView(
               padding: const EdgeInsets.all(18),
               children: [
-                Text('Une question, un souci ? Ecris-nous directement.',
+                Text(Strings.t('contact_invite'),
                     style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12.5)),
                 const SizedBox(height: 16),
                 _champ('Email', _email, TextInputType.emailAddress),
@@ -84,7 +85,7 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
                       borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
                       boxShadow: JegoTheme.ombreVerte,
                     ),
-                    child: const Text('Envoyer',
+                    child: Text(Strings.t('act_envoyer'),
                         style: TextStyle(
                             color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
                   ),
@@ -109,10 +110,10 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
         controller: ctrl,
         keyboardType: type,
         maxLines: lignes,
-        style: const TextStyle(color: JegoTheme.texte, fontSize: 14),
+        style: TextStyle(color: JegoTheme.texte, fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(color: JegoTheme.texteTernaire, fontSize: 12.5),
+          labelStyle: TextStyle(color: JegoTheme.texteTernaire, fontSize: 12.5),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.all(14),
         ),

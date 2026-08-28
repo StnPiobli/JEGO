@@ -41,6 +41,7 @@ type Trajet = {
   prix_bagage_supplementaire?: number;
   points_detail?: { ville: string; lieu: string | null; heure?: string | null }[];
   prix_sections?: { depart: string; arrivee: string; prix: number }[];
+  signalements?: { passager: string; categorie: string; commentaire: string | null; seuil_atteint: boolean; heure: string }[];
 };
 
 type ChauffeurOption = { id: string; nom: string; prenom: string; desactive_urgence: boolean };
@@ -50,6 +51,11 @@ const AUJOURDHUI = todayInputDate();
 const horizonVide = { horizon_jours: 0, seuil_alerte: 14, conforme: true, message: '' };
 
 const libellesCategorie: Record<Trajet['categorie'], string> = { standard: 'Standard', mixte: 'Mixte', vip: 'VIP' };
+const libellesSignalement: Record<string, string> = {
+  exces_vitesse: 'excès de vitesse', conduite_dangereuse: 'conduite dangereuse',
+  comportement_inapproprie: 'comportement inapproprié', panne_technique: 'panne technique',
+  arret_prolonge: 'arrêt prolongé', fausse_arrivee: 'fausse arrivée', autre: 'autre problème',
+};
 
 // "Nuit" et "Express" ne sont plus des choix stockes -- purement
 // informatifs, calcules a l'affichage, jamais lies au prix (fixe a
@@ -71,16 +77,17 @@ function statutAffiche(t: Trajet): Trajet['statut'] {
   if (t.statut === 'programme' && departPasse(t)) return 'en_cours';
   return t.statut;
 }
+const hhmm = (h: string | null | undefined) => (h ? String(h).slice(0, 5) : '');
 function chaineHoraires(t: Trajet): string {
-  const heures = [t.heure_depart];
+  const heures = [hhmm(t.heure_depart)];
   if (t.points_detail && t.points_detail.length > 2) {
     for (let i = 1; i < t.points_detail.length - 1; i++) {
       const h = t.points_detail[i].heure;
-      if (h) heures.push(h);
+      if (h) heures.push(hhmm(h));
     }
   }
-  if (t.heure_arrivee_estimee) heures.push(t.heure_arrivee_estimee);
-  return heures.join(' → ');
+  if (t.heure_arrivee_estimee) heures.push(hhmm(t.heure_arrivee_estimee));
+  return heures.filter(Boolean).join(' → ');
 }
 const libellesStatut: Record<Trajet['statut'], string> = { programme: 'Programmé', en_cours: 'En cours', retard: 'Retard', termine: 'Terminé', annule: 'Terminé', supprime: 'Supprimé' };
 const couleurStatut: Record<Trajet['statut'], 'green' | 'amber' | 'red' | 'grey'> = { programme: 'green', en_cours: 'amber', retard: 'red', termine: 'grey', annule: 'red', supprime: 'grey' };
@@ -128,21 +135,27 @@ export default function ProgrammationTrajets() {
     setTimeout(() => setToast(null), 4500);
   }
 
-  async function charger() {
-    setChargement(true);
+  async function charger(silencieux = false) {
+    if (!silencieux) setChargement(true);
     setErreur(null);
     try {
       const data = await apiFetch('/api/trajets');
       setTrajets(data.trajets || []);
     } catch (err) {
       setErreur(err instanceof Error ? err.message : 'Impossible de charger les trajets.');
-      setTrajets([]);
+      if (!silencieux) setTrajets([]);
     } finally {
-      setChargement(false);
+      if (!silencieux) setChargement(false);
     }
   }
 
-  useEffect(() => { charger(); }, []);
+  useEffect(() => {
+    charger();
+    // Auto-refresh : signalements et statut des trajets remontent sans
+    // avoir a recharger la page.
+    const minuterie = setInterval(() => charger(true), 5000);
+    return () => clearInterval(minuterie);
+  }, []);
 
   useEffect(() => {
     apiFetch('/api/programmation/mon-horizon')
@@ -275,7 +288,7 @@ export default function ProgrammationTrajets() {
               {resultatsRecherche.length === 0 ? (
                 <div className="p-6 text-[12px] text-ink-soft">Aucun trajet ne correspond à cette recherche.</div>
               ) : (
-                <div className="divide-y divide-line">
+                <div className="divide-y divide-line max-h-[55vh] overflow-y-auto">
                   {resultatsRecherche.map((t) => (
                     <div key={`search-${t.id}`} className="px-5 py-4">
                       <p className="text-[14px] font-bold text-ink">{t.ville_depart} → {t.ville_arrivee} <span className="font-mono text-[10px] text-ink-soft">{identifiantAffichage(t)}</span></p>
@@ -298,7 +311,7 @@ export default function ProgrammationTrajets() {
           ) : trajetsDuJour.length === 0 ? (
             <div className="p-10 text-center"><p className="text-sm text-ink-soft">Aucun trajet programmé ce jour-là.</p></div>
           ) : (
-            <div className="divide-y divide-line">
+            <div className="divide-y divide-line max-h-[calc(100vh-300px)] overflow-y-auto">
               {trajetsDuJour.map((t) => (
                 <div key={t.id} className={`px-5 py-4 transition-colors ${['annule', 'supprime'].includes(t.statut) ? 'opacity-50 bg-off-white/40' : 'hover:bg-green-500/5'}`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -355,6 +368,32 @@ export default function ProgrammationTrajets() {
                         </span>
                       ))}
                     </p>
+                  )}
+
+                  {t.signalements && t.signalements.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+                      <p className="text-[11px] font-bold text-amber-800 mb-1">
+                        ⚠️ {t.signalements.length} signalement(s) de voyageurs
+                      </p>
+                      <ul className="space-y-0.5">
+                        {t.signalements.map((sg, i) => (
+                          <li key={i} className="text-[11px] text-ink-soft">
+                            <span className="font-semibold text-ink">{sg.passager}</span>
+                            {sg.categorie === 'fausse_arrivee'
+                              ? ' a dénoncé une '
+                              : ' a signalé '}
+                            <span className="font-semibold text-ink">
+                              {libellesSignalement[sg.categorie] ?? sg.categorie}
+                            </span>
+                            {' à '}{sg.heure}
+                            {sg.commentaire ? ` — « ${sg.commentaire} »` : ''}
+                            {sg.seuil_atteint && (
+                              <span className="ml-1 font-bold text-red-600">· seuil atteint</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
 
                   {t.statut === 'annule' ? (

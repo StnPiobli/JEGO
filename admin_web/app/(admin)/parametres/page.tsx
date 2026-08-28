@@ -67,6 +67,15 @@ export default function ParametresPage() {
     }
   }
 
+  // Unité déduite de la clé, affichée à côté de la valeur pour lever toute ambiguïté.
+  function uniteDe(cle: string): string | null {
+    if (cle.includes("_heures")) return "heures";
+    if (cle.includes("_jours")) return "jours";
+    if (cle.endsWith("_fcfa")) return "FCFA";
+    if (cle.endsWith("_points")) return "points";
+    return null;
+  }
+
   const parCategorie = parametres.reduce<Record<string, Parametre[]>>((acc, p) => {
     (acc[p.categorie] = acc[p.categorie] || []).push(p);
     return acc;
@@ -99,11 +108,14 @@ export default function ParametresPage() {
                         <div className="text-[10.5px] text-ink-soft font-mono">{p.cle}</div>
                       </td>
                       <td className="px-[18px] py-2.5">
-                        <input
-                          value={valeurs[p.cle] ?? ""}
-                          onChange={(e) => setValeurs({ ...valeurs, [p.cle]: e.target.value })}
-                          className="w-[110px] px-1.5 py-1 border border-line rounded-md font-mono text-xs"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            value={valeurs[p.cle] ?? ""}
+                            onChange={(e) => setValeurs({ ...valeurs, [p.cle]: e.target.value })}
+                            className="w-[90px] px-1.5 py-1 border border-line rounded-md font-mono text-xs"
+                          />
+                          {uniteDe(p.cle) && <span className="text-[11px] text-ink-soft whitespace-nowrap">{uniteDe(p.cle)}</span>}
+                        </div>
                       </td>
                       <td className="px-[18px] py-2.5">
                         <TypeToConfirm

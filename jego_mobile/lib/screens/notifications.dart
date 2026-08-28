@@ -20,23 +20,13 @@ class _EcranNotificationsState extends State<EcranNotifications> {
   @override
   void initState() {
     super.initState();
-    // Marque comme lues des l'ouverture -> le compteur cloche disparait.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotifsStore.marquerToutesLues();
+    // On relit d'abord le serveur : sans cela l'écran afficherait la
+    // liste de la dernière visite. Puis on marque comme lues, ce qui
+    // fait disparaître la pastille de la cloche.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await NotifsStore.charger();
+      await NotifsStore.marquerToutesLues();
     });
-  }
-
-  static String _conseilVestimentaire(int temp) {
-    if (temp <= 16) return Strings.t('vest_veste');
-    if (temp <= 21) return Strings.t('vest_pull');
-    if (temp >= 30) return Strings.t('vest_leger');
-    return Strings.t('vest_normal');
-  }
-
-  static IconData _iconeMeteo(int temp) {
-    if (temp <= 20) return Icons.cloud_rounded;
-    if (temp >= 30) return Icons.wb_sunny_rounded;
-    return Icons.wb_cloudy_rounded;
   }
 
   void _confirmerToutSupprimer() {
@@ -50,7 +40,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.delete_sweep_rounded,
+              Icon(Icons.delete_sweep_rounded,
                   color: JegoTheme.danger, size: 32),
               const SizedBox(height: 10),
               Text(
@@ -74,7 +64,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                         ),
                         child: Text(
                           Strings.t('annuler'),
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texte,
                               fontWeight: FontWeight.w700),
                         ),
@@ -115,16 +105,20 @@ class _EcranNotificationsState extends State<EcranNotifications> {
     );
   }
 
+  /// Ouvre la notation du voyage concerné.
+  ///
+  /// La notification ne transporte pas le billet : elle vient du
+  /// serveur, qui n'y met que du texte. On retrouve donc le billet par
+  /// son numéro, cité dans le contenu, et à défaut le voyage le plus
+  /// récent — celui dont l'arrivée vient d'être déclarée.
   void _ouvrirNotation(Map<String, dynamic> n) {
-    final billetSnapshot = n['billet'];
-    if (billetSnapshot is! Map<String, dynamic>) return;
-    // Relit l'etat actuel du billet (pas la copie figee au moment de la
-    // notif) pour que si la note ou le signalement a deja ete fait
-    // ailleurs entre-temps, EcranApresVoyage affiche le bon etat au lieu
-    // de repermettre l'envoi.
-    final billetActuel = BilletsStore.billets.value.firstWhere(
-      (b) => b['id'] == billetSnapshot['id'],
-      orElse: () => billetSnapshot,
+    final billets = BilletsStore.billets.value;
+    if (billets.isEmpty) return;
+
+    final contenu = '${n['contenu'] ?? ''}';
+    final billetActuel = billets.firstWhere(
+      (b) => contenu.contains('${b['numero'] ?? ''}'),
+      orElse: () => billets.first,
     );
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -151,19 +145,19 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: JegoTheme.fondCarte,
                             shape: BoxShape.circle,
                             border: Border.all(
                                 color: JegoTheme.bordCarte, width: 1),
                           ),
-                          child: const Icon(Icons.close_rounded,
+                          child: Icon(Icons.close_rounded,
                               size: 20, color: JegoTheme.texte),
                         ),
                       ),
                       const SizedBox(width: 14),
                       Text(
                         Strings.t('nav_notifications'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -183,12 +177,12 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.delete_sweep_rounded,
+                                Icon(Icons.delete_sweep_rounded,
                                     size: 15, color: JegoTheme.danger),
                                 const SizedBox(width: 4),
                                 Text(
                                   Strings.t('tout_effacer'),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: JegoTheme.danger,
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w700,
@@ -213,7 +207,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                               const SizedBox(height: 10),
                               Text(
                                 Strings.t('notif_vide'),
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texteSecondaire),
                               ),
                             ],
@@ -231,7 +225,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                               key: ValueKey(n['id']),
                               direction: DismissDirection.endToStart,
                               onDismissed: (_) =>
-                                  NotifsStore.supprimer(n['id'] as int),
+                                  NotifsStore.supprimer('${n['id']}'),
                               background: Container(
                                 alignment: Alignment.centerRight,
                                 padding:
@@ -263,34 +257,51 @@ class _EcranNotificationsState extends State<EcranNotifications> {
     );
   }
 
-  Widget _carteNotif(Map<String, dynamic> n) {
-    final estMeteo = n['type'] == 'meteo';
-    final estArrivee = n['type'] == 'arrivee';
-    final IconData icone;
-    final String titre;
-    final String texte;
-
-    if (estMeteo) {
-      final temp = n['temp'] as int;
-      icone = _iconeMeteo(temp);
-      titre = '${Strings.t('notif_meteo_titre')} ${n['ville']} : $temp°C';
-      texte = _conseilVestimentaire(temp);
-    } else if (estArrivee) {
-      final billet = n['billet'];
-      final b = billet is Map<String, dynamic> ? billet : <String, dynamic>{};
-      icone = Icons.flag_rounded;
-      titre = '${b['ville_depart'] ?? '?'} → ${b['ville_arrivee'] ?? '?'}';
-      final date = b['date'] is String ? FormatDate.lisible(b['date']) : '';
-      final heure = b['heure_arrivee'] ?? '';
-      texte =
-          'Arrivée déclarée le $date à $heure. Avez-vous passé un bon voyage ?';
-    } else {
-      icone = n['type'] == 'rappel'
-          ? Icons.alarm_rounded
-          : Icons.check_circle_rounded;
-      titre = Strings.t(n['titre_cle'] as String);
-      texte = Strings.t(n['texte_cle'] as String);
+  /// Icône selon le type renvoyé par le serveur. Chaque type vient
+  /// d'un vrai évènement : un billet payé, un remboursement traité, un
+  /// chauffeur qui déclare son arrivée.
+  IconData _iconeType(String type) {
+    switch (type) {
+      case 'confirmation_billet':
+      case 'confirmation_groupe':
+        return Icons.confirmation_number_rounded;
+      case 'billet_cadeau_recu':
+        return Icons.card_giftcard_rounded;
+      case 'remboursement':
+        return Icons.savings_rounded;
+      case 'litige_reponse':
+      case 'litige_decision':
+        return Icons.gavel_rounded;
+      case 'arrivee_declaree':
+        return Icons.flag_rounded;
+      case 'retard':
+        return Icons.schedule_rounded;
+      default:
+        return Icons.notifications_rounded;
     }
+  }
+
+  /// Ancienneté en clair. Le serveur renvoie une date ; « il y a 2 h »
+  /// se lit mieux qu'un horodatage.
+  String _depuis(dynamic quand) {
+    final d = DateTime.tryParse('$quand')?.toLocal();
+    if (d == null) return '';
+    final ecart = DateTime.now().difference(d);
+    if (ecart.inMinutes < 1) return "À l'instant";
+    if (ecart.inMinutes < 60) return 'Il y a ${ecart.inMinutes} min';
+    if (ecart.inHours < 24) return 'Il y a ${ecart.inHours} h';
+    if (ecart.inDays == 1) return 'Hier';
+    if (ecart.inDays < 7) return 'Il y a ${ecart.inDays} j';
+    return FormatDate.lisible(d.toIso8601String().split('T').first);
+  }
+
+  Widget _carteNotif(Map<String, dynamic> n) {
+    // Une arrivée déclarée mène à la notation du voyage : la carte est
+    // alors cliquable et se distingue par sa bordure verte.
+    final estArrivee = n['type'] == 'arrivee_declaree';
+    final icone = _iconeType('${n['type']}');
+    final titre = '${n['titre'] ?? ''}';
+    final texte = '${n['contenu'] ?? ''}';
 
     final carte = Container(
       padding: const EdgeInsets.all(14),
@@ -323,7 +334,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
               children: [
                 Text(
                   titre,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.texte,
                     fontSize: 13.5,
                     fontWeight: FontWeight.w800,
@@ -332,7 +343,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                 const SizedBox(height: 3),
                 Text(
                   texte,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.texteSecondaire,
                     fontSize: 12,
                     height: 1.4,
@@ -340,8 +351,8 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${n['quand']}',
-                  style: const TextStyle(
+                  _depuis(n['cree_le']),
+                  style: TextStyle(
                     color: JegoTheme.texteTernaire,
                     fontSize: 10.5,
                   ),

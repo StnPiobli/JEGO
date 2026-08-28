@@ -1,67 +1,82 @@
 import 'package:flutter/material.dart';
 
-/// Etat partage des notifications (compteur cloche + liste).
-/// Sera remplace par les vraies notifs du backend au branchement.
+import 'api_service.dart';
+import 'session.dart';
+
+/// Notifications du voyageur, telles que le serveur les connaît.
+///
+/// Cette liste était inventée : trois entrées écrites en dur, dont une
+/// météo qui n'a jamais existé côté serveur. Les vraies notifications
+/// étaient pourtant déjà écrites en base par le reste de l'application
+/// — billet confirmé, remboursement, réponse à un litige, arrivée
+/// déclarée par le chauffeur. Il ne manquait qu'une route pour les lire.
 class NotifsStore {
   static final ValueNotifier<List<Map<String, dynamic>>> liste =
-      ValueNotifier<List<Map<String, dynamic>>>([
-    {
-      'id': 1,
-      'type': 'meteo',
-      'temp': 18,
-      'ville': 'Bafoussam',
-      'quand': 'Il y a 2 h',
-      'lue': false,
-    },
-    {
-      'id': 2,
-      'type': 'rappel',
-      'titre_cle': 'notif_rappel_titre',
-      'texte_cle': 'notif_rappel_texte',
-      'quand': 'Hier',
-      'lue': false,
-    },
-    {
-      'id': 3,
-      'type': 'confirmation',
-      'titre_cle': 'notif_confirm_titre',
-      'texte_cle': 'notif_confirm_texte',
-      'quand': 'Il y a 3 j',
-      'lue': false,
-    },
-  ]);
+      ValueNotifier<List<Map<String, dynamic>>>([]);
 
-  /// Nombre de notifications non lues (pour le badge de la cloche).
-  static int get nonLues =>
-      liste.value.where((n) => n['lue'] != true).length;
+  static final ValueNotifier<bool> chargement = ValueNotifier<bool>(false);
+  static String? erreur;
 
-  static void marquerToutesLues() {
-    final maj = liste.value.map((n) => {...n, 'lue': true}).toList();
-    liste.value = maj;
+  /// Nombre de notifications non lues, pour la pastille de la cloche.
+  static int get nonLues => liste.value.where((n) => n['lu'] != true).length;
+
+  static Future<void> charger() async {
+    // Un visiteur non connecté n'a pas de notifications : on ne
+    // sollicite pas le serveur pour se faire refuser.
+    if (Session.token == null) {
+      liste.value = [];
+      erreur = null;
+      return;
+    }
+    chargement.value = true;
+    erreur = null;
+    try {
+      liste.value = await ApiService.mesNotifications();
+    } on ErreurApi catch (e) {
+      erreur = e.message;
+      liste.value = [];
+    } finally {
+      chargement.value = false;
+    }
   }
 
-  static void supprimer(int id) {
-    liste.value = liste.value.where((n) => n['id'] != id).toList();
-  }
-
-  static void toutSupprimer() {
+  /// Vide la liste à la déconnexion : les notifications d'un compte ne
+  /// doivent jamais rester visibles pour la personne qui se connecte
+  /// ensuite.
+  static void vider() {
     liste.value = [];
+    erreur = null;
   }
 
-  /// Ajoute la notif "arrivee declaree" avec le billet complet en charge
-  /// utile, pour ouvrir directement l'ecran de notation au tap.
-  /// DEMO : declenchee localement depuis pendant_voyage.dart. Le vrai
-  /// declencheur sera l'evenement backend "arrivee declaree par le chauffeur".
-  static void ajouterArriveeDeclaree(Map<String, dynamic> billet) {
-    liste.value = [
-      {
-        'id': DateTime.now().millisecondsSinceEpoch,
-        'type': 'arrivee',
-        'quand': 'À l\'instant',
-        'lue': false,
-        'billet': billet,
-      },
-      ...liste.value,
-    ];
+  static Future<void> marquerToutesLues() async {
+    // L'affichage change tout de suite, sans attendre le serveur : la
+    // pastille doit disparaître au moment où l'écran s'ouvre.
+    liste.value = liste.value.map((n) => {...n, 'lu': true}).toList();
+    try {
+      await ApiService.marquerNotificationsLues();
+    } on ErreurApi {
+      // Sans réseau, elles seront relues non lues au prochain
+      // chargement — rien n'est perdu.
+    }
+  }
+
+  static Future<void> supprimer(String id) async {
+    final avant = liste.value;
+    liste.value = liste.value.where((n) => '${n['id']}' != id).toList();
+    try {
+      await ApiService.supprimerNotification(id: id);
+    } on ErreurApi {
+      liste.value = avant; // le serveur a refusé : on remet la ligne
+    }
+  }
+
+  static Future<void> toutSupprimer() async {
+    final avant = liste.value;
+    liste.value = [];
+    try {
+      await ApiService.supprimerNotification();
+    } on ErreurApi {
+      liste.value = avant;
+    }
   }
 }

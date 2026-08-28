@@ -1,39 +1,29 @@
-/// Calcul du remboursement en cas d'annulation client, selon barème
-/// flexible/standard a 4 paliers. Arrondi TOUJOURS vers le bas (JEGO
-/// garde la fraction restante, jamais le client).
+/// Remboursement en cas d'annulation par le client.
 ///
-/// Flexible : >7j 100% | 7j->24h 80% | 24h->depart 50%
-/// Standard : >7j 30%  | 7j->24h 20% | 24h->2h 10% | <2h 0%
+/// Bareme du cahier des charges §16, identique a celui applique par le
+/// serveur dans annulationController.js :
+///
+///   Billet flexible, annule plus de 24 h avant le depart : 80 %
+///   Billet flexible, annule moins de 24 h avant          : 50 %
+///   Billet standard, quelle que soit l'avance            :  0 %
+///
+/// Le bareme precedent annoncait 100 %, 30 %, 20 % et 10 % selon
+/// l'avance. Le serveur n'a jamais rien verse de tel : quelqu'un
+/// annulait un billet standard sur la promesse de 20 %, confirmait, et
+/// ne recevait rien. Une promesse d'argent non tenue est ce qui coute
+/// le plus cher a une clientele mefiante.
+///
+/// L'arrondi va TOUJOURS vers le bas : JEGO garde la fraction, jamais
+/// l'inverse.
 int calculerRemboursement({
   required bool flexible,
   required int prix,
   required DateTime depart,
 }) {
-  final maintenant = DateTime.now();
-  final delta = depart.difference(maintenant);
+  final delta = depart.difference(DateTime.now());
   if (delta.isNegative) return 0; // depart deja passe
+  if (!flexible) return 0;
 
-  int pourcentage;
-  if (flexible) {
-    if (delta >= const Duration(days: 7)) {
-      pourcentage = 100;
-    } else if (delta >= const Duration(hours: 24)) {
-      pourcentage = 80;
-    } else {
-      pourcentage = 50;
-    }
-  } else {
-    if (delta >= const Duration(days: 7)) {
-      pourcentage = 30;
-    } else if (delta >= const Duration(hours: 24)) {
-      pourcentage = 20;
-    } else if (delta >= const Duration(hours: 2)) {
-      pourcentage = 10;
-    } else {
-      pourcentage = 0;
-    }
-  }
-
-  // Division entiere = arrondi vers le bas pour des valeurs positives.
+  final pourcentage = delta >= const Duration(hours: 24) ? 80 : 50;
   return (prix * pourcentage) ~/ 100;
 }

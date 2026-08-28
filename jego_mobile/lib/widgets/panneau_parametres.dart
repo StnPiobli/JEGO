@@ -3,12 +3,9 @@ import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../screens/conditions_utilisation.dart';
 import '../screens/ecran_confidentialite.dart';
-import '../screens/ecran_devise.dart';
-import '../screens/ecran_infos_compte.dart';
 import '../screens/ecran_politique_confidentialite.dart';
 import '../screens/ecran_securite.dart';
 import '../screens/ecran_theme.dart';
-import '../screens/ecran_unites.dart';
 import '../screens/ecran_verif_maj.dart';
 
 /// Panneau lateral (Drawer), ouvert via le hamburger de l'accueil.
@@ -24,9 +21,6 @@ class PanneauParametres extends StatefulWidget {
 }
 
 class _PanneauParametresState extends State<PanneauParametres> {
-  bool _notifPush = true;
-  bool _notifEmail = true;
-  bool _notifOffres = false;
 
   @override
   Widget build(BuildContext context) {
@@ -46,19 +40,19 @@ class _PanneauParametresState extends State<PanneauParametres> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.close_rounded,
+                      child: Icon(Icons.close_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     Strings.t('param_titre'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -73,65 +67,32 @@ class _PanneauParametresState extends State<PanneauParametres> {
                 children: [
                   _titreSection(Strings.t('param_compte')),
                   _carteSection([
-                    _ligne(Icons.person_outline_rounded,
-                        Strings.t('param_info_compte'), onTap: () {
-                      Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const EcranInfosCompte()));
-                    }),
                     _ligne(Icons.lock_outline_rounded,
                         Strings.t('param_securite'), onTap: () {
                       Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const EcranSecurite()));
+                          builder: (_) => EcranSecurite()));
                     }),
                     _ligne(Icons.shield_outlined,
                         Strings.t('param_confidentialite'), onTap: () {
                       Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const EcranConfidentialite()));
+                          builder: (_) => EcranConfidentialite()));
                     }),
-                  ]),
-                  const SizedBox(height: 22),
-                  _titreSection(Strings.t('param_notifications')),
-                  _carteSection([
-                    _ligneInterrupteur(
-                      Icons.notifications_none_rounded,
-                      Strings.t('param_notif_push'),
-                      _notifPush,
-                      (v) => setState(() => _notifPush = v),
-                    ),
-                    _ligneInterrupteur(
-                      Icons.mail_outline_rounded,
-                      Strings.t('param_notif_email'),
-                      _notifEmail,
-                      (v) => setState(() => _notifEmail = v),
-                    ),
-                    _ligneInterrupteur(
-                      Icons.campaign_outlined,
-                      Strings.t('param_notif_offres'),
-                      _notifOffres,
-                      (v) => setState(() => _notifOffres = v),
-                    ),
                   ]),
                   const SizedBox(height: 22),
                   _titreSection(Strings.t('param_preferences')),
                   _carteSection([
                     _ligneLangue(),
-                    _ligneValeur(Icons.dark_mode_outlined,
-                        Strings.t('param_theme'), Strings.t('param_theme_clair'),
-                        onTap: () {
-                      Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EcranTheme()));
-                    }),
+                    // La valeur affichée suit le réglage réel : elle
+                    // annonçait « Clair » en dur, même une fois le
+                    // sombre choisi.
                     _ligneValeur(
-                        Icons.attach_money_rounded, Strings.t('param_devise'), 'XAF',
-                        onTap: () {
-                      Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EcranDevise()));
-                    }),
-                    _ligneValeur(Icons.straighten_rounded,
-                        Strings.t('param_unites'), Strings.t('param_unites_km'),
-                        onTap: () {
-                      Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EcranUnites()));
+                        Icons.dark_mode_outlined,
+                        Strings.t('param_theme'),
+                        Strings.t('theme_' + (modeTheme.value == 'systeme' ? 'systeme' : (modeSombre.value ? 'sombre' : 'clair'))),
+                        onTap: () async {
+                      await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => EcranTheme()));
+                      if (mounted) setState(() {});
                     }),
                   ]),
                   const SizedBox(height: 22),
@@ -142,18 +103,18 @@ class _PanneauParametresState extends State<PanneauParametres> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) =>
-                                const EcranConditionsUtilisation()),
+                                EcranConditionsUtilisation()),
                       );
                     }),
                     _ligne(Icons.description_outlined,
                         Strings.t('param_politique_confidentialite'), onTap: () {
                       Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const EcranPolitiqueConfidentialite()));
+                          builder: (_) => EcranPolitiqueConfidentialite()));
                     }),
                     _ligneValeur(Icons.refresh_rounded,
                         Strings.t('param_verifier_maj'), 'v1.0.0', onTap: () {
                       Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EcranVerifMaj()));
+                          MaterialPageRoute(builder: (_) => EcranVerifMaj()));
                     }),
                   ]),
                 ],
@@ -170,7 +131,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
       padding: const EdgeInsets.only(bottom: 8, left: 4),
       child: Text(
         titre,
-        style: const TextStyle(
+        style: TextStyle(
           color: JegoTheme.vert,
           fontSize: 13,
           fontWeight: FontWeight.w800,
@@ -191,7 +152,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
           for (var i = 0; i < lignes.length; i++) ...[
             lignes[i],
             if (i < lignes.length - 1)
-              const Divider(height: 1, color: JegoTheme.bordCarte),
+              Divider(height: 1, color: JegoTheme.bordCarte),
           ],
         ],
       ),
@@ -210,14 +171,14 @@ class _PanneauParametresState extends State<PanneauParametres> {
             Expanded(
               child: Text(
                 libelle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                   color: JegoTheme.texte,
                 ),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 size: 18, color: JegoTheme.texteTernaire),
           ],
         ),
@@ -238,7 +199,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
             Expanded(
               child: Text(
                 libelle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                   color: JegoTheme.texte,
@@ -253,7 +214,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 size: 18, color: JegoTheme.texteTernaire),
           ],
         ),
@@ -277,7 +238,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
             Expanded(
               child: Text(
                 Strings.t('profil_langue'),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                   color: JegoTheme.texte,
@@ -294,7 +255,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 size: 18, color: JegoTheme.texteTernaire),
           ],
         ),
@@ -313,7 +274,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.language_rounded,
+              Icon(Icons.language_rounded,
                   color: JegoTheme.vert, size: 32),
               const SizedBox(height: 10),
               Text(
@@ -372,35 +333,4 @@ class _PanneauParametresState extends State<PanneauParametres> {
     );
   }
 
-  Widget _ligneInterrupteur(
-    IconData icone,
-    String libelle,
-    bool valeur,
-    ValueChanged<bool> onChange,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Row(
-        children: [
-          Icon(icone, size: 19, color: JegoTheme.texteSecondaire),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              libelle,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                color: JegoTheme.texte,
-              ),
-            ),
-          ),
-          Switch(
-            value: valeur,
-            onChanged: onChange,
-            activeColor: JegoTheme.vert,
-          ),
-        ],
-      ),
-    );
-  }
 }

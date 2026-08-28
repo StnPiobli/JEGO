@@ -6,6 +6,7 @@ import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import 'detail_trajet.dart';
 import '../widgets/selecteur_date.dart';
+import '../config/nature_trajet.dart';
 
 class EcranResultatsRecherche extends StatefulWidget {
   final Map<String, String> params;
@@ -42,23 +43,27 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
           .toList();
     }
 
-    // Categorie : multi-selection, logique OU (au moins une correspond).
+    // Deux dimensions distinctes, envoyees dans le meme parametre :
+    //  - la CLASSE du bus (standard / mixte / vip) : logique OU, le
+    //    trajet doit etre de l'une des classes cochees ;
+    //  - les CARACTERISTIQUES (nuit / express) : chacune est une
+    //    contrainte ET, le trajet doit les verifier toutes.
+    // Les melanger en un seul OU donnait « VIP ou nuit » quand on
+    // voulait « VIP de nuit ».
     final categorieStr = widget.params['categorie'];
     if (categorieStr != null && categorieStr.isNotEmpty) {
       final demandees =
           categorieStr.split(',').map((c) => c.toLowerCase()).toSet();
-      liste = liste
-          .where((o) =>
-              demandees.contains('${o['categorie']}'.toLowerCase()))
-          .toList();
-    }
+      const classes = {'standard', 'mixte', 'vip'};
+      final classesDemandees = demandees.intersection(classes);
+      final caracteristiques = demandees.difference(classes);
 
-    // Direct = 0 arret, Avec arrets = au moins 1.
-    final typeTrajet = widget.params['type_trajet'];
-    if (typeTrajet != null) {
       liste = liste.where((o) {
-        final arrets = (o['nombre_arrets'] as num?)?.toInt() ?? 0;
-        return typeTrajet == 'direct' ? arrets == 0 : arrets > 0;
+        final okClasse = classesDemandees.isEmpty ||
+            classesDemandees.contains('${o['categorie']}'.toLowerCase());
+        final okCaract = caracteristiques
+            .every((c) => NatureTrajet.correspondAuFiltre(o, c));
+        return okClasse && okCaract;
       }).toList();
     }
 
@@ -249,12 +254,12 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
@@ -265,7 +270,7 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                       children: [
                         Text(
                           _phaseRetour ? '$vers → $de' : '$de → $vers',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: JegoTheme.texte,
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
@@ -276,7 +281,7 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                             _phaseRetour
                                 ? Strings.t('phase_retour')
                                 : Strings.t('phase_aller'),
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: JegoTheme.vert,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w800,
@@ -297,21 +302,21 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.calendar_month_rounded,
+                          Icon(Icons.calendar_month_rounded,
                               size: 14, color: JegoTheme.vert),
                           const SizedBox(width: 5),
                           Text(
                             _phaseRetour
                                 ? widget.params['date_retour'] ?? ''
                                 : widget.params['date'] ?? '',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: JegoTheme.vert,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(width: 3),
-                          const Icon(Icons.edit_rounded,
+                          Icon(Icons.edit_rounded,
                               size: 11, color: JegoTheme.vert),
                         ],
                       ),
@@ -336,13 +341,13 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.check_circle_rounded,
+                      Icon(Icons.check_circle_rounded,
                           size: 16, color: JegoTheme.vert),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '${Strings.t('voyage_aller_label')} ${widget.params['date']} · ${_offreAllerChoisie!['heure_depart']}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: JegoTheme.texte,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -364,13 +369,13 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.wifi_off_rounded,
+                                Icon(Icons.wifi_off_rounded,
                                     size: 38, color: JegoTheme.texteSecondaire),
                                 const SizedBox(height: 12),
                                 Text(
                                   _erreur!,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: JegoTheme.texteSecondaire,
                                     fontSize: 13,
                                   ),
@@ -378,10 +383,10 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                                 const SizedBox(height: 16),
                                 TextButton.icon(
                                   onPressed: _charger,
-                                  icon: const Icon(Icons.refresh_rounded,
+                                  icon: Icon(Icons.refresh_rounded,
                                       size: 18, color: JegoTheme.vert),
-                                  label: const Text(
-                                    'Réessayer',
+                                  label: Text(
+                                    Strings.t('act_reessayer'),
                                     style: TextStyle(
                                       color: JegoTheme.vert,
                                       fontWeight: FontWeight.w700,
@@ -396,7 +401,7 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                       ? Center(
                           child: Text(
                             Strings.t('resultats_aucun'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texteSecondaire),
                           ),
                         )
@@ -513,28 +518,36 @@ class _CarteOffre extends StatelessWidget {
               children: [
                 Text(
                   '${offre['heure_depart']} → ${offre['heure_arrivee']}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.texte,
                     fontSize: 16.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: JegoTheme.vert.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-                  ),
-                  child: Text(
-                    '${offre['categorie']}',
-                    style: const TextStyle(
-                      color: JegoTheme.vert,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                // Nuit, Express, classe du bus : ce que le voyageur a
+                // besoin de savoir. « Mixte » seul ne disait rien.
+                Wrap(
+                  spacing: 4,
+                  children: NatureTrajet.etiquettes(offre)
+                      .map((e) => Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: JegoTheme.vert.withOpacity(0.1),
+                              borderRadius:
+                                  BorderRadius.circular(JegoTheme.rGrand),
+                            ),
+                            child: Text(
+                              e,
+                              style: TextStyle(
+                                color: JegoTheme.vert,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ))
+                      .toList(),
                 ),
               ],
             ),
@@ -547,7 +560,7 @@ class _CarteOffre extends StatelessWidget {
                     children: [
                       Text(
                         villeDepart,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 15.5,
                           fontWeight: FontWeight.w800,
@@ -555,7 +568,7 @@ class _CarteOffre extends StatelessWidget {
                       ),
                       Text(
                         '${offre['point_depart']}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texteSecondaire,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -577,7 +590,7 @@ class _CarteOffre extends StatelessWidget {
                     children: [
                       Text(
                         villeArrivee,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 15.5,
                           fontWeight: FontWeight.w800,
@@ -585,7 +598,7 @@ class _CarteOffre extends StatelessWidget {
                       ),
                       Text(
                         '${offre['point_arrivee']}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texteSecondaire,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -601,18 +614,18 @@ class _CarteOffre extends StatelessWidget {
               children: [
                 Text(
                   '${offre['nom_agence']}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.texteSecondaire,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(width: 5),
-                const Icon(Icons.star_rounded,
+                Icon(Icons.star_rounded,
                     size: 14, color: JegoTheme.etoile),
                 Text(
                   '${offre['note_moyenne']}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteSecondaire, fontSize: 12),
                 ),
                 const Spacer(),
@@ -621,13 +634,13 @@ class _CarteOffre extends StatelessWidget {
                     children: [
                       TextSpan(
                         text: '${offre['prix']}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const TextSpan(
+                      TextSpan(
                         text: ' FCFA',
                         style: TextStyle(
                           color: JegoTheme.texteTernaire,
@@ -639,7 +652,7 @@ class _CarteOffre extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Icon(Icons.chevron_right_rounded,
+                Icon(Icons.chevron_right_rounded,
                     color: JegoTheme.texteTernaire, size: 20),
               ],
             ),

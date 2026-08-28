@@ -16,7 +16,7 @@ export function clearSession() {
   localStorage.removeItem("jego_agence_profil");
 }
 
-export function getAgenceLocale(): { id: number; nom: string; statut?: string } | null {
+export function getAgenceLocale(): { id: number; nom: string; statut?: string; ville?: string | null; telephone?: string | null; motif_desactivation?: string | null } | null {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem("jego_agence_profil");
   return raw ? JSON.parse(raw) : null;

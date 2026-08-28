@@ -121,7 +121,11 @@ async function avisAgence(req, res) {
     const avis = await pool.query(
       `SELECT a.note_globale, a.note_service, a.note_conduite, a.note_horaires, a.note_confort,
               a.commentaire, a.cree_le,
-              v.prenom AS voyageur_prenom
+              -- Le prénom n'est renvoyé que si le voyageur l'a autorisé.
+              -- Sinon rien ne sort de la base : l'anonymat ne doit pas
+              -- dépendre de ce que l'application veut bien afficher.
+              CASE WHEN v.avis_avec_nom THEN v.prenom ELSE NULL END
+                AS voyageur_prenom
        FROM avis a
        JOIN voyageurs v ON v.id = a.voyageur_id
        WHERE a.agence_id = $1 AND a.statut = 'visible'

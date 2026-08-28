@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
 import '../widgets/itineraire_trajet.dart';
+import '../l10n/strings.dart';
 
 /// Vue semaine complete. Le titre "date debut — date fin" est cliquable
 /// pour choisir n'importe quelle semaine via un calendrier ; chaque jour
@@ -37,7 +38,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
       lastDate: DateTime.now().add(const Duration(days: 365)),
       helpText: 'Choisir une semaine',
       builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(colorScheme: const ColorScheme.light(primary: JegoTheme.vert)),
+        data: Theme.of(ctx).copyWith(colorScheme: ColorScheme.light(primary: JegoTheme.vert)),
         child: child!,
       ),
     );
@@ -54,8 +55,8 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Mon emploi du temps',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('emploi_du_temps'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: Column(
@@ -70,7 +71,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                         color: JegoTheme.fondCarte, shape: BoxShape.circle, border: Border.all(color: JegoTheme.bordCarte)),
-                    child: const Icon(Icons.chevron_left_rounded, size: 20, color: JegoTheme.texte),
+                    child: Icon(Icons.chevron_left_rounded, size: 20, color: JegoTheme.texte),
                   ),
                 ),
                 Expanded(
@@ -83,11 +84,11 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                         children: [
                           Text(
                             '${_dateLisible(_debutSemaine)} — ${_dateLisible(finSemaine)}',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texte, fontSize: 13.5, fontWeight: FontWeight.w800),
                           ),
                           const SizedBox(width: 6),
-                          const Icon(Icons.edit_calendar_rounded, size: 15, color: JegoTheme.vert),
+                          Icon(Icons.edit_calendar_rounded, size: 15, color: JegoTheme.vert),
                         ],
                       ),
                     ),
@@ -99,7 +100,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                         color: JegoTheme.fondCarte, shape: BoxShape.circle, border: Border.all(color: JegoTheme.bordCarte)),
-                    child: const Icon(Icons.chevron_right_rounded, size: 20, color: JegoTheme.texte),
+                    child: Icon(Icons.chevron_right_rounded, size: 20, color: JegoTheme.texte),
                   ),
                 ),
               ],
@@ -149,7 +150,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                           child: trajets.isEmpty
                               ? Padding(
                                   padding: const EdgeInsets.only(top: 3),
-                                  child: Text('Aucun trajet',
+                                  child: Text(Strings.t('aucun_trajet'),
                                       style: TextStyle(
                                           color: JegoTheme.texteTernaire, fontSize: 12.5)),
                                 )
@@ -158,7 +159,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
                                   children: [
                                     for (var k = 0; k < trajets.length; k++) ...[
                                       if (k > 0)
-                                        const Padding(
+                                        Padding(
                                           padding: EdgeInsets.symmetric(vertical: 8),
                                           child: Divider(
                                               height: 1, color: JegoTheme.bordCarte),
@@ -196,14 +197,14 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
           }),
           child: Row(
             children: [
-              const Icon(Icons.directions_bus_rounded, size: 15, color: JegoTheme.vert),
+              Icon(Icons.directions_bus_rounded, size: 15, color: JegoTheme.vert),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('${trajet['ville_depart']} → ${trajet['ville_arrivee']}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texte,
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700)),
@@ -248,7 +249,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
           ),
           Expanded(
             child: Text(valeur,
-                style: const TextStyle(color: JegoTheme.texte, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                style: TextStyle(color: JegoTheme.texte, fontSize: 12.5, fontWeight: FontWeight.w700)),
           ),
         ],
       ),

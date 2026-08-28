@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'session.dart';
 
 /// Billets réels du voyageur connecté.
 ///
@@ -15,26 +17,104 @@ class BilletsStore {
   static final ValueNotifier<bool> chargement = ValueNotifier<bool>(false);
   static final ValueNotifier<String?> erreur = ValueNotifier<String?>(null);
 
-  /// Recharge les billets depuis le serveur.
-  static Future<void> charger() async {
-    chargement.value = true;
-    erreur.value = null;
+  /// Numeros des billets recuperes sur cet appareil (BIL-XXXXX-XXXXX).
+  /// Conserves a part : ils n'appartiennent pas forcement au compte
+  /// connecte, donc l'historique du serveur ne les renvoie pas. Sans
+  /// cette liste, un billet recupere disparaissait au premier
+  /// rechargement.
+  static const _cleRecuperes = 'billets_recuperes';
+
+  static Future<Set<String>> _numerosRecuperes() async {
     try {
-      final brut = await ApiService.mesBillets();
-      billets.value = brut.map<Map<String, dynamic>>(_convertir).toList();
-    } on ErreurApi catch (e) {
-      erreur.value = e.message;
-      billets.value = [];
-    } finally {
-      chargement.value = false;
+      final prefs = await SharedPreferences.getInstance();
+      return (prefs.getStringList(_cleRecuperes) ?? []).toSet();
+    } catch (_) {
+      return {};
     }
   }
 
-  /// Vide la liste (déconnexion) : les billets d'un compte ne doivent
-  /// jamais rester visibles pour le suivant.
+  static Future<void> _memoriserRecupere(String numero) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final actuels = (prefs.getStringList(_cleRecuperes) ?? []).toSet()
+        ..add(numero);
+      await prefs.setStringList(_cleRecuperes, actuels.toList());
+    } catch (_) {}
+  }
+
+  static Future<void> oublierRecupere(String numero) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final actuels = (prefs.getStringList(_cleRecuperes) ?? []).toSet()
+        ..remove(numero);
+      await prefs.setStringList(_cleRecuperes, actuels.toList());
+    } catch (_) {}
+  }
+
+  /// Recharge les billets : ceux du compte connecte, PLUS les billets
+  /// recuperes sur cet appareil. Ces derniers sont relus par leur
+  /// numero (route publique) pour rester a jour et ne pas disparaitre.
+  static Future<void> charger() async {
+    chargement.value = true;
+    erreur.value = null;
+
+    final liste = <Map<String, dynamic>>[];
+    final vus = <String>{};
+
+    try {
+      if (Session.token != null) {
+        final brut = await ApiService.mesBillets();
+        for (final b in brut) {
+          final billet = _convertir(b);
+          if (vus.add('${billet['id']}')) liste.add(billet);
+        }
+      }
+    } on ErreurApi catch (e) {
+      erreur.value = e.message;
+    }
+
+    // Billets recuperes : chacun relu par son numero. Un numero qui ne
+    // repond plus (billet supprime cote serveur) est simplement ignore.
+    for (final numero in await _numerosRecuperes()) {
+      try {
+        final brut = await ApiService.recupererBillet(numero: numero);
+        if (brut.isEmpty) continue;
+        final billet = _convertir(brut);
+        if (vus.add('${billet['id']}')) liste.add(billet);
+      } on ErreurApi {
+        // Numero devenu invalide : on le laisse, l'utilisateur pourra
+        // le retirer, mais on ne casse pas le chargement pour autant.
+      }
+    }
+
+    billets.value = liste;
+    chargement.value = false;
+  }
+
+  /// Vide la liste (déconnexion) : les billets du COMPTE ne doivent
+  /// jamais rester visibles pour le suivant. Les billets recuperes sur
+  /// cet appareil, eux, ne dependent d'aucun compte : on les recharge
+  /// seuls, par leur numero.
   static void vider() {
     billets.value = [];
     erreur.value = null;
+    _rechargerRecuperesSeuls();
+  }
+
+  static Future<void> _rechargerRecuperesSeuls() async {
+    final liste = <Map<String, dynamic>>[];
+    final vus = <String>{};
+    for (final numero in await _numerosRecuperes()) {
+      try {
+        final brut = await ApiService.recupererBillet(numero: numero);
+        if (brut.isEmpty) continue;
+        final billet = _convertir(brut);
+        if (vus.add('${billet['id']}')) liste.add(billet);
+      } on ErreurApi {
+        // Numero devenu invalide : ignore.
+      }
+    }
+    billets.value = liste;
   }
 
   /// Traduit un billet du serveur vers la forme attendue par les
@@ -70,21 +150,35 @@ class BilletsStore {
       'num_resa': '${b['numero']}',
       'ville_depart': b['depart'] ?? '',
       'ville_arrivee': b['arrivee'] ?? '',
-      'point_depart': b['depart'] ?? '',
-      'point_arrivee': b['arrivee'] ?? '',
-      'heure_depart': heure(b['heure_depart']),
-      'heure_arrivee': heure(b['heure_arrivee_estimee']),
+      // Lieu de rendez-vous precis de l'arret d'embarquement, et non
+      // le nom de la ville : c'est la qu'il faut se presenter.
+      'point_depart': b['lieu_depart'] ?? b['depart'] ?? '',
+      'point_arrivee': b['lieu_arrivee'] ?? b['arrivee'] ?? '',
+      // Heures du troncon achete. Sur une ligne a arrets, le bus ne
+      // passe pas a l'arret intermediaire a l'heure de depart de la
+      // ligne : un Bafoussam -> Yaounde affichait 11h24 au lieu de
+      // 17h23, soit six heures d'avance a la gare.
+      'heure_depart': heure(b['heure_troncon'] ?? b['heure_depart']),
+      'heure_arrivee':
+          heure(b['heure_arrivee_troncon'] ?? b['heure_arrivee_estimee']),
       'date': '${b['date_depart']}'.split('T').first,
       'nom_agence': b['nom_agence'] ?? '',
       'agence_id': '${b['agence_id']}',
       'categorie':
           categorie.isEmpty ? 'Standard' : '${categorie[0].toUpperCase()}${categorie.substring(1)}',
-      'nombre_arrets': 0,
+      'nombre_arrets': int.tryParse('${b['nombre_arrets']}'),
       'arrets_liste': null,
       'equipements': equipements,
-      'sieges': [int.tryParse('${b['siege']}') ?? 0],
+      'sieges': ['${b['siege']}'],
       'personne': 1,
       'total_personnes': 1,
+      // Titulaire reel du billet : sur un billet recupere, ce n'est pas
+      // forcement la personne connectee. Le PDF et l'affichage doivent
+      // montrer ce nom-la, pas celui de la session.
+      'passager_prenom': '${b['passager_prenom'] ?? ''}',
+      'passager_nom': '${b['passager_nom'] ?? ''}',
+      'passager_tel': '${b['passager_tel'] ?? ''}',
+      'passager_email': '${b['passager_email'] ?? ''}',
       'flexible': b['est_flexible'] == true,
       'cadeau': b['est_cadeau'] == true,
       'recu_en_cadeau': b['recu_en_cadeau'] == true,
@@ -93,6 +187,7 @@ class BilletsStore {
       'annule': '${b['statut']}' == 'annule',
       'utilise': '${b['statut']}' == 'utilise',
       'statut_trajet': b['statut_trajet'] ?? '',
+      'arrets_declares': int.tryParse('${b['arrets_declares']}') ?? 0,
       'deja_note': b['deja_note'] == true,
       'frais': frais,
       'total': total,
@@ -100,6 +195,19 @@ class BilletsStore {
   }
 
   static void ajouter(Map<String, dynamic> billet) {
+    billets.value = [...billets.value, billet];
+  }
+
+  /// Ajoute un billet renvoye par le serveur (recuperation sur un autre
+  /// appareil). Passe par le meme convertisseur que l'historique, et
+  /// evite le doublon si le billet est deja affiche.
+  static void ajouterDepuisServeur(Map<String, dynamic> brut) {
+    final billet = _convertir(brut);
+    // Retenu durablement pour survivre aux rechargements et aux
+    // redemarrages, meme sans compte connecte.
+    _memoriserRecupere('${billet['num_resa']}');
+    final existe = billets.value.any((b) => b['id'] == billet['id']);
+    if (existe) return;
     billets.value = [...billets.value, billet];
   }
 
@@ -139,6 +247,12 @@ class BilletsStore {
 }
 
 /// Etat du verrou de siege, visible pendant tout le tunnel.
+///
+/// Le compte a rebours est ancre sur une heure de fin, pas decremente
+/// seconde par seconde. Un decompte par tics s'arrete des que
+/// l'application passe en arriere-plan : le systeme gele ses timers, et
+/// cinq minutes annoncees pouvaient en durer trente. L'heure de fin,
+/// elle, ne se met pas en pause.
 class SoftLock {
   static final ValueNotifier<int> secondes = ValueNotifier<int>(0);
   static final ValueNotifier<bool> actif = ValueNotifier<bool>(false);
@@ -147,21 +261,67 @@ class SoftLock {
   static final GlobalKey<NavigatorState> navKey =
       GlobalKey<NavigatorState>();
 
+  /// Instant ou le verrou tombe. Seule reference du decompte.
+  static DateTime? _fin;
+
+  /// Instant ou la suspension a commence, pour decaler la fin d'autant
+  /// au moment de reprendre.
+  static DateTime? _debutSuspension;
+
+  /// Secondes restantes reellement, calculees a la demande.
+  static int get restant {
+    final f = _fin;
+    if (f == null) return 0;
+    // Arrondi au superieur : inSeconds tronque, et cinq minutes
+    // s'afficheraient 4:59 des la premiere milliseconde ecoulee.
+    final ms = f.difference(DateTime.now()).inMilliseconds;
+    return ms > 0 ? (ms / 1000).ceil() : 0;
+  }
+
+  /// Recalcule l'affichage depuis l'horloge. A appeler a chaque tic et
+  /// au retour de l'arriere-plan.
+  static void rafraichir() {
+    if (!actif.value || suspendu.value) return;
+    secondes.value = restant;
+  }
+
   static void demarrer([int duree = 5 * 60]) {
+    _fin = DateTime.now().add(Duration(seconds: duree));
+    _debutSuspension = null;
     secondes.value = duree;
     actif.value = true;
     suspendu.value = false;
   }
 
-  static void suspendre() => suspendu.value = true;
-  static void reprendre() => suspendu.value = false;
+  /// Met le decompte en pause (question « toujours la ? », paiement en
+  /// cours). Le temps passe en pause ne doit pas etre decompte : on
+  /// retient quand elle a commence pour repousser la fin au retour.
+  static void suspendre() {
+    if (suspendu.value) return;
+    _debutSuspension = DateTime.now();
+    suspendu.value = true;
+  }
+
+  static void reprendre() {
+    final debut = _debutSuspension;
+    if (debut != null && _fin != null) {
+      _fin = _fin!.add(DateTime.now().difference(debut));
+    }
+    _debutSuspension = null;
+    suspendu.value = false;
+    rafraichir();
+  }
 
   static void arreter() {
+    _fin = null;
+    _debutSuspension = null;
     actif.value = false;
     suspendu.value = false;
   }
 
   static void relancer([int duree = 5 * 60]) {
+    _fin = DateTime.now().add(Duration(seconds: duree));
+    _debutSuspension = null;
     secondes.value = duree;
     suspendu.value = false;
   }

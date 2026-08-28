@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 class EcranAPropos extends StatelessWidget {
   const EcranAPropos({super.key});
@@ -11,8 +12,8 @@ class EcranAPropos extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('A propos de JEGO',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('a_propos'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: ListView(
@@ -25,7 +26,7 @@ class EcranAPropos extends StatelessWidget {
                   width: 74,
                   height: 74,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                         colors: [JegoTheme.vert, JegoTheme.vertVif]),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: JegoTheme.ombreVerte,
@@ -34,7 +35,7 @@ class EcranAPropos extends StatelessWidget {
                       color: Colors.white, size: 34),
                 ),
                 const SizedBox(height: 12),
-                const Text('JEGO',
+                Text('JEGO',
                     style: TextStyle(
                         color: JegoTheme.texte, fontSize: 20, fontWeight: FontWeight.w800)),
                 Text('Version 1.0.0',
@@ -60,9 +61,9 @@ class EcranAPropos extends StatelessWidget {
             child: Column(
               children: [
                 _ligneLien(Icons.language_rounded, 'Site web', 'www.jego.cm'),
-                const Divider(height: 20, color: JegoTheme.bordCarte),
+                Divider(height: 20, color: JegoTheme.bordCarte),
                 _ligneLien(Icons.phone_rounded, 'Support', '+237 6 90 12 34 56'),
-                const Divider(height: 20, color: JegoTheme.bordCarte),
+                Divider(height: 20, color: JegoTheme.bordCarte),
                 _ligneLien(Icons.mail_rounded, 'Email', 'support@jego.cm'),
               ],
             ),
@@ -77,10 +78,10 @@ class EcranAPropos extends StatelessWidget {
       children: [
         Icon(icone, size: 18, color: JegoTheme.vert),
         const SizedBox(width: 12),
-        Text(libelle, style: const TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
+        Text(libelle, style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
         const Spacer(),
         Text(valeur,
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texte, fontSize: 13, fontWeight: FontWeight.w700)),
       ],
     );

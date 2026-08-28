@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// Itinéraire d'un trajet, du départ au terminus.
 ///
@@ -95,7 +96,7 @@ class ItineraireTrajet extends StatelessWidget {
             style: TextStyle(fontSize: 11.5, color: JegoTheme.texteSecondaire)),
       if (mouvements.isNotEmpty && !quitte)
         Text(mouvements.join(' · '),
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 11,
                 color: JegoTheme.vert,
                 fontWeight: FontWeight.w700)),
@@ -189,7 +190,7 @@ class ItineraireTrajet extends StatelessWidget {
                                 color: JegoTheme.vert,
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                              child: const Text('A quai',
+                              child: Text(Strings.t('a_quai'),
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 9.5,

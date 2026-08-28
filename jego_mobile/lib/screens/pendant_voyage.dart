@@ -1,12 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/billets_store.dart';
 import '../config/format_date.dart';
-import '../config/notifs_store.dart';
 import '../config/theme_jego.dart';
 import '../widgets/dialogues_voyage.dart';
-import '../widgets/popup_arrivee.dart';
 import 'apres_voyage.dart';
+import '../l10n/strings.dart';
+import '../config/api.dart';
 
 enum _StatutTrajet { aVenir, enCours, arrive }
 
@@ -16,6 +17,17 @@ class _Categorie {
   final IconData icone;
   const _Categorie(this.id, this.libelle, this.icone);
 }
+
+/// Correspondance entre l'identifiant d'affichage et la categorie
+/// attendue par le serveur (contrainte BDD des signalements).
+const _categorieServeur = <String, String>{
+  'vitesse': 'exces_vitesse',
+  'conduite': 'conduite_dangereuse',
+  'comportement': 'comportement_inapproprie',
+  'panne': 'panne_technique',
+  'arret': 'arret_prolonge',
+  'autre': 'autre',
+};
 
 const _categories = <_Categorie>[
   _Categorie('vitesse', 'Excès de vitesse', Icons.speed_rounded),
@@ -45,21 +57,26 @@ class EcranPendantVoyage extends StatefulWidget {
 class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
   final Set<String> _categoriesSignalees = {};
   String? _confirmation;
+  Timer? _rafraichissement;
 
-  // DEMO uniquement : force un statut pour tester sans changer les dates.
-  // Appui long sur le badge de statut. A retirer au branchement backend.
-  _StatutTrajet? _forcage;
+  @override
+  void initState() {
+    super.initState();
+    // On relit tout de suite, puis regulierement : le statut vient de
+    // la declaration du chauffeur cote serveur, il faut aller le
+    // chercher pour que « en cours » apparaisse peu apres son depart.
+    BilletsStore.charger();
+    // Rapproche : entre l'action du chauffeur et l'affichage client,
+    // on veut le moins de delai possible. Sans push temps reel, on
+    // interroge frequemment tant que l'ecran de suivi est ouvert.
+    _rafraichissement = Timer.periodic(
+        const Duration(seconds: 3), (_) => BilletsStore.charger());
+  }
 
-  void _cyclerForcage() {
-    setState(() {
-      if (_forcage == null) {
-        _forcage = _StatutTrajet.enCours;
-      } else if (_forcage == _StatutTrajet.enCours) {
-        _forcage = _StatutTrajet.arrive;
-      } else {
-        _forcage = null;
-      }
-    });
+  @override
+  void dispose() {
+    _rafraichissement?.cancel();
+    super.dispose();
   }
 
   Future<void> _confirmerSignalementProbleme(
@@ -106,10 +123,10 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                     maxLines: 3,
                     onChanged: (v) =>
                         texteValide.value = v.trim().isNotEmpty,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texte, fontSize: 13.5),
-                    decoration: const InputDecoration(
-                      hintText: 'Décrivez le problème',
+                    decoration: InputDecoration(
+                      hintText: Strings.t('decrire_probleme'),
                       hintStyle: TextStyle(color: JegoTheme.texteTernaire),
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(14),
@@ -131,7 +148,7 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                           borderRadius:
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
-                        child: const Text('Annuler',
+                        child: Text(Strings.t('act_annuler'),
                             style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
@@ -156,7 +173,7 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                             borderRadius:
                                 BorderRadius.circular(JegoTheme.rPetit),
                           ),
-                          child: const Text('Confirmer',
+                          child: Text(Strings.t('act_confirmer'),
                               style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800)),
@@ -172,94 +189,44 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
       ),
     );
 
-    if (confirme == true) {
+    if (confirme != true) return;
+
+    // Envoi reel : sans cet appel, le signalement ne quittait jamais le
+    // telephone -- agence et admin ne voyaient rien. Le commentaire du
+    // champ « autre » part avec.
+    final categorie = _categorieServeur[cat.id] ?? 'autre';
+    final trajetId = '${widget.billet['trajet_id'] ?? ''}';
+    try {
+      final rep = await ApiService.signaler(
+        trajetId: trajetId,
+        categorie: categorie,
+        commentaire: controleur.text.trim().isEmpty
+            ? null
+            : controleur.text.trim(),
+      );
+      if (!mounted) return;
       setState(() {
         _categoriesSignalees.add(cat.id);
-        _confirmation = cat.libelle;
+        // Le serveur dit si le seuil collectif est atteint : on le
+        // repercute a la personne.
+        _confirmation = rep['alerte_declenchee'] == true
+            ? '${cat.libelle} — seuil atteint, agence et admin alertes'
+            : cat.libelle;
       });
-    }
-  }
-
-  Future<void> _confirmerFausseArrivee(
-      BuildContext context, String billetId) async {
-    final confirme = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(JegoTheme.rMoyen)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.report_rounded,
-                  color: JegoTheme.danger, size: 32),
-              const SizedBox(height: 10),
-              const Text(
-                'Signaler une fausse arrivée',
-                textAlign: TextAlign.center,
-                style:
-                    TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'L\'agence a déclaré ce trajet arrivé, mais vous êtes encore en route. Une fois signalé, vous ne pourrez plus noter ce trajet tant que ce n\'est pas vérifié.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: JegoTheme.texteSecondaire, fontSize: 12.5),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: BoutonTactile(
-                      onTap: () => Navigator.of(ctx).pop(false),
-                      child: Container(
-                        height: 46,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: JegoTheme.champ,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
-                        ),
-                        child: const Text('Annuler',
-                            style: TextStyle(
-                                color: JegoTheme.texte,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: BoutonTactile(
-                      onTap: () => Navigator.of(ctx).pop(true),
-                      child: Container(
-                        height: 46,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: JegoTheme.danger,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
-                        ),
-                        child: const Text('Signaler',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: JegoTheme.danger,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
         ),
-      ),
-    );
-
-    if (confirme == true) {
-      BilletsStore.mettreAJour(billetId, {'fausse_arrivee_signalee': true});
+      );
     }
   }
+
 
   DateTime? _dateHeure(Map<String, dynamic> billet, String? heure) {
     final date = billet['date'] as String?;
@@ -296,30 +263,37 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
         _StatutTrajet statut;
         double progression;
 
-        if (depart == null || arrivee == null) {
-          statut = _StatutTrajet.aVenir;
-          progression = 0;
-        } else if (maintenant.isBefore(depart)) {
-          statut = _StatutTrajet.aVenir;
-          progression = 0;
-        } else if (maintenant.isAfter(arrivee)) {
-          statut = _StatutTrajet.arrive;
-          progression = 1;
-        } else {
-          statut = _StatutTrajet.enCours;
-          final total = arrivee.difference(depart).inSeconds;
-          final ecoule = maintenant.difference(depart).inSeconds;
-          progression = total == 0 ? 0 : (ecoule / total).clamp(0.0, 1.0);
-        }
-
-        // DEMO : le forcage manuel ecrase le calcul reel pour tester.
-        if (_forcage != null) {
-          statut = _forcage!;
-          progression = switch (statut) {
-            _StatutTrajet.aVenir => 0.0,
-            _StatutTrajet.enCours => 0.5,
-            _StatutTrajet.arrive => 1.0,
-          };
+        // Le statut suit la declaration du chauffeur, pas l'horaire
+        // prevu : « en cours » n'apparait qu'une fois le depart declare,
+        // « arrive » qu'une fois l'arrivee declaree. C'est ce qui fait
+        // du suivi un reflet du trajet reel et non d'un agenda.
+        final statutServeur = '${billetActuel['statut_trajet'] ?? ''}';
+        switch (statutServeur) {
+          case 'en_cours':
+            statut = _StatutTrajet.enCours;
+            // Position du bus = arrets franchis / (N+1) segments. Direct
+            // (0 arret) : au milieu. 1 arret declare -> 1/2. 2 arrets ->
+            // 1/3 puis 2/3. C'est la declaration du chauffeur qui fait
+            // avancer le bus, pas l'horloge.
+            final nArrets =
+                int.tryParse('${billetActuel['nombre_arrets'] ?? 0}') ?? 0;
+            final declares =
+                int.tryParse('${billetActuel['arrets_declares'] ?? 0}') ?? 0;
+            if (nArrets <= 0) {
+              progression = 0.5;
+            } else {
+              progression =
+                  (declares / (nArrets + 1)).clamp(0.0, 0.95).toDouble();
+            }
+            break;
+          case 'termine':
+          case 'arrive':
+            statut = _StatutTrajet.arrive;
+            progression = 1;
+            break;
+          default: // programme, annule, ou inconnu : pas encore parti
+            statut = _StatutTrajet.aVenir;
+            progression = 0;
         }
 
         final billetId = '${billetActuel['id']}';
@@ -331,26 +305,10 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
         final notationBloqueeCollectif =
             billetActuel['notation_bloquee'] == true;
 
-        // Declenche la notif "arrivee declaree" une seule fois, en la
-        // marquant sur le billet lui-meme pour survivre a une reouverture.
-        if (statut == _StatutTrajet.arrive &&
-            billetActuel['notif_arrivee_envoyee'] != true) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-           NotifsStore.ajouterArriveeDeclaree(billetActuel);
-            BilletsStore.mettreAJour(
-                billetId, {'notif_arrivee_envoyee': true});
-            afficherPopupArrivee(
-              billet: billetActuel,
-              onNoter: () {
-                SoftLock.navKey.currentState?.push(
-                  MaterialPageRoute(
-                    builder: (_) => EcranApresVoyage(billet: billetActuel),
-                  ),
-                );
-              },
-            );
-          });
-        }
+        // La popup d'arrivee n'est PLUS declenchee ici : le veilleur
+        // global (SurveillanceArrivee) s'en charge une seule fois,
+        // partout dans l'app. La rappeler ici la faisait rejaillir a
+        // chaque rafraichissement de cet ecran (toutes les 3 s).
 
         return Scaffold(
           backgroundColor: JegoTheme.fond,
@@ -375,7 +333,6 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                       pointArrivee:
                           '${billetActuel['point_arrivee'] ?? billetActuel['ville_arrivee']}',
                       depart: depart,
-                      onDebugTap: _cyclerForcage,
                     ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.06),
                     const SizedBox(height: 14),
                     _CarteEta(
@@ -399,7 +356,7 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                           ),
                         ),
                         onSignalerFausseArrivee: () =>
-                            confirmerFausseArrivee(context, billetId),
+                            confirmerFausseArrivee(context, billetActuel),
                       )
                           .animate(delay: 140.ms)
                           .fadeIn(duration: 350.ms)
@@ -407,7 +364,7 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                     ],
                     if (statut == _StatutTrajet.enCours) ...[
                       const SizedBox(height: 24),
-                      const Text(
+                      Text(
                         'Signaler un problème',
                         style: TextStyle(
                           fontSize: 16,
@@ -451,7 +408,7 @@ class _EcranPendantVoyageState extends State<EcranPendantVoyage> {
                                   borderRadius: BorderRadius.circular(
                                       JegoTheme.rPetit),
                                 ),
-                                child: const Row(
+                                child: Row(
                                   children: [
                                     Icon(Icons.check_circle_rounded,
                                         color: JegoTheme.vert, size: 18),
@@ -503,7 +460,7 @@ class _CarteArrivee extends StatelessWidget {
       return _carteEtat(
         icone: Icons.check_circle_rounded,
         couleur: JegoTheme.vert,
-        titre: 'Merci, vous avez déjà noté ce trajet.',
+        titre: Strings.t('deja_note'),
       );
     }
     if (notationBloqueeCollectif) {
@@ -543,11 +500,11 @@ class _CarteArrivee extends StatelessWidget {
                   color: JegoTheme.vert.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.flag_rounded,
+                child: Icon(Icons.flag_rounded,
                     color: JegoTheme.vert, size: 20),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'L\'arrivée vient d\'être déclarée.',
                   style: TextStyle(
@@ -560,7 +517,7 @@ class _CarteArrivee extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(left: 52),
             child: Text(
               'Avez-vous passé un bon voyage ?',
@@ -575,17 +532,17 @@ class _CarteArrivee extends StatelessWidget {
               height: 48,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   colors: [JegoTheme.vert, JegoTheme.vertVif],
                 ),
                 borderRadius: BorderRadius.circular(JegoTheme.rPetit),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.star_rounded, color: Colors.white, size: 18),
                   SizedBox(width: 8),
-                  Text('Noter mon voyage',
+                  Text(Strings.t('noter_voyage'),
                       style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
@@ -609,7 +566,7 @@ class _CarteArrivee extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.report_rounded,
+                  Icon(Icons.report_rounded,
                       color: JegoTheme.danger, size: 16),
                   const SizedBox(width: 8),
                   Text(
@@ -676,7 +633,7 @@ class _EnTeteTrajet extends StatelessWidget {
       clipper: _VagueClipperVoyage(),
       child: Container(
         height: 152,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -695,7 +652,7 @@ class _EnTeteTrajet extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
+                      color: JegoTheme.fondCarte.withOpacity(0.16),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.arrow_back_rounded,
@@ -813,7 +770,7 @@ class _CarteProgression extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   _libelleStatut(),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: JegoTheme.texte,
@@ -843,7 +800,7 @@ class _CarteProgression extends StatelessWidget {
                     Container(
                       height: 4,
                       width: positionBus + 12,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [JegoTheme.vert, JegoTheme.vertVif],
                         ),
@@ -923,11 +880,11 @@ class _CarteEta extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: JegoTheme.fondCarte,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.schedule_rounded,
+            child: Icon(Icons.schedule_rounded,
                 color: JegoTheme.vert, size: 20),
           ),
           const SizedBox(width: 12),
@@ -945,7 +902,7 @@ class _CarteEta extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '$heureArrivee · ${FormatDate.lisible(date)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w800,
                       color: JegoTheme.texte),

@@ -11,8 +11,9 @@ class Reservation {
   Map<String, dynamic>? offreRetour;
   int passagers;
 
-  List<int> siegesAller;
-  List<int> siegesRetour;
+  /// Numéros de sièges : du TEXTE (« 1A », « 10B »), jamais des entiers.
+  List<String> siegesAller;
+  List<String> siegesRetour;
   bool autoAller;
   bool autoRetour;
   int supplementsAller; // frais de siege deja calcules (choix + premium)
@@ -38,8 +39,13 @@ class Reservation {
 
   /// Identifiants serveur des sièges choisis (numéro affiché -> UUID).
   /// Le backend raisonne en UUID, l'interface en numéros de siège.
-  Map<int, String> idSiegesAller;
-  Map<int, String> idSiegesRetour;
+  Map<String, String> idSiegesAller;
+  Map<String, String> idSiegesRetour;
+
+  /// Billets reellement emis par le serveur, indexes par numero de
+  /// siege. Contient le vrai numero (BIL-XXXXX-XXXXX) et le QR signe.
+  /// Rempli au paiement : avant, il n'y a pas de billet.
+  Map<String, Map<String, dynamic>> billetsEmis = {};
 
   // Villes et dates (pour l'affichage du billet)
   String villeAllerDepart;
@@ -69,14 +75,14 @@ class Reservation {
     List<String>? cadeauTelRetour,
     this.pointsReduction = 0,
     this.pointsConsommes = 0,
-    Map<int, String>? idSiegesAller,
-    Map<int, String>? idSiegesRetour,
+    Map<String, String>? idSiegesAller,
+    Map<String, String>? idSiegesRetour,
     this.villeAllerDepart = '',
     this.villeAllerArrivee = '',
     this.dateAllerAffichee = '',
     this.dateRetourAffichee = '',
-  })  : idSiegesAller = idSiegesAller ?? <int, String>{},
-        idSiegesRetour = idSiegesRetour ?? <int, String>{},
+  })  : idSiegesAller = idSiegesAller ?? <String, String>{},
+        idSiegesRetour = idSiegesRetour ?? <String, String>{},
         bagagesAller = bagagesAller ?? List.filled(passagers, 0),
         bagagesRetour = bagagesRetour ?? List.filled(passagers, 0),
         flexibleAller = flexibleAller ?? List.filled(passagers, false),
@@ -90,18 +96,6 @@ class Reservation {
 
   bool get estAllerRetour => offreRetour != null;
 
-  /// Numero de reservation court, sert a recuperer le billet ailleurs.
-  static String genererNumero() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final ms = DateTime.now().microsecondsSinceEpoch;
-    var n = ms;
-    final buf = StringBuffer('JEGO-');
-    for (var i = 0; i < 6; i++) {
-      buf.write(chars[n % chars.length]);
-      n = n ~/ chars.length + i * 7;
-    }
-    return buf.toString();
-  }
 
   // Barème indicatif affiché pendant le parcours. Le montant qui
   // fait foi est celui calculé par le serveur au paiement.

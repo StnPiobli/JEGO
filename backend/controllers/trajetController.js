@@ -92,7 +92,11 @@ async function listerTrajets(req, res) {
               c.prenom || ' ' || c.nom AS chauffeur,
               COALESCE(arrets.villes, ARRAY[]::text[]) AS arrets,
               COALESCE(pointsDetail.points, '[]'::json) AS points_detail,
-              COALESCE(prixSections.troncons, '[]'::json) AS prix_sections
+              COALESCE(prixSections.troncons, '[]'::json) AS prix_sections,
+              -- Signalements des voyageurs sur ce trajet : qui, quoi,
+              -- quand, et si le seuil collectif est atteint. C'est ce
+              -- que l'agence voit dans « informations du trajet ».
+              COALESCE(sig.liste, '[]'::json) AS signalements
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
@@ -124,6 +128,18 @@ async function listerTrajets(req, res) {
          JOIN villes va2 ON va2.code = lpa.ville
          WHERE ltp.ligne_id = t.ligne_id
        ) AS prixSections ON true
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                  'passager', v4.prenom || ' ' || v4.nom,
+                  'categorie', sg.categorie,
+                  'commentaire', sg.commentaire,
+                  'seuil_atteint', sg.seuil_atteint,
+                  'heure', TO_CHAR(sg.cree_le, 'DD/MM HH24:MI')
+                ) ORDER BY sg.cree_le DESC) AS liste
+         FROM signalements sg
+         JOIN voyageurs v4 ON v4.id = sg.voyageur_id
+         WHERE sg.trajet_id = t.id
+       ) AS sig ON true
        WHERE t.agence_id = $1 ${filtreChauffeur}
        ORDER BY t.date_depart, t.heure_depart`,
       params
@@ -493,7 +509,7 @@ async function passagersTrajet(req, res) {
               b.prix_total_client, b.supplement_bagage, b.quantite_bagages, b.est_flexible,
               b.point_embarquement_ordre, b.point_debarquement_ordre,
               s.numero AS siege,
-              v.nom, v.prenom, v.telephone,
+              v.nom, v.prenom, v.telephone, v.email,
               pe.ville AS ville_embarquement, pd.ville AS ville_debarquement
        FROM billets b
        JOIN sieges s ON s.id = b.siege_id
@@ -540,10 +556,19 @@ async function versementsAgence(req, res) {
       [agenceId]
     );
 
-    const parTrajet = await pool.query(
+    // Regroupement par JOUR DE VENTE, pas par date de départ. Un billet
+    // vendu au guichet aujourd'hui pour un voyage dans trois jours est un
+    // encaissement d'aujourd'hui : le chercher à la date du voyage
+    // faisait apparaître la journée en cours comme vide.
+    //
+    // Un même trajet vendu sur plusieurs jours donne donc plusieurs
+    // lignes, une par journée de vente.
+    const parVente = await pool.query(
       `SELECT t.id AS trajet_id,
-              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' || to_char(t.heure_depart, 'HH24MI') || '-' || UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero,
-              t.date_depart, t.heure_depart,
+              t.numero,
+              TO_CHAR(b.cree_le, 'YYYY-MM-DD')   AS date_vente,
+              TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+              t.heure_depart,
               t.versement_escrow_le,
               vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
               COUNT(e.id) AS nombre_billets,
@@ -559,14 +584,15 @@ async function versementsAgence(req, res) {
        JOIN villes vd ON vd.code = l.ville_depart
        JOIN villes va ON va.code = l.ville_arrivee
        WHERE b.agence_id = $1
-       GROUP BY t.id, t.date_depart, t.heure_depart,
+       GROUP BY t.id, t.numero, TO_CHAR(b.cree_le, 'YYYY-MM-DD'),
+                t.date_depart, t.heure_depart,
                 t.versement_escrow_le, vd.nom_affiche, va.nom_affiche
-       ORDER BY t.date_depart DESC, t.heure_depart DESC
-       LIMIT 100`,
+       ORDER BY date_vente DESC, t.heure_depart DESC
+       LIMIT 200`,
       [agenceId]
     );
 
-    res.json({ resume: resume.rows[0], versements: parTrajet.rows });
+    res.json({ resume: resume.rows[0], versements: parVente.rows });
 
   } catch (err) {
     res.status(500).json({ error: err.message });

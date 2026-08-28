@@ -55,7 +55,7 @@ async function agencesEnAttente(req, res) {
     }
 
     const resultat = await pool.query(
-      `SELECT id, nom, email, telephone, adresse, ville, registre_commerce, cree_le
+      `SELECT id, numero, nom, email, telephone, adresse, ville, registre_commerce, cree_le
        FROM agences WHERE statut = 'en_attente'
        ORDER BY cree_le ASC`
     );
@@ -129,7 +129,7 @@ async function refuserAgence(req, res) {
       return res.status(404).json({ error: 'Agence introuvable' });
     }
 
-    await pool.query('UPDATE agences SET statut = $1, mis_a_jour_le = NOW() WHERE id = $2', ['refuse', agenceId]);
+    await pool.query('UPDATE agences SET statut = $1, refuse_le = NOW(), motif_desactivation = $3, mis_a_jour_le = NOW() WHERE id = $2', ['refuse', agenceId, motif]);
 
     await creerNotification({
       destinataire_type: 'agence',
@@ -221,6 +221,171 @@ async function modifierParametre(req, res) {
 // ═══════════════════════════════════════════════════
 // LISTER LES VOYAGEURS (avec compteurs voyages/litiges)
 // ═══════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════
+// ACTIVITE UTILISATEURS — stats + flux d'evenements
+// ═══════════════════════════════════════════════════
+function intervallePeriode(periode) {
+  if (periode === '24h') return "1 day";
+  if (periode === '30j') return "30 days";
+  return "7 days";
+}
+
+async function activiteStats(req, res) {
+  try {
+    const intv = intervallePeriode(req.query.periode);
+    const q = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM voyageurs) AS inscrits,
+        (SELECT COUNT(*) FROM voyageurs WHERE cree_le >= NOW() - INTERVAL '${intv}') AS nouvelles,
+        (SELECT COUNT(DISTINCT voyageur_id) FROM connexions_log
+           WHERE type = 'connexion' AND cree_le >= NOW() - INTERVAL '${intv}') AS actifs,
+        (SELECT COUNT(*) FROM connexions_log
+           WHERE type = 'connexion' AND cree_le >= NOW() - INTERVAL '${intv}') AS connexions,
+        (SELECT COUNT(*) FROM connexions_log
+           WHERE type = 'deconnexion' AND cree_le >= NOW() - INTERVAL '${intv}') AS deconnexions
+    `);
+    const r = q.rows[0];
+
+    // Taux de retour : parmi ceux qui se sont connectes sur la periode,
+    // la part qui l'a fait plus d'une fois.
+    const ret = await pool.query(`
+      WITH parVoyageur AS (
+        SELECT voyageur_id, COUNT(*) AS n FROM connexions_log
+         WHERE type = 'connexion' AND cree_le >= NOW() - INTERVAL '${intv}'
+         GROUP BY voyageur_id
+      )
+      SELECT COUNT(*) FILTER (WHERE n > 1) AS revenus, COUNT(*) AS total FROM parVoyageur
+    `);
+    const { revenus, total } = ret.rows[0];
+    const retention = parseInt(total) > 0
+      ? Math.round((parseInt(revenus) / parseInt(total)) * 100) + ' %'
+      : '0 %';
+
+    res.json({
+      actifs: String(r.actifs),
+      inscrits: String(r.inscrits),
+      nouvelles: String(r.nouvelles),
+      connexions: String(r.connexions),
+      deconnexions: String(r.deconnexions),
+      retention,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// Telephone au format uniforme « +237 XXXXXXXXX ».
+function telAdmin(brut) {
+  if (!brut) return '';
+  let n = String(brut).replace(/[^0-9]/g, '');
+  if (n.startsWith('237')) n = n.slice(3);
+  return '+237 ' + n;
+}
+
+// Comment le compte a ete cree : Google si un google_id est present,
+// sinon inscription classique.
+function moyenInscription(google_id) {
+  return google_id ? 'Google' : 'Email';
+}
+
+async function activiteEvenements(req, res) {
+  try {
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+    const q = await pool.query(`
+      SELECT * FROM (
+        SELECT cl.cree_le AS ts,
+               CASE cl.type WHEN 'connexion' THEN 'Connexion' ELSE 'Déconnexion' END AS evenement,
+               v.prenom, v.nom, v.telephone, v.email, cl.lieu AS ville, v.google_id
+          FROM connexions_log cl JOIN voyageurs v ON v.id = cl.voyageur_id
+         WHERE cl.cree_le::date = $1::date
+        UNION ALL
+        SELECT v.cree_le AS ts, 'Inscription' AS evenement,
+               v.prenom, v.nom, v.telephone, v.email,
+               (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = v.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS ville,
+               v.google_id
+          FROM voyageurs v WHERE v.cree_le::date = $1::date
+        UNION ALL
+        SELECT b.cree_le AS ts, 'Achat billet' AS evenement,
+               v.prenom, v.nom, v.telephone, v.email,
+               (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = v.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS ville,
+               v.google_id
+          FROM billets b JOIN voyageurs v ON v.id = b.voyageur_id
+         WHERE b.cree_le::date = $1::date
+      ) e
+      WHERE e.ts IS NOT NULL
+      ORDER BY e.ts DESC LIMIT 200
+    `, [jour]);
+    res.json({
+      evenements: q.rows.map((e, i) => ({
+        id: String(i),
+        heure: new Date(e.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        evenement: e.evenement,
+        moyen: e.evenement === 'Inscription' ? moyenInscription(e.google_id) : null,
+        nom: `${e.prenom} ${e.nom}`,
+        tel: telAdmin(e.telephone),
+        email: e.email || '',
+        ville: e.ville || '',
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// Detail derriere chaque compteur : la liste complete des utilisateurs
+// concernes (cliquable depuis la carte).
+async function activiteDetail(req, res) {
+  try {
+    const intv = intervallePeriode(req.query.periode);
+    const type = req.query.type;
+    let sql;
+    if (type === 'inscrits') {
+      sql = `SELECT prenom, nom, telephone, email, google_id, cree_le AS ts,
+                     (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = voyageurs.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS lieu
+                FROM voyageurs ORDER BY cree_le DESC`;
+    } else if (type === 'nouvelles') {
+      sql = `SELECT prenom, nom, telephone, email, google_id, cree_le AS ts,
+                     (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = voyageurs.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS lieu
+                FROM voyageurs WHERE cree_le >= NOW() - INTERVAL '${intv}' ORDER BY cree_le DESC`;
+    } else if (type === 'actifs') {
+      sql = `SELECT v.prenom, v.nom, v.telephone, v.email, v.google_id,
+                     MAX(cl.cree_le) AS ts,
+                     (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = v.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS lieu
+                FROM voyageurs v JOIN connexions_log cl ON cl.voyageur_id = v.id
+               WHERE cl.type = 'connexion' AND cl.cree_le >= NOW() - INTERVAL '${intv}'
+               GROUP BY v.id ORDER BY ts DESC`;
+    } else if (type === 'connexions' || type === 'deconnexions') {
+      const t = type === 'connexions' ? 'connexion' : 'deconnexion';
+      sql = `SELECT v.prenom, v.nom, v.telephone, v.email, v.google_id, cl.lieu, cl.cree_le AS ts
+               FROM connexions_log cl JOIN voyageurs v ON v.id = cl.voyageur_id
+              WHERE cl.type = '${t}' AND cl.cree_le >= NOW() - INTERVAL '${intv}'
+              ORDER BY cl.cree_le DESC`;
+    } else if (type === 'retention') {
+      sql = `SELECT v.prenom, v.nom, v.telephone, v.email, v.google_id, MAX(cl.cree_le) AS ts,
+                     (SELECT lieu FROM connexions_log c WHERE c.voyageur_id = v.id AND c.lieu IS NOT NULL ORDER BY c.cree_le DESC LIMIT 1) AS lieu
+               FROM voyageurs v JOIN connexions_log cl ON cl.voyageur_id = v.id
+              WHERE cl.type = 'connexion' AND cl.cree_le >= NOW() - INTERVAL '${intv}'
+              GROUP BY v.id HAVING COUNT(*) > 1 ORDER BY ts DESC`;
+    } else {
+      return res.status(400).json({ error: 'Type inconnu' });
+    }
+    const q = await pool.query(sql);
+    res.json({
+      lignes: q.rows.map((v) => ({
+        nom: `${v.prenom} ${v.nom}`,
+        tel: telAdmin(v.telephone),
+        email: v.email || '',
+        moyen: moyenInscription(v.google_id),
+        lieu: v.lieu || '',
+        date: new Date(v.ts).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 async function listerVoyageurs(req, res) {
   try {
     const { recherche } = req.query;
@@ -501,7 +666,7 @@ async function listerAgences(req, res) {
       filtre = 'WHERE statut = $1';
     }
     const resultat = await pool.query(
-      `SELECT id, nom, email, telephone, adresse, ville, registre_commerce, statut, cree_le
+      `SELECT id, numero, nom, email, telephone, adresse, ville, registre_commerce, statut, cree_le
        FROM agences ${filtre} ORDER BY nom ASC`,
       params
     );
@@ -619,6 +784,18 @@ async function listerTrajetsAdmin(req, res) {
       [ids]
     );
 
+    // Avis laisses apres le voyage : note + commentaire, visibles par
+    // l'admin dans la fiche du trajet.
+    const avis = await pool.query(
+      `SELECT av.trajet_id, av.note_globale, av.commentaire, av.cree_le,
+              av.statut, v.prenom, v.nom
+       FROM avis av
+       JOIN voyageurs v ON v.id = av.voyageur_id
+       WHERE av.trajet_id = ANY($1)
+       ORDER BY av.cree_le DESC`,
+      [ids]
+    );
+
     const libellesStatut = {
       programme: 'Programmé', en_cours: 'En cours', termine: 'Terminé',
       annule: 'Annulé', retard: 'Retard déclaré', incident: 'Incident'
@@ -628,12 +805,22 @@ async function listerTrajetsAdmin(req, res) {
       annule: 'red', retard: 'amber', incident: 'red'
     };
 
+    // Format telephone uniforme : « +237 XXXXXXXXX ». En base certains
+    // ont l'indicatif, d'autres non, d'autres des espaces : on remet
+    // tout au meme format d'affichage.
+    const telFormate = (brut) => {
+      if (!brut) return '';
+      let n = String(brut).replace(/[^0-9]/g, '');
+      if (n.startsWith('237')) n = n.slice(3);
+      return '+237 ' + n;
+    };
+
     const resultat = trajets.rows.map((t) => {
       const sesPassagers = passagers.rows
         .filter((p) => p.trajet_id === t.id)
         .map((p) => ({
           nom: `${p.prenom} ${p.nom}`,
-          tel: p.telephone,
+          tel: telFormate(p.telephone),
           siege: p.siege,
           vente: p.source_vente === 'en_ligne' ? 'app' : 'site',
           paiement: p.source_vente === 'physique'
@@ -657,6 +844,15 @@ async function listerTrajetsAdmin(req, res) {
           heure: new Date(sg.cree_le).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         }));
 
+      const sesAvis = avis.rows
+        .filter((av) => av.trajet_id === t.id && av.statut !== 'supprime')
+        .map((av) => ({
+          passager: `${av.prenom} ${av.nom}`,
+          note: Number(av.note_globale),
+          commentaire: av.commentaire || null,
+          date: new Date(av.cree_le).toLocaleDateString('fr-FR'),
+        }));
+
       const totales = parseInt(t.places_totales) || 0;
       const vendues = parseInt(t.places_vendues) || 0;
 
@@ -666,6 +862,7 @@ async function listerTrajetsAdmin(req, res) {
         ville_depart: t.depart_affiche,
         ville_arrivee: t.arrivee_affiche,
         agence: t.agence,
+        statutCode: t.statut,
         depart: String(t.heure_depart).slice(0, 5),
         arrivee: String(t.heure_arrivee_estimee).slice(0, 5),
         occ: totales > 0 ? `${vendues}/${totales}` : '—',
@@ -685,6 +882,7 @@ async function listerTrajetsAdmin(req, res) {
         points_detail: t.points_detail,
         prix_sections: t.prix_sections,
         signalements: sesSignalements,
+        avis: sesAvis,
         passagers: sesPassagers,
       };
     });
@@ -970,6 +1168,104 @@ async function transactionsFinances(req, res) {
 }
 
 // ═══════════════════════════════════════════════════
+// FINANCES — DÉTAIL D'UNE CARTE (liste complète cliquable)
+// type = revenu_mois | revenu_jour | commission | remboursements
+// Chaque type renvoie { lignes: [...] } avec des montants NUMÉRIQUES
+// (le front les met en forme + filtre/trie).
+// ═══════════════════════════════════════════════════
+async function detailFinances(req, res) {
+  try {
+    const type = req.query.type;
+    const jour = req.query.date || new Date().toISOString().slice(0, 10);
+    const moisRef = req.query.mois ? `${req.query.mois}-01` : jour;
+
+    let lignes = [];
+
+    if (type === 'revenu_mois' || type === 'revenu_jour') {
+      const filtreDate = type === 'revenu_mois'
+        ? `DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)`
+        : `b.cree_le::date = $1::date`;
+      const param = type === 'revenu_mois' ? moisRef : jour;
+      const r = await pool.query(
+        `SELECT b.numero,
+                v.prenom || ' ' || v.nom AS client,
+                a.nom AS agence,
+                e.montant_total::numeric AS paye,
+                e.montant_agence::numeric AS verse,
+                e.frais_momo::numeric AS frais,
+                e.montant_jego::numeric AS marge,
+                COALESCE(p.reference_momo, b.numero) AS ref,
+                TO_CHAR(b.cree_le, 'DD/MM/YYYY HH24:MI') AS date
+         FROM billets b
+         JOIN escrow e ON e.billet_id = b.id
+         JOIN voyageurs v ON v.id = b.voyageur_id
+         JOIN agences a ON a.id = b.agence_id
+         LEFT JOIN paiements p ON p.billet_id = b.id AND p.type = 'paiement'
+         WHERE ${filtreDate} AND b.statut IN ('confirme', 'utilise')
+         ORDER BY b.cree_le DESC`,
+        [param]
+      );
+      lignes = r.rows.map((x) => ({
+        client: x.client, agence: x.agence, ref: x.ref, date: x.date,
+        paye: Number(x.paye), verse: Number(x.verse),
+        frais: Number(x.frais), marge: Number(x.marge),
+      }));
+
+    } else if (type === 'commission') {
+      const r = await pool.query(
+        `SELECT b.numero,
+                v.prenom || ' ' || v.nom AS client,
+                a.nom AS agence,
+                b.prix_agence::numeric AS prix_agence,
+                b.marge_jego::numeric AS marge,
+                ROUND(b.marge_jego::numeric / NULLIF(b.prix_agence, 0) * 100, 1) AS taux,
+                TO_CHAR(b.cree_le, 'DD/MM/YYYY HH24:MI') AS date
+         FROM billets b
+         JOIN voyageurs v ON v.id = b.voyageur_id
+         JOIN agences a ON a.id = b.agence_id
+         WHERE b.statut IN ('confirme', 'utilise')
+           AND b.cree_le >= $1::date - INTERVAL '30 days'
+         ORDER BY b.cree_le DESC`,
+        [jour]
+      );
+      lignes = r.rows.map((x) => ({
+        client: x.client, agence: x.agence, date: x.date,
+        prixAgence: Number(x.prix_agence), marge: Number(x.marge),
+        taux: x.taux === null ? null : Number(x.taux),
+      }));
+
+    } else if (type === 'remboursements') {
+      const r = await pool.query(
+        `SELECT r.montant::numeric AS montant, r.motif, r.pourcentage,
+                r.statut, r.reference,
+                v.prenom || ' ' || v.nom AS client,
+                a.nom AS agence, b.numero,
+                TO_CHAR(r.cree_le, 'DD/MM/YYYY HH24:MI') AS date
+         FROM remboursements r
+         LEFT JOIN billets b ON b.id = r.billet_id
+         LEFT JOIN voyageurs v ON v.id = r.voyageur_id
+         LEFT JOIN agences a ON a.id = b.agence_id
+         WHERE r.statut = 'en_attente'
+         ORDER BY r.cree_le DESC`
+      );
+      lignes = r.rows.map((x) => ({
+        client: x.client || '—', agence: x.agence || '—',
+        ref: x.numero || x.reference || '—', motif: x.motif || '—',
+        date: x.date, montant: Number(x.montant),
+        pourcentage: x.pourcentage === null ? null : Number(x.pourcentage),
+      }));
+    } else {
+      return res.status(400).json({ error: 'Type de détail inconnu' });
+    }
+
+    res.json({ lignes });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
 // DERNIÈRE TRANSACTION (toutes agences, sans filtre de date)
 // Utilisé par le tableau de bord — indépendant de la date consultée
 // ailleurs dans l'admin.
@@ -1194,10 +1490,12 @@ async function resumePoints(req, res) {
        WHERE cle IN ('points_palier_reduction_points', 'points_palier_reduction_fcfa', 'points_palier_gratuit_points')`
     );
     const p = {};
-    paliers.rows.forEach((r) => { p[r.cle] = r.valeur; });
-    const reductionPoints = p['points_palier_reduction_points'] || 500;
-    const reductionFcfa = p['points_palier_reduction_fcfa'] || 500;
-    const gratuitPoints = p['points_palier_gratuit_points'] || 1000;
+    paliers.rows.forEach((r) => { p[r.cle] = parseInt(r.valeur); });
+    // 0 est une valeur VALIDE : defaut seulement si absent/illisible.
+    const lireP = (cle, defaut) => Number.isInteger(p[cle]) ? p[cle] : defaut;
+    const reductionPoints = lireP('points_palier_reduction_points', 500);
+    const reductionFcfa = lireP('points_palier_reduction_fcfa', 500);
+    const gratuitPoints = lireP('points_palier_gratuit_points', 1000);
 
     res.json({
       totalCirculation: `${Number(circulation.rows[0].total).toLocaleString('fr-FR')} pts`,
@@ -1376,12 +1674,23 @@ async function listerLogs(req, res) {
       [jour]
     );
 
+    // Rend l'IP lisible : ::1 et ::ffff:127.0.0.1 sont l'adresse locale
+    // (connexion depuis la même machine, typique en dev). On retire aussi
+    // le préfixe IPv6 "::ffff:" des adresses IPv4 encapsulées.
+    const formaterIp = (brut) => {
+      if (!brut) return '—';
+      let ip = String(brut).trim();
+      if (ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') return 'Local (machine du serveur)';
+      if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+      return ip;
+    };
+
     res.json({
       logs: resultat.rows.map((l) => ({
         horodatage: new Date(l.cree_le).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         action: l.action,
         auteur: l.auteur,
-        ip: l.ip_address || '—',
+        ip: formaterIp(l.ip_address),
       })),
     });
 
@@ -1390,14 +1699,59 @@ async function listerLogs(req, res) {
   }
 }
 
+
+// Programme des trajets a venir d'une agence donnee (vue admin depuis
+// la fiche agence). Date >= aujourd'hui, du plus tot au plus tard.
+async function agenceTrajets(req, res) {
+  try {
+    const { id } = req.params;
+    const q = await pool.query(`
+      SELECT t.id,
+             TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+             SUBSTRING(t.heure_depart::text, 1, 5) AS heure_depart,
+             SUBSTRING(COALESCE(t.heure_arrivee_estimee::text,''), 1, 5) AS heure_arrivee,
+             t.statut, t.numero,
+             vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
+             c.prenom || ' ' || c.nom AS chauffeur,
+             (SELECT COUNT(*) FROM billets b WHERE b.trajet_id = t.id AND b.statut IN ('confirme','utilise')) AS vendus,
+             (SELECT COUNT(*) FROM sieges s WHERE s.bus_id = t.bus_id) AS places
+        FROM trajets t
+        JOIN lignes l ON l.id = t.ligne_id
+        JOIN villes vd ON vd.code = l.ville_depart
+        JOIN villes va ON va.code = l.ville_arrivee
+        LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
+       WHERE t.agence_id = $1 AND t.date_depart >= CURRENT_DATE
+       ORDER BY t.date_depart ASC, t.heure_depart ASC`, [id]);
+
+    const libelles = { programme:'Programmé', en_cours:'En cours', termine:'Terminé', annule:'Annulé', retard:'Retard', incident:'Incident' };
+    res.json({
+      trajets: q.rows.map((t) => ({
+        id: t.id,
+        date: t.date_depart,
+        dateFr: t.date_depart.split('-').reverse().join('/'),
+        heure: t.heure_depart,
+        arrivee: t.heure_arrivee,
+        route: `${t.depart} → ${t.arrivee}`,
+        statut: libelles[t.statut] || t.statut,
+        statutCode: t.statut,
+        chauffeur: t.chauffeur || 'non assigné',
+        occ: `${t.vendus}/${t.places}`,
+        numero: t.numero,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
-  listerVoyageurs, modifierStatutVoyageur,
+  listerVoyageurs, modifierStatutVoyageur, activiteStats, activiteEvenements, activiteDetail, agenceTrajets,
   listerFrais, modifierGrilleFrais, creerDerogationFrais, supprimerDerogationFrais,
   listerAgences,
   listerTrajetsAdmin, resumeTrajetsAdmin,
-  resumeFinances, serieFinances, transactionsFinances,
+  resumeFinances, serieFinances, transactionsFinances, detailFinances,
   derniereTransaction, resumeJournal, tachesATraiter,
   resumePoints, pointsParVoyageur, usagesPoints,
   moderationListe, moderationTraiter,

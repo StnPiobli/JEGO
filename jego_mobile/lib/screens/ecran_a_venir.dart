@@ -18,10 +18,10 @@ class EcranAVenir extends StatelessWidget {
         elevation: 0,
         title: Text(
           titre,
-          style: const TextStyle(
+          style: TextStyle(
               color: JegoTheme.texte, fontWeight: FontWeight.w800),
         ),
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
+        iconTheme: IconThemeData(color: JegoTheme.texte),
       ),
       body: Center(
         child: Column(
@@ -34,11 +34,11 @@ class EcranAVenir extends StatelessWidget {
                 color: JegoTheme.vert.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.hourglass_top_rounded,
+              child: Icon(Icons.hourglass_top_rounded,
                   color: JegoTheme.vert, size: 32),
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Bientôt disponible',
               style: TextStyle(
                   fontSize: 16,

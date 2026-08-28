@@ -9,6 +9,7 @@ import '../widgets/selecteur_date.dart';
 import '../config/notifs_store.dart';
 import 'notifications.dart';
 import 'resultats_recherche.dart';
+import '../config/preferences_voyage.dart';
 
 class EcranAccueilRecherche extends StatefulWidget {
   final VoidCallback? onOuvrirMenu;
@@ -44,17 +45,18 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
   bool _erreurDate = false;
   bool _erreurDateRetour = false;
 
-  final Set<String> _categories = {};
-  String? _typeTrajet;
+  // Pre-cochees depuis les preferences de voyage : ce sont les memes
+  // ensembles que les filtres manuels, la personne peut donc les
+  // decocher pour une recherche sans perdre son reglage.
+  final Set<String> _categories = {...PreferencesVoyage.categories};
   RangeValues _prix = const RangeValues(1000, 30000);
   bool _prixModifie = false;
   int? _noteMin;
-  final Set<String> _equipements = {};
+  final Set<String> _equipements = {...PreferencesVoyage.equipements};
   String? _typeSiege;
 
   bool get _filtresActifs =>
       _categories.isNotEmpty ||
-      _typeTrajet != null ||
       _prixModifie ||
       _noteMin != null ||
       _equipements.isNotEmpty ||
@@ -70,12 +72,15 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
 
   void _reinitialiser() {
     setState(() {
-      _categories.clear();
-      _typeTrajet = null;
+      _categories
+        ..clear()
+        ..addAll(PreferencesVoyage.categories);
       _prix = const RangeValues(1000, 30000);
       _prixModifie = false;
       _noteMin = null;
-      _equipements.clear();
+      _equipements
+        ..clear()
+        ..addAll(PreferencesVoyage.equipements);
       _typeSiege = null;
       _heure = null;
     });
@@ -156,7 +161,6 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
         'heure':
             '${_heure!.hour.toString().padLeft(2, '0')}:${_heure!.minute.toString().padLeft(2, '0')}',
       if (_categories.isNotEmpty) 'categorie': _categories.join(','),
-      if (_typeTrajet != null) 'type_trajet': _typeTrajet!,
       if (_prixModifie) 'prix_min': _prix.start.round().toString(),
       if (_prixModifie) 'prix_max': _prix.end.round().toString(),
       if (_noteMin != null) 'note_min': _noteMin.toString(),
@@ -191,7 +195,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               padding: const EdgeInsets.only(top: 5, left: 4),
               child: Text(
                 Strings.t(cle),
-                style: const TextStyle(
+                style: TextStyle(
                   color: JegoTheme.danger,
                   fontSize: 11.5,
                   fontWeight: FontWeight.w600,
@@ -225,7 +229,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                     child: _pastille(Icons.menu_rounded),
                   ),
                   const SizedBox(width: 12),
-                  const Text(
+                  Text(
                     'JEGO',
                     style: TextStyle(
                       fontSize: 21,
@@ -239,7 +243,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (_) => const EcranNotifications()),
+                            builder: (_) => EcranNotifications()),
                       );
                     },
                     child: ValueListenableBuilder<List<Map<String, dynamic>>>(
@@ -262,7 +266,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                                     color: JegoTheme.danger,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                        color: Colors.white, width: 1.5),
+                                        color: JegoTheme.fondCarte, width: 1.5),
                                   ),
                                   child: Center(
                                     child: Text(
@@ -286,7 +290,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               const SizedBox(height: 24),
               Text(
                 Strings.t('recherche_titre'),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 27,
                   fontWeight: FontWeight.w800,
                   color: JegoTheme.texte,
@@ -368,7 +372,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                                           .withOpacity(0.35),
                                       width: 0.8),
                                 ),
-                                child: const Icon(Icons.swap_vert_rounded,
+                                child: Icon(Icons.swap_vert_rounded,
                                     size: 19, color: JegoTheme.vert),
                               ),
                             ),
@@ -434,13 +438,13 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.group_rounded,
+                              Icon(Icons.group_rounded,
                                   size: 18,
                                   color: JegoTheme.texteSecondaire),
                               const SizedBox(width: 10),
                               Text(
                                 Strings.t('passagers'),
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texte, fontSize: 13),
                               ),
                               const Spacer(),
@@ -455,7 +459,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                                 child: Center(
                                   child: Text(
                                     '$_passagers',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: JegoTheme.vert,
                                       fontSize: 16,
                                       fontWeight: FontWeight.w800,
@@ -497,14 +501,14 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.tune_rounded,
+                                  Icon(Icons.tune_rounded,
                                       size: 18,
                                       color:
                                           JegoTheme.texteSecondaire),
                                   const SizedBox(width: 10),
                                   Text(
                                     Strings.t('filtres'),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         color: JegoTheme.texte,
                                         fontSize: 13),
                                   ),
@@ -513,7 +517,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                                     turns: _filtresOuverts ? 0.5 : 0,
                                     duration: const Duration(
                                         milliseconds: 250),
-                                    child: const Icon(
+                                    child: Icon(
                                         Icons
                                             .keyboard_arrow_down_rounded,
                                         color: JegoTheme
@@ -539,13 +543,13 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.refresh_rounded,
+                                  Icon(Icons.refresh_rounded,
                                       size: 16,
                                       color: JegoTheme.danger),
                                   const SizedBox(width: 5),
                                   Text(
                                     Strings.t('reinitialiser'),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: JegoTheme.danger,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
@@ -580,12 +584,12 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.search_rounded,
+                            Icon(Icons.search_rounded,
                                 color: JegoTheme.surVert, size: 20),
                             const SizedBox(width: 8),
                             Text(
                               Strings.t('rechercher'),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: JegoTheme.surVert,
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w800,
@@ -610,7 +614,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               const SizedBox(height: 20),
               Text(
                 Strings.t('lignes_populaires'),
-                style: const TextStyle(
+                style: TextStyle(
                   color: JegoTheme.texteSecondaire,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -625,8 +629,8 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                           'douala',
                           'Yaoundé',
                           'yaounde',
-                          const Color(0xFFDCF2E5),
-                          const Color(0xFFA7DEC0))),
+                          Color(modeSombre.value ? 0xFF17251E : 0xFFDCF2E5),
+                          Color(modeSombre.value ? 0xFF1F3329 : 0xFFA7DEC0))),
                   const SizedBox(width: 10),
                   Expanded(
                       child: _carteLigne(
@@ -634,8 +638,8 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
                           'douala',
                           'Bafoussam',
                           'bafoussam',
-                          const Color(0xFFD3EDDE),
-                          const Color(0xFF95D5B2))),
+                          Color(modeSombre.value ? 0xFF152219 : 0xFFD3EDDE),
+                          Color(modeSombre.value ? 0xFF1C2F24 : 0xFF95D5B2))),
                 ],
               )
                   .animate(delay: 400.ms)
@@ -652,7 +656,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
+        color: JegoTheme.fondCarte.withOpacity(0.85),
         shape: BoxShape.circle,
         border: Border.all(color: JegoTheme.bordCarte, width: 1),
         boxShadow: JegoTheme.ombreDouce,
@@ -757,19 +761,23 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Classe du bus : c'est ce que la base connait vraiment
+          // (standard / mixte / vip). « Mixte » manquait, donc un bus
+          // mixte n'etait pas filtrable et se faisait exclure des qu'on
+          // cochait Standard ou VIP.
           _titreFiltre(Strings.t('categorie')),
           Wrap(spacing: 8, runSpacing: 8, children: [
             _puceMultiCategorie('standard', Strings.t('cat_standard')),
+            _puceMultiCategorie('mixte', Strings.t('cat_mixte')),
             _puceMultiCategorie('vip', Strings.t('cat_vip')),
-            _puceMultiCategorie('express', Strings.t('cat_express')),
-            _puceMultiCategorie('nuit', Strings.t('cat_nuit')),
           ]),
-          _titreFiltre(Strings.t('type_trajet')),
+          // Nuit et Express ne sont pas des classes : ce sont des
+          // caracteristiques calculees a partir de l'horaire et des
+          // arrets. Groupe a part pour ne pas les confondre.
+          _titreFiltre(Strings.t('caracteristiques')),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            _puce('direct', Strings.t('trajet_direct'), _typeTrajet,
-                (v) => setState(() => _typeTrajet = v)),
-            _puce('arrets', Strings.t('trajet_arrets'), _typeTrajet,
-                (v) => setState(() => _typeTrajet = v)),
+            _puceMultiCategorie('nuit', Strings.t('cat_nuit')),
+            _puceMultiCategorie('express', Strings.t('cat_express')),
           ]),
           _titreFiltre(
               '${Strings.t('prix')} : ${_prix.start.round()} – ${_prix.end.round()}'),
@@ -827,7 +835,7 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
         padding: const EdgeInsets.only(top: 14, bottom: 8),
         child: Text(
           texte,
-          style: const TextStyle(
+          style: TextStyle(
             color: JegoTheme.texteSecondaire,
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -924,8 +932,8 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
               left: 10,
               child: Text(
                 '$de → $vers',
-                style: const TextStyle(
-                  color: Color(0xFF0E5C3A),
+                style: TextStyle(
+                  color: Color(modeSombre.value ? 0xFF7FD9AC : 0xFF0E5C3A),
                   fontSize: 11.5,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1015,7 +1023,7 @@ class _ChampVilleState extends State<_ChampVille> {
               width: 260,
               constraints: const BoxConstraints(maxHeight: 210),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: JegoTheme.fondCarte,
                 borderRadius: BorderRadius.circular(JegoTheme.rPetit),
                 border: Border.all(color: JegoTheme.bordCarte, width: 1),
                 boxShadow: JegoTheme.ombreDouce,
@@ -1034,18 +1042,18 @@ class _ChampVilleState extends State<_ChampVille> {
                           horizontal: 14, vertical: 10),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_on_rounded,
+                          Icon(Icons.location_on_rounded,
                               size: 15, color: JegoTheme.vert),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text('${option['nom']}',
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texte, fontSize: 13.5)),
                           ),
                           if (region.isNotEmpty)
                             Text(region,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texteTernaire,
                                     fontSize: 11.5)),
                         ],
@@ -1079,11 +1087,11 @@ class _ChampVilleState extends State<_ChampVille> {
               // rien, il faudra rechoisir une ville dans la liste.
               widget.onVilleChoisie(null);
             },
-            style: const TextStyle(color: JegoTheme.texte, fontSize: 14),
+            style: TextStyle(color: JegoTheme.texte, fontSize: 14),
             cursorColor: JegoTheme.vert,
             decoration: InputDecoration(
               hintText: libelle,
-              hintStyle: const TextStyle(
+              hintStyle: TextStyle(
                   color: JegoTheme.texteTernaire, fontSize: 13.5),
               prefixIcon: Icon(icone, size: 18, color: JegoTheme.vert),
               border: InputBorder.none,

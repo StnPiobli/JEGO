@@ -3,6 +3,7 @@ import '../config/api.dart';
 import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
 import 'ecran_accueil_chauffeur.dart';
+import '../l10n/strings.dart';
 
 /// Connexion du chauffeur, vérifiée par le serveur.
 ///
@@ -54,7 +55,7 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
       if (!mounted) return;
       setState(() => _enCours = false);
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const EcranAccueilChauffeur()),
+        MaterialPageRoute(builder: (_) => EcranAccueilChauffeur()),
       );
     } on ErreurApi catch (e) {
       if (!mounted) return;
@@ -87,16 +88,16 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [JegoTheme.vert, JegoTheme.vertVif]),
+                  gradient: LinearGradient(colors: [JegoTheme.vert, JegoTheme.vertVif]),
                   borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
                 ),
                 child: const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 32),
               ),
               const SizedBox(height: 20),
-              const Text('Espace Chauffeur',
+              Text(Strings.t('espace_chauffeur'),
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
-              Text('Connecte-toi avec les identifiants fournis par ton agence.',
+              Text(Strings.t('chauffeur_invite'),
                   style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
               const SizedBox(height: 32),
               _champ(_ctrlIdentifiant, 'Téléphone (6XXXXXXXX) ou email',
@@ -107,7 +108,7 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(_erreur!,
-                      style: const TextStyle(color: JegoTheme.danger, fontSize: 12.5)),
+                      style: TextStyle(color: JegoTheme.danger, fontSize: 12.5)),
                 ),
               const SizedBox(height: 22),
               BoutonTactile(
@@ -121,7 +122,7 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
                     borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
                     boxShadow: JegoTheme.ombreVerte,
                   ),
-                  child: const Text('Se connecter',
+                  child: Text(Strings.t('act_se_connecter'),
                       style: TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w800)),
                 ),
               ),
@@ -137,7 +138,7 @@ class _EcranConnexionChauffeurState extends State<EcranConnexionChauffeur> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-        border: Border.all(color: Colors.white.withOpacity(0.15)),
+        border: Border.all(color: JegoTheme.fondCarte.withOpacity(0.15)),
       ),
       child: TextField(
         controller: ctrl,

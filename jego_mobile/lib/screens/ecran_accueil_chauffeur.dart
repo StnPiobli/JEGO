@@ -8,7 +8,10 @@ import '../config/scan_hors_ligne.dart';
 import 'ecran_emploi_du_temps_chauffeur.dart';
 import 'ecran_historique_chauffeur.dart';
 import 'ecran_scan_billet.dart';
+import 'ecran_theme.dart';
+import 'navigation_principale.dart';
 import '../widgets/itineraire_trajet.dart';
+import '../l10n/strings.dart';
 
 /// Accueil chauffeur. Regles temporelles :
 /// - Depart : impossible avant l'heure de depart programmee.
@@ -118,7 +121,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
   ({String libelle, IconData icone, VoidCallback? action})
       _etapeSuivante(Map<String, dynamic>? trajet) {
     if (trajet == null) {
-      return (libelle: 'Aucun trajet', icone: Icons.rocket_launch_rounded, action: null);
+      return (libelle: Strings.t('aucun_trajet'), icone: Icons.rocket_launch_rounded, action: null);
     }
 
     if (!_partiDeclare) {
@@ -131,7 +134,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     }
 
     if (_arriveDeclaree) {
-      return (libelle: 'Trajet termine', icone: Icons.check_circle_rounded, action: null);
+      return (libelle: Strings.t('trajet_termine'), icone: Icons.check_circle_rounded, action: null);
     }
 
     final token = SessionChauffeur.token;
@@ -283,7 +286,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                             color: JegoTheme.champ, borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Annuler',
+                        child: Text(Strings.t('act_annuler'),
                             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w700)),
                       ),
                     ),
@@ -297,7 +300,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration:
                             BoxDecoration(color: couleur, borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Confirmer',
+                        child: Text(Strings.t('act_confirmer'),
                             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                       ),
                     ),
@@ -322,7 +325,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     _confirmer(
       icone: Icons.rocket_launch_rounded,
       couleur: JegoTheme.vert,
-      titre: 'Déclarer le départ ?',
+      titre: Strings.t('declarer_depart_q'),
       texte:
           "La navigation sera gelée jusqu’à l’arrivée. Le scan se ferme pendant la route et se rouvre à chaque arrêt.",
       onConfirme: () async {
@@ -372,17 +375,17 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                     child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFE6B84C), size: 22),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text('Signaler un retard',
+                  Expanded(
+                    child: Text(Strings.t('signaler_retard_titre'),
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                   ),
                 ],
               ),
               const SizedBox(height: 6),
-              Text('Le message sera envoye a l\'agence et a tous les voyageurs, deja a bord ou en attente.',
+              Text(Strings.t('retard_portee'),
                   style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12)),
               const SizedBox(height: 14),
-              Text('Estimation du retard (minutes)',
+              Text(Strings.t('retard_estimation'),
                   style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12.5)),
               const SizedBox(height: 6),
               Container(
@@ -391,7 +394,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                 child: TextField(
                   controller: ctrlMinutes,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Ex : 15',
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -409,7 +412,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                             color: JegoTheme.champ, borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Annuler',
+                        child: Text(Strings.t('act_annuler'),
                             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w700)),
                       ),
                     ),
@@ -423,7 +426,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         Navigator.of(ctx).pop();
                         final total = TrajetChauffeur.ajouterRetard('${trajet['reference']}', minutes);
                         _afficherEnvoi(
-                          titre: 'Retard signale',
+                          titre: Strings.t('retard_signale'),
                           couleur: const Color(0xFFE6B84C),
                           contenu: RichText(
                             textAlign: TextAlign.center,
@@ -434,7 +437,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                                     text: 'Envoye a l\'agence et a tous les voyageurs :\n"Votre bus a actuellement un retard. Votre arrivee sera '),
                                 TextSpan(
                                     text: 'retardee de ${_formatMinutes(total)}',
-                                    style: const TextStyle(fontWeight: FontWeight.w800, color: JegoTheme.texte)),
+                                    style: TextStyle(fontWeight: FontWeight.w800, color: JegoTheme.texte)),
                                 const TextSpan(text: '."'),
                               ],
                             ),
@@ -446,7 +449,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                             color: const Color(0xFFE6B84C), borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Envoyer',
+                        child: Text(Strings.t('act_envoyer'),
                             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                       ),
                     ),
@@ -479,17 +482,17 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                     height: 46,
                     decoration:
                         BoxDecoration(color: JegoTheme.danger.withOpacity(0.1), shape: BoxShape.circle),
-                    child: const Icon(Icons.report_problem_rounded, color: JegoTheme.danger, size: 22),
+                    child: Icon(Icons.report_problem_rounded, color: JegoTheme.danger, size: 22),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text('Signaler un incident',
+                  Expanded(
+                    child: Text(Strings.t('signaler_incident_titre'),
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                   ),
                 ],
               ),
               const SizedBox(height: 6),
-              Text('Envoye uniquement a l\'agence, pas aux voyageurs.',
+              Text(Strings.t('incident_portee'),
                   style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12)),
               const SizedBox(height: 14),
               Container(
@@ -498,8 +501,8 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                 child: TextField(
                   controller: ctrlTexte,
                   maxLines: 4,
-                  decoration: const InputDecoration(
-                    hintText: 'Decris brievement ce qui se passe (panne, accident...)',
+                  decoration: InputDecoration(
+                    hintText: Strings.t('incident_invite'),
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.all(14),
                   ),
@@ -516,7 +519,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                             color: JegoTheme.champ, borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Annuler',
+                        child: Text(Strings.t('act_annuler'),
                             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w700)),
                       ),
                     ),
@@ -528,7 +531,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         if (ctrlTexte.text.trim().isEmpty) return;
                         Navigator.of(ctx).pop();
                         _afficherEnvoi(
-                          titre: 'Incident signale',
+                          titre: Strings.t('incident_signale'),
                           couleur: JegoTheme.danger,
                           contenu: Text('Envoye a l\'agence uniquement :\n"${ctrlTexte.text.trim()}"',
                               textAlign: TextAlign.center,
@@ -540,7 +543,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                             color: JegoTheme.danger, borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
-                        child: const Text('Envoyer',
+                        child: Text(Strings.t('act_envoyer'),
                             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                       ),
                     ),
@@ -597,7 +600,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     _confirmer(
       icone: Icons.check_circle_rounded,
       couleur: JegoTheme.vert,
-      titre: 'Déclarer l\'arrivée ?',
+      titre: Strings.t('declarer_arrivee_q'),
       texte:
           'Le trajet sera marqué terminé. Le prochain trajet s\'affichera automatiquement.',
       onConfirme: () async {
@@ -638,11 +641,14 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     _confirmer(
       icone: Icons.logout_rounded,
       couleur: JegoTheme.danger,
-      titre: 'Se deconnecter ?',
+      titre: Strings.t('deconnexion_q'),
       texte: '',
       onConfirme: () {
         SessionChauffeur.fermer();
-        Navigator.of(context).pop();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => NavigationPrincipale()),
+          (route) => false,
+        );
       },
     );
   }
@@ -659,6 +665,13 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: modeSombre,
+      builder: (context, _, __) => _contenu(context),
+    );
+  }
+
+  Widget _contenu(BuildContext context) {
     final trajet = TrajetChauffeur.prochain;
 
     return Scaffold(
@@ -673,7 +686,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                   width: 54,
                   height: 54,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [JegoTheme.vert, JegoTheme.vertVif]),
+                    gradient: LinearGradient(colors: [JegoTheme.vert, JegoTheme.vertVif]),
                     shape: BoxShape.circle,
                     border: Border.all(color: JegoTheme.fondCarte, width: 3),
                     boxShadow: JegoTheme.ombreDouce,
@@ -688,7 +701,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Bonjour, ${SessionChauffeur.nom ?? ''}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texte, fontSize: 18, fontWeight: FontWeight.w800)),
                       Text('Chauffeur — ${SessionChauffeur.agence ?? ''}',
                           style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12)),
@@ -702,9 +715,9 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.verified_rounded, size: 12, color: JegoTheme.vert),
+                            Icon(Icons.verified_rounded, size: 12, color: JegoTheme.vert),
                             const SizedBox(width: 4),
-                            Text('Compte verifie',
+                            Text(Strings.t('compte_verifie'),
                                 style: TextStyle(color: JegoTheme.vert, fontSize: 10.5, fontWeight: FontWeight.w700)),
                           ],
                         ),
@@ -718,7 +731,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                     onTap: _navigationGelee
                         ? null
                         : () => Navigator.of(context)
-                            .push(MaterialPageRoute(builder: (_) => const EcranEmploiDuTempsChauffeur())),
+                            .push(MaterialPageRoute(builder: (_) => EcranEmploiDuTempsChauffeur())),
                     child: Container(
                       padding: const EdgeInsets.all(9),
                       margin: const EdgeInsets.only(left: 6),
@@ -726,7 +739,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                           color: JegoTheme.fondCarte,
                           shape: BoxShape.circle,
                           border: Border.all(color: JegoTheme.bordCarte)),
-                      child: const Icon(Icons.calendar_month_rounded, size: 17, color: JegoTheme.texteSecondaire),
+                      child: Icon(Icons.calendar_month_rounded, size: 17, color: JegoTheme.texteSecondaire),
                     ),
                   ),
                 ),
@@ -736,7 +749,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                     onTap: _navigationGelee
                         ? null
                         : () => Navigator.of(context)
-                            .push(MaterialPageRoute(builder: (_) => const EcranHistoriqueChauffeur())),
+                            .push(MaterialPageRoute(builder: (_) => EcranHistoriqueChauffeur())),
                     child: Container(
                       padding: const EdgeInsets.all(9),
                       margin: const EdgeInsets.only(left: 6),
@@ -744,8 +757,26 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                           color: JegoTheme.fondCarte,
                           shape: BoxShape.circle,
                           border: Border.all(color: JegoTheme.bordCarte)),
-                      child: const Icon(Icons.history_rounded, size: 17, color: JegoTheme.texteSecondaire),
+                      child: Icon(Icons.history_rounded, size: 17, color: JegoTheme.texteSecondaire),
                     ),
+                  ),
+                ),
+                BoutonTactile(
+                  onTap: () => EcranTheme.definir(
+                      modeSombre.value ? 'clair' : 'sombre'),
+                  child: Container(
+                    padding: const EdgeInsets.all(9),
+                    margin: const EdgeInsets.only(left: 6),
+                    decoration: BoxDecoration(
+                        color: JegoTheme.fondCarte,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: JegoTheme.bordCarte)),
+                    child: Icon(
+                        modeSombre.value
+                            ? Icons.light_mode_rounded
+                            : Icons.dark_mode_rounded,
+                        size: 17,
+                        color: JegoTheme.texteSecondaire),
                   ),
                 ),
                 Opacity(
@@ -759,7 +790,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                           color: JegoTheme.fondCarte,
                           shape: BoxShape.circle,
                           border: Border.all(color: JegoTheme.bordCarte)),
-                      child: const Icon(Icons.logout_rounded, size: 17, color: JegoTheme.texteSecondaire),
+                      child: Icon(Icons.logout_rounded, size: 17, color: JegoTheme.texteSecondaire),
                     ),
                   ),
                 ),
@@ -778,7 +809,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                   children: [
                     Icon(Icons.lock_rounded, size: 13, color: JegoTheme.texteSecondaire),
                     const SizedBox(width: 6),
-                    Text('Navigation gelee pendant le trajet',
+                    Text(Strings.t('navigation_gelee'),
                         style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 11, fontWeight: FontWeight.w700)),
                   ],
                 ),
@@ -797,7 +828,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                   children: [
                     Icon(Icons.event_busy_rounded, size: 30, color: JegoTheme.texteTernaire),
                     const SizedBox(height: 8),
-                    Text('Aucun trajet a venir pour l\'instant.',
+                    Text(Strings.t('aucun_trajet_avenir'),
                         style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
                   ],
                 ),
@@ -812,7 +843,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               // Erreur affichée sous les actions, en petit texte rouge.
               Text(
                 _erreurAction!,
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.danger, fontSize: 12.5),
               ),
             ],
@@ -834,14 +865,14 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             const SizedBox(height: 12),
             _grosBouton(
               icone: Icons.warning_amber_rounded,
-              libelle: 'Signaler retard',
+              libelle: Strings.t('signaler_retard'),
               couleur: const Color(0xFFE6B84C),
               onTap: (trajet != null && _peutSignalerRetard(trajet)) ? () => _signalerRetard(trajet) : null,
             ),
             const SizedBox(height: 12),
             _grosBouton(
               icone: Icons.report_problem_rounded,
-              libelle: 'Signaler incident',
+              libelle: Strings.t('signaler_incident'),
               couleur: JegoTheme.danger,
               onTap: _incidentBloque ? null : _signalerIncident,
             ),
@@ -859,7 +890,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               onTap: _peutScanner(trajet) ? () => _scanner(trajet) : null,
             ),
             const SizedBox(height: 22),
-            Text('MES PERFORMANCES',
+            Text(Strings.t('mes_performances'),
                 style: TextStyle(
                     color: JegoTheme.vert, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
             const SizedBox(height: 10),
@@ -889,10 +920,10 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.no_crash_rounded, color: JegoTheme.danger, size: 20),
+                  Icon(Icons.no_crash_rounded, color: JegoTheme.danger, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text('Ne jamais utiliser cet ecran en conduisant.',
+                    child: Text(Strings.t('avertissement_conduite'),
                         style: TextStyle(color: JegoTheme.danger, fontSize: 12, fontWeight: FontWeight.w700)),
                   ),
                 ],
@@ -939,14 +970,14 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
   Widget _pointSepare() => Container(
         width: 3,
         height: 3,
-        decoration: const BoxDecoration(color: JegoTheme.texteTernaire, shape: BoxShape.circle),
+        decoration: BoxDecoration(color: JegoTheme.texteTernaire, shape: BoxShape.circle),
       );
 
   Widget _miniStat(String valeur, String libelle) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(valeur, style: const TextStyle(color: JegoTheme.vert, fontSize: 14, fontWeight: FontWeight.w800)),
+        Text(valeur, style: TextStyle(color: JegoTheme.vert, fontSize: 14, fontWeight: FontWeight.w800)),
         const SizedBox(width: 4),
         Text(libelle, style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12)),
       ],
@@ -981,7 +1012,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                       : _partiDeclare
                           ? 'EN COURS'
                           : 'A VENIR',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.vert, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.4),
                 ),
               ),
@@ -1011,7 +1042,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
             arriveDeclaree: _arriveDeclaree,
           ),
           const SizedBox(height: 16),
-          const Divider(height: 1, color: JegoTheme.bordCarte),
+          Divider(height: 1, color: JegoTheme.bordCarte),
           const SizedBox(height: 14),
           // Départ et arrivée sont déjà lus en haut de la carte : on ne
           // les répète pas ici.
@@ -1063,7 +1094,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
       children: [
         Icon(icone, size: 18, color: JegoTheme.vert),
         const SizedBox(height: 6),
-        Text(valeur, style: const TextStyle(color: JegoTheme.texte, fontSize: 16, fontWeight: FontWeight.w800)),
+        Text(valeur, style: TextStyle(color: JegoTheme.texte, fontSize: 16, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
         Text(libelle,
             textAlign: TextAlign.center,
@@ -1083,27 +1114,37 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
       opacity: onTap == null && !fait ? 0.4 : 1,
       child: BoutonTactile(
         onTap: onTap,
-        child: Container(
-          width: double.infinity,
-          height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
-            color: fait ? couleur.withOpacity(0.1) : couleur,
-            borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-            border: fait ? Border.all(color: couleur, width: 1.4) : null,
-            boxShadow: fait ? null : JegoTheme.ombreDouce,
-          ),
-          child: Row(
-            children: [
-              Icon(fait ? Icons.check_circle_rounded : icone,
-                  color: fait ? couleur : Colors.white, size: 22),
-              const SizedBox(width: 14),
-              Text(fait ? '$libelle — Fait' : libelle,
-                  style: TextStyle(
-                      color: fait ? couleur : Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
-            ],
-          ),
-        ),
+        child: Builder(builder: (_) {
+          // Couleur de texte lisible sur le fond du bouton. « Scanner un
+          // billet » utilise JegoTheme.texte, quasi blanc en mode
+          // sombre : du texte blanc dessus devenait invisible. On choisit
+          // donc le contraste d'apres la clarte reelle du fond.
+          final surCouleur =
+              couleur.computeLuminance() > 0.55 ? JegoTheme.fond : Colors.white;
+          return Container(
+            width: double.infinity,
+            height: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: fait ? couleur.withOpacity(0.1) : couleur,
+              borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+              border: fait ? Border.all(color: couleur, width: 1.4) : null,
+              boxShadow: fait ? null : JegoTheme.ombreDouce,
+            ),
+            child: Row(
+              children: [
+                Icon(fait ? Icons.check_circle_rounded : icone,
+                    color: fait ? couleur : surCouleur, size: 22),
+                const SizedBox(width: 14),
+                Text(fait ? '$libelle — Fait' : libelle,
+                    style: TextStyle(
+                        color: fait ? couleur : surCouleur,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800)),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }

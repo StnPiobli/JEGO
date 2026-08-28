@@ -2,6 +2,7 @@ const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
 const { journaliser } = require('../services/logService');
 const { genererIdentifiant } = require('../utils/identifiant');
+const { lireParametreEntier } = require('../services/parametreService');
 
 // ═══════════════════════════════════════════════════
 // OUVRIR UN LITIGE (voyageur, avec billet)
@@ -26,6 +27,9 @@ async function ouvrirLitige(req, res) {
 
     const numero = genererIdentifiant('LIT');
 
+    // Delai de reponse configurable par l'admin (parametres_systeme).
+    const delaiHeures = await lireParametreEntier('delai_reponse_agence_heures', 48);
+
     const resultat = await pool.query(
       `INSERT INTO litiges
         (numero, billet_id, trajet_id, voyageur_id, agence_id, ouvert_par, niveau, motif, description, statut)
@@ -39,12 +43,12 @@ async function ouvrirLitige(req, res) {
       destinataire_id: b.agence_id,
       type: 'litige_ouvert',
       titre: 'Nouveau litige ouvert',
-      contenu: `Un client a ouvert un litige (${motif}). Vous avez 48h pour répondre.`,
+      contenu: `Un client a ouvert un litige (${motif}). Vous avez ${delaiHeures}h pour répondre.`,
       canal: 'email'
     });
 
     res.status(201).json({
-      message: 'Litige ouvert. L\'agence a 48h pour répondre.',
+      message: `Litige ouvert. L'agence a ${delaiHeures}h pour répondre.`,
       litige: resultat.rows[0]
     });
 
@@ -237,7 +241,7 @@ async function mesLitiges(req, res) {
 
     const resultat = await pool.query(
       `SELECT l.id, l.numero, l.motif, l.description, l.statut, l.niveau,
-              l.reponse_agence, l.decision, l.gagnant, l.cree_le,
+              l.reponse_agence, l.decision, l.gagnant, l.cree_le, l.escalade_le,
               v.prenom || ' ' || v.nom AS client,
               CASE WHEN vd.nom_affiche IS NOT NULL
                 THEN vd.nom_affiche || ' → ' || va.nom_affiche
@@ -273,13 +277,13 @@ async function litigesAdmin(req, res) {
 
     const resultat = await pool.query(
       `SELECT l.id, l.numero, l.motif, l.description, l.statut, l.niveau,
-              l.reponse_agence, l.cree_le,
+              l.reponse_agence, l.cree_le, l.escalade_le,
               a.nom AS nom_agence, v.nom AS nom_voyageur, v.prenom AS prenom_voyageur
        FROM litiges l
        JOIN agences a ON a.id = l.agence_id
        JOIN voyageurs v ON v.id = l.voyageur_id
        WHERE l.statut NOT IN ('resolu', 'cloture')
-       ORDER BY l.cree_le ASC`
+       ORDER BY (l.escalade_le IS NOT NULL) DESC, l.cree_le ASC`
     );
 
     res.json({ nombre: resultat.rows.length, litiges: resultat.rows });

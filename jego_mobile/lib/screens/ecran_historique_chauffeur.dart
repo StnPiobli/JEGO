@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
 import '../widgets/itineraire_trajet.dart';
+import '../l10n/strings.dart';
 
 class EcranHistoriqueChauffeur extends StatefulWidget {
   const EcranHistoriqueChauffeur({super.key});
@@ -27,7 +28,7 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
       initialDateRange: _plage,
       helpText: 'Filtrer par periode',
       builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(colorScheme: const ColorScheme.light(primary: JegoTheme.vert)),
+        data: Theme.of(ctx).copyWith(colorScheme: ColorScheme.light(primary: JegoTheme.vert)),
         child: child!,
       ),
     );
@@ -49,8 +50,8 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Historique de voyage',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('historique_voyage'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: Column(
@@ -71,14 +72,14 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.date_range_rounded, size: 16, color: JegoTheme.vert),
+                          Icon(Icons.date_range_rounded, size: 16, color: JegoTheme.vert),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _plage == null
                                   ? 'Filtrer par periode'
                                   : '${_dateLisible(_plage!.start)} — ${_dateLisible(_plage!.end)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: JegoTheme.texte, fontSize: 12.5, fontWeight: FontWeight.w700),
                             ),
                           ),
@@ -97,7 +98,7 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                           color: JegoTheme.fondCarte,
                           shape: BoxShape.circle,
                           border: Border.all(color: JegoTheme.bordCarte)),
-                      child: const Icon(Icons.close_rounded, size: 16, color: JegoTheme.texteSecondaire),
+                      child: Icon(Icons.close_rounded, size: 16, color: JegoTheme.texteSecondaire),
                     ),
                   ),
               ],
@@ -168,7 +169,7 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text('${t['ville_depart']} → ${t['ville_arrivee']}',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   color: JegoTheme.texte,
                                                   fontSize: 14,
                                                   fontWeight: FontWeight.w800)),
@@ -188,7 +189,7 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
                                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
                                 child: Column(
                                   children: [
-                                    const Divider(height: 1, color: JegoTheme.bordCarte),
+                                    Divider(height: 1, color: JegoTheme.bordCarte),
                                     const SizedBox(height: 10),
                                     // Itineraire complet : heures, lieux de
                                     // prise en charge et mouvements de

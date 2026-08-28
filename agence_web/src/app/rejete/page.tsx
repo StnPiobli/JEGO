@@ -1,9 +1,7 @@
 'use client';
 
-// ⚠️ DEMO — le motif de refus réel existe en base (litigeController-like
-// pattern côté admin, motif saisi lors du refus), mais aucune route ne
-// l'expose à l'agence pour l'instant côté agenceController.js.
-
+// Motif réel : saisi par l'admin au moment du refus, stocké sur
+// l'agence et renvoyé à la connexion.
 import { useRouter } from 'next/navigation';
 import { getAgenceLocale, clearSession } from '../lib/api';
 
@@ -33,10 +31,12 @@ export default function RejetePage() {
           <p className="text-[13px] text-ink-soft mb-1">
             Bonjour {agence?.nom ?? ''}, ton dossier d&apos;inscription n&apos;a malheureusement pas été validé par JEGO.
           </p>
-          <div className="bg-off-white rounded-lg px-3 py-2.5 mt-3 mb-4">
-            <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-1">Motif (démo)</p>
-            <p className="text-[13px] text-ink">Registre de commerce expiré ou non valide.</p>
-          </div>
+          {agence?.motif_desactivation && (
+            <div className="bg-off-white rounded-lg px-3 py-2.5 mt-3 mb-4">
+              <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-1">Motif</p>
+              <p className="text-[13px] text-ink">{agence.motif_desactivation}</p>
+            </div>
+          )}
           <p className="text-[12px] text-ink-soft">Pour toute question, contacte le support JEGO.</p>
         </div>
       </div>

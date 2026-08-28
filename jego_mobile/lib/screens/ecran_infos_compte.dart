@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// Recap en lecture seule des infos du compte. La vraie edition se fait
 /// deja via la feuille dediee dans Profil (_FeuilleEditInfos) -- cet
@@ -16,8 +17,8 @@ class EcranInfosCompte extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Informations du compte',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('infos_compte'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: ListView(
@@ -34,11 +35,11 @@ class EcranInfosCompte extends StatelessWidget {
               children: [
                 _ligne(Icons.badge_rounded, 'Nom complet',
                     nomComplet.isEmpty ? '-' : nomComplet),
-                const Divider(height: 1, color: JegoTheme.bordCarte),
+                Divider(height: 1, color: JegoTheme.bordCarte),
                 _ligne(Icons.phone_rounded, 'Telephone', Session.telephone ?? '-'),
-                const Divider(height: 1, color: JegoTheme.bordCarte),
+                Divider(height: 1, color: JegoTheme.bordCarte),
                 _ligne(Icons.mail_rounded, 'Email', Session.email ?? '-'),
-                const Divider(height: 1, color: JegoTheme.bordCarte),
+                Divider(height: 1, color: JegoTheme.bordCarte),
                 _ligne(Icons.lock_rounded, 'Mot de passe', '••••••••'),
               ],
             ),
@@ -61,13 +62,13 @@ class EcranInfosCompte extends StatelessWidget {
           Icon(icone, size: 18, color: JegoTheme.vert),
           const SizedBox(width: 12),
           Text(libelle,
-              style: const TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
+              style: TextStyle(color: JegoTheme.texteSecondaire, fontSize: 13)),
           const Spacer(),
           Flexible(
             child: Text(valeur,
                 textAlign: TextAlign.right,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                     color: JegoTheme.texte, fontSize: 13.5, fontWeight: FontWeight.w700)),
           ),
         ],

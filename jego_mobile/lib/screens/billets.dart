@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:printing/printing.dart';
 import '../config/billets_store.dart';
 import '../config/session.dart';
 import '../config/format_date.dart';
@@ -8,9 +7,11 @@ import '../config/pdf_billet.dart';
 import '../config/pdf_telechargement.dart';
 import '../config/remboursement.dart';
 import '../config/theme_jego.dart';
-import '../config/wallet_store.dart';
 import '../l10n/strings.dart';
 import '../widgets/billet_qr.dart';
+import '../config/pdf_partage.dart';
+import '../config/api.dart';
+import '../config/wallet_store.dart';
 import 'pendant_voyage.dart';
 
 class EcranBillets extends StatefulWidget {
@@ -70,7 +71,7 @@ class _EcranBilletsState extends State<EcranBillets> {
                     children: [
                       Text(
                         Strings.t('nav_billets'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 24,
                           fontWeight: FontWeight.w800,
@@ -78,7 +79,7 @@ class _EcranBilletsState extends State<EcranBillets> {
                       ),
                       const Spacer(),
                       BoutonTactile(
-                        onTap: () => _recupererBillet(context),
+                        onTap: _recupererBillet,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 9),
@@ -88,17 +89,17 @@ class _EcranBilletsState extends State<EcranBillets> {
                                 BorderRadius.circular(JegoTheme.rGrand),
                           ),
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.download_rounded,
+                              Icon(Icons.download_rounded,
                                   size: 15, color: JegoTheme.vert),
                               const SizedBox(width: 5),
                               Text(
                                 Strings.t('billet_recuperer'),
-                                style: const TextStyle(
-                                  color: JegoTheme.vert,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                                style: TextStyle(
+                                    color: JegoTheme.vert,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800),
                               ),
                             ],
                           ),
@@ -198,21 +199,25 @@ class _EcranBilletsState extends State<EcranBillets> {
             _section == 0
                 ? Strings.t('billets_vide_titre')
                 : Strings.t('billets_passes_vide'),
-            style: const TextStyle(color: JegoTheme.texteSecondaire),
+            style: TextStyle(color: JegoTheme.texteSecondaire),
           ),
         ],
       ),
     );
   }
 
-  void _recupererBillet(BuildContext context) {
-    final ctrl = TextEditingController();
+  /// Recuperation d'un billet sur cet appareil : numero + telephone du
+  /// compte, verifies par le serveur. Le billet et son QR viennent de
+  /// la base -- plus rien n'est fabrique localement.
+  void _recupererBillet() {
+    final cNumero = TextEditingController();
     final erreur = ValueNotifier<String?>(null);
-    final regex = RegExp(r'^JEGO-[A-Z0-9]{6}$');
+    final enCours = ValueNotifier<bool>(false);
 
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
+        backgroundColor: JegoTheme.fondCarte,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(JegoTheme.rMoyen)),
         child: Padding(
@@ -220,8 +225,7 @@ class _EcranBilletsState extends State<EcranBillets> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.download_rounded,
-                  color: JegoTheme.vert, size: 32),
+              Icon(Icons.download_rounded, color: JegoTheme.vert, size: 32),
               const SizedBox(height: 10),
               Text(Strings.t('recup_titre'),
                   style: const TextStyle(
@@ -229,75 +233,77 @@ class _EcranBilletsState extends State<EcranBillets> {
               const SizedBox(height: 6),
               Text(Strings.t('recup_texte'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteSecondaire, fontSize: 12.5)),
               const SizedBox(height: 14),
-              Container(
-                decoration: BoxDecoration(
-                  color: JegoTheme.champ,
-                  borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-                ),
-                child: TextField(
-                  controller: ctrl,
-                  textCapitalization: TextCapitalization.characters,
-                  onChanged: (_) => erreur.value = null,
-                  style: const TextStyle(
-                      color: JegoTheme.texte,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1),
-                  cursorColor: JegoTheme.vert,
-                  decoration: const InputDecoration(
-                    hintText: 'JEGO-XXXXXX',
-                    hintStyle: TextStyle(color: JegoTheme.texteTernaire),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 14),
-                  ),
-                ),
-              ),
+              _champRecup(cNumero, Strings.t('recup_champ_numero'),
+                  'BIL-XXXXX-XXXXX', erreur,
+                  majuscules: true),
               ValueListenableBuilder<String?>(
                 valueListenable: erreur,
                 builder: (context, err, _) => err == null
                     ? const SizedBox(height: 14)
                     : Padding(
-                        padding:
-                            const EdgeInsets.only(top: 8, bottom: 6),
+                        padding: const EdgeInsets.only(top: 8, bottom: 6),
                         child: Text(err,
-                            style: const TextStyle(
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
                                 color: JegoTheme.danger,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600)),
                       ),
               ),
-              BoutonTactile(
-                onTap: () {
-                  final code = ctrl.text.trim().toUpperCase();
-                  if (!regex.hasMatch(code)) {
-                    erreur.value = Strings.t('recup_invalide');
-                    return;
-                  }
-                  BilletsStore.ajouter(_billetRecupere(code));
-                  Navigator.of(ctx).pop();
-                },
-                child: Container(
-                  width: double.infinity,
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: JegoTheme.vert,
-                    borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+              ValueListenableBuilder<bool>(
+                valueListenable: enCours,
+                builder: (context, charge, _) => BoutonTactile(
+                  onTap: charge
+                      ? null
+                      : () async {
+                          final numero = cNumero.text.trim();
+                          if (numero.isEmpty) {
+                            erreur.value = Strings.t('recup_invalide');
+                            return;
+                          }
+                          enCours.value = true;
+                          erreur.value = null;
+                          try {
+                            final brut = await ApiService.recupererBillet(
+                                numero: numero);
+                            BilletsStore.ajouterDepuisServeur(brut);
+                            if (ctx.mounted) Navigator.of(ctx).pop();
+                          } on ErreurApi catch (e) {
+                            erreur.value = e.message;
+                          } finally {
+                            enCours.value = false;
+                          }
+                        },
+                  child: Container(
+                    width: double.infinity,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: charge
+                          ? JegoTheme.vert.withOpacity(0.5)
+                          : JegoTheme.vert,
+                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                    ),
+                    child: charge
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text(Strings.t('recup_bouton'),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800)),
                   ),
-                  child: Text(Strings.t('recup_bouton'),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800)),
                 ),
               ),
               const SizedBox(height: 8),
               Text(Strings.t('recup_note'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteTernaire, fontSize: 10.5)),
             ],
           ),
@@ -306,37 +312,48 @@ class _EcranBilletsState extends State<EcranBillets> {
     );
   }
 
-  Map<String, dynamic> _billetRecupere(String code) {
-    return {
-      'id': 'recup-$code',
-      'groupe': 'recup-$code',
-      'num_resa': code,
-      'ville_depart': 'Douala',
-      'ville_arrivee': 'Yaoundé',
-      'point_depart': 'Bonabéri',
-      'point_arrivee': 'Mvan',
-      'heure_depart': '06:30',
-      'heure_arrivee': '10:15',
-      'date': DateTime.now()
-          .add(const Duration(days: 3))
-          .toIso8601String()
-          .substring(0, 10),
-      'nom_agence': 'Finexs Voyages',
-      'categorie': 'VIP',
-      'nombre_arrets': 0,
-      'arrets_liste': null,
-      'equipements': ['clim', 'usb', 'wifi'],
-      'sieges': [14],
-      'personne': 1,
-      'total_personnes': 1,
-      'flexible': false,
-      'code_qr': '$code-JEGO',
-      'frais': [
-        {'libelle': 'Billet', 'montant': '6500 FCFA'},
+  Widget _champRecup(TextEditingController c, String libelle, String indice,
+      ValueNotifier<String?> erreur,
+      {bool majuscules = false, TextInputType? clavier}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(libelle,
+            style: TextStyle(
+                color: JegoTheme.texteSecondaire,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700)),
+        const SizedBox(height: 5),
+        Container(
+          decoration: BoxDecoration(
+            color: JegoTheme.champ,
+            borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+          ),
+          child: TextField(
+            controller: c,
+            keyboardType: clavier,
+            textCapitalization: majuscules
+                ? TextCapitalization.characters
+                : TextCapitalization.none,
+            onChanged: (_) => erreur.value = null,
+            style: TextStyle(
+                color: JegoTheme.texte,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w700),
+            cursorColor: JegoTheme.vert,
+            decoration: InputDecoration(
+              hintText: indice,
+              hintStyle: TextStyle(color: JegoTheme.texteTernaire),
+              border: InputBorder.none,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            ),
+          ),
+        ),
       ],
-      'total': 6500,
-    };
+    );
   }
+
 }
 
 class _GroupeBillet extends StatefulWidget {
@@ -403,7 +420,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                             Flexible(
                               child: Text(
                                 '${premier['ville_depart']} → ${premier['ville_arrivee']}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: JegoTheme.texte,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w800,
@@ -424,7 +441,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                                   n > 1
                                       ? '$nbAnnules/$n annulé(s)'
                                       : 'Annulé',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: JegoTheme.danger,
                                       fontSize: 10.5,
                                       fontWeight: FontWeight.w800),
@@ -436,7 +453,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                         const SizedBox(height: 2),
                         Text(
                           '${FormatDate.lisible(premier['date'])} · ${premier['heure_depart']}${n > 1 ? ' · $n ${Strings.t('billet_billets')}' : ''}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texteSecondaire,
                               fontSize: 12),
                         ),
@@ -446,7 +463,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                   AnimatedRotation(
                     turns: _ouvert ? 0.5 : 0,
                     duration: const Duration(milliseconds: 250),
-                    child: const Icon(Icons.keyboard_arrow_down_rounded,
+                    child: Icon(Icons.keyboard_arrow_down_rounded,
                         color: JegoTheme.texteSecondaire),
                   ),
                 ],
@@ -459,57 +476,56 @@ class _GroupeBilletState extends State<_GroupeBillet> {
             child: _ouvert
                 ? Column(
                     children: [
-                      const Divider(
+                      Divider(
                           height: 1, color: JegoTheme.bordCarte),
                       Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           children: [
-                            if (!widget.estPasse)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: BoutonTactile(
-                                  onTap: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => EcranPendantVoyage(
-                                            billet: premier),
+                            // Suivre le trajet : c'est l'ecran d'ou l'on
+                            // signale un exces de vitesse, une conduite
+                            // dangereuse, une fausse arrivee. Reserve aux
+                            // trajets a venir ou en cours.
+                            if (!widget.estPasse) ...[
+                              BoutonTactile(
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => EcranPendantVoyage(
+                                        billet: widget.billets.first),
+                                  ),
+                                ),
+                                child: Container(
+                                  width: double.infinity,
+                                  height: 48,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(colors: [
+                                      JegoTheme.vert,
+                                      JegoTheme.vertVif
+                                    ]),
+                                    borderRadius: BorderRadius.circular(
+                                        JegoTheme.rPetit),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.navigation_rounded,
+                                          size: 17, color: Colors.white),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        Strings.t('billet_suivre_trajet'),
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13.5),
                                       ),
-                                    );
-                                  },
-                                  child: Container(
-                                    width: double.infinity,
-                                    height: 48,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [
-                                          JegoTheme.vert,
-                                          JegoTheme.vertVif
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(
-                                          JegoTheme.rPetit),
-                                    ),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.location_on_rounded,
-                                            size: 17, color: Colors.white),
-                                        SizedBox(width: 8),
-                                        Text(
-                                          'Suivre le trajet en direct',
-                                          style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 13.5),
-                                        ),
-                                      ],
-                                    ),
+                                    ],
                                   ),
                                 ),
                               ),
+                              const SizedBox(height: 12),
+                            ],
                             ...widget.billets.map((b) => Padding(
                                   padding:
                                       const EdgeInsets.only(bottom: 12),
@@ -535,13 +551,13 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                                     mainAxisAlignment:
                                         MainAxisAlignment.center,
                                     children: [
-                                      const Icon(Icons.delete_rounded,
+                                      Icon(Icons.delete_rounded,
                                           size: 16,
                                           color: JegoTheme.danger),
                                       const SizedBox(width: 6),
                                       Text(
                                         Strings.t('billet_supprimer_trajet'),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                             color: JegoTheme.danger,
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700),
@@ -573,7 +589,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.delete_sweep_rounded,
+              Icon(Icons.delete_sweep_rounded,
                   color: JegoTheme.danger, size: 32),
               const SizedBox(height: 10),
               Text(Strings.t('billet_suppr_titre'),
@@ -595,7 +611,7 @@ class _GroupeBilletState extends State<_GroupeBillet> {
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(Strings.t('annuler'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
                       ),
@@ -685,15 +701,30 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
     }
   }
 
+  /// Partage reel : la feuille du systeme, avec le billet en piece
+  /// jointe. `Printing.sharePdf` ne sait pas faire sur le web et
+  /// retombait sur un telechargement -- les deux boutons faisaient
+  /// alors exactement la meme chose.
   Future<void> _partager() async {
     if (_enCoursPdf) return;
     setState(() => _enCoursPdf = true);
     try {
       final bytes = await genererPdfBillet(widget.billet);
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: 'Billet_${widget.billet['num_resa'] ?? ''}.pdf',
+      final partage = await partagerPdf(
+        bytes,
+        'Billet_${widget.billet['num_resa'] ?? ''}.pdf',
       );
+      if (!partage && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(Strings.t('partage_indisponible')),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: JegoTheme.texte,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _enCoursPdf = false);
     }
@@ -740,7 +771,7 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
                   color: JegoTheme.danger.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.event_busy_rounded,
+                child: Icon(Icons.event_busy_rounded,
                     color: JegoTheme.danger, size: 28),
               ),
               const SizedBox(height: 14),
@@ -772,36 +803,36 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Montant payé',
+                        Text(Strings.t('montant_paye'),
                             style: TextStyle(
                                 fontSize: 12.5,
                                 color: JegoTheme.texteSecondaire)),
                         Text('${_fmt(prix)} FCFA',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
                                 color: JegoTheme.texte)),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const Divider(height: 1, color: JegoTheme.bordCarte),
+                    Divider(height: 1, color: JegoTheme.bordCarte),
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.account_balance_wallet_rounded,
+                            Icon(Icons.account_balance_wallet_rounded,
                                 size: 15, color: JegoTheme.vert),
                             const SizedBox(width: 5),
-                            Text('Vers votre portefeuille',
+                            Text(Strings.t('vers_portefeuille'),
                                 style: TextStyle(
                                     fontSize: 12.5,
                                     color: JegoTheme.texteSecondaire)),
                           ],
                         ),
                         Text('${_fmt(rembourse)} FCFA',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,
                                 color: JegoTheme.vert)),
@@ -824,7 +855,7 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
                           borderRadius:
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
-                        child: const Text('Garder',
+                        child: Text(Strings.t('act_garder'),
                             style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
@@ -839,13 +870,13 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
                         height: 46,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
+                          gradient: LinearGradient(
                             colors: [JegoTheme.danger, Color(0xFFB33A3A)],
                           ),
                           borderRadius:
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
-                        child: const Text('Annuler',
+                        child: Text(Strings.t('act_annuler'),
                             style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w800)),
@@ -860,15 +891,34 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
       ),
     );
 
-    if (confirme == true) {
-      BilletsStore.mettreAJour('${widget.billet['id']}', {'annule': true});
-      if (rembourse > 0) {
-        WalletStore.crediter(
-          rembourse,
-          'Annulation ${widget.billet['ville_depart']} → ${widget.billet['ville_arrivee']}',
-        );
-      }
+    if (confirme != true) return;
+
+    // L'annulation se faisait entierement en local : le billet passait
+    // « annule » a l'ecran, le portefeuille se creditait en memoire, et
+    // le serveur n'en savait rien. Le billet restait confirme en base,
+    // le siege vendu, aucun remboursement enregistre.
+    try {
+      await ApiService.annulerBillet('${widget.billet['billet_id'] ?? widget.billet['id']}');
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: JegoTheme.danger,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JegoTheme.rPetit)),
+        ),
+      );
+      return;
     }
+
+    // On relit l'etat reel plutot que de le supposer : c'est le serveur
+    // qui decide du statut et du montant rembourse.
+    await BilletsStore.charger();
+    // L'annulation a pu declencher un remboursement : le registre le
+    // montre sans qu'on ait a le recalculer ici.
+    await WalletStore.charger();
   }
 
   @override
@@ -882,7 +932,7 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
           villeArrivee: widget.billet['ville_arrivee'],
           date: widget.billet['date'],
           offre: widget.billet,
-          sieges: (widget.billet['sieges'] as List).cast<int>(),
+          sieges: (widget.billet['sieges'] as List).map((s) => '$s').toList(),
           detaille: true,
           onTelecharger: _telecharger,
           onPartager: _partager,
@@ -905,7 +955,7 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.event_busy_rounded,
+                  Icon(Icons.event_busy_rounded,
                       size: 15, color: JegoTheme.danger),
                   const SizedBox(width: 7),
                   Text(

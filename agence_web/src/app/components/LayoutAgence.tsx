@@ -7,6 +7,7 @@ import { LANGUE_STORAGE_KEY, lireLangue, NAV_LABELS, type Langue } from '../lib/
 import SiteLanguageTranslator from './SiteLanguageTranslator';
 import { ThemeToggle } from './ui';
 import { getAgenceLocale, onboardingComplet, clearSession, apiFetch } from '../lib/api';
+import BoutonRemonter from './BoutonRemonter';
 
 const liens = [
   { href: '/accueil', key: 'accueil', icone: 'accueil' },
@@ -117,18 +118,21 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   // Garde-fou : LayoutAgence n'habille que les pages du dashboard complet
   // (accueil, trajets, flotte...). Si quelqu'un navigue directement dessus
   // (lien, favori) sans passer par la connexion, on le renvoie vers le bon
-  // écran selon son vrai statut. Le mode démo (statut === 'demo', utilisé
-  // par le panneau de prévisualisation sur l'écran de connexion) est exempté.
+  // écran selon son vrai statut.
   useEffect(() => {
     const agence = getAgenceLocale();
     if (!agence) {
       router.replace('/');
       return;
     }
-    if (agence.statut === 'demo') return;
     if (agence.statut === 'en_attente') { router.replace('/en-attente'); return; }
     if (agence.statut === 'refuse') { router.replace('/rejete'); return; }
-    if (!onboardingComplet(agence.id)) { router.replace('/completer-profil'); return; }
+    // Consideree comme completee si le flag local est pose OU si l'agence
+    // a deja ses infos en base (ville + telephone). Sans ce second cas,
+    // une agence deja renseignee bouclait entre /accueil et
+    // /completer-profil.
+    const complete = onboardingComplet(agence.id) || !!(agence.ville && agence.telephone);
+    if (!complete) { router.replace('/completer-profil'); return; }
   }, [router]);
 
   useEffect(() => {
@@ -211,55 +215,8 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
           </aside>
 
           <main className="px-10 py-7 pb-16 relative overflow-y-auto min-h-0">
-            <div className="flex justify-end mb-4">
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setNotificationsOuvertes((v) => !v)}
-                  className="relative w-10 h-10 rounded-full bg-paper border border-line shadow-card flex items-center justify-center text-ink"
-                  aria-label={labels.notifications}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>
-                  {nombreNonLues > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red text-white text-[10px] font-bold flex items-center justify-center border-2 border-paper">{nombreNonLues}</span>}
-                </button>
-
-                {notificationsOuvertes && (
-                  <div className="absolute right-0 mt-3 w-[330px] rounded-2xl bg-paper border border-line shadow-card p-4 z-50">
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <div>
-                        <p className="text-[14px] font-bold text-ink font-display">{labels.notifications}</p>
-                        <p className="text-[10px] text-ink-soft">{nombreNonLues} non lue(s)</p>
-                      </div>
-                      <button onClick={marquerToutCommeLu} className="text-[10px] font-bold text-green-700">Tout marquer comme lu</button>
-                    </div>
-                    <div className="space-y-2">
-                      {notifications.map((notification) => (
-                        <button
-                          type="button"
-                          key={notification.id}
-                          onClick={() => {
-                            setNotifications((liste) => liste.map((n) => n.id === notification.id ? { ...n, lu: true } : n));
-                            if (notification.lien) router.push(notification.lien);
-                          }}
-                          className={`w-full text-left rounded-xl border p-3 transition-colors ${notification.lu ? 'bg-off-white border-line' : 'bg-ok-bg border-green-300'}`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[12px] font-bold text-ink">{notification.titre}</p>
-                              <p className="text-[10px] text-ink-soft mt-1 leading-relaxed">{notification.texte}</p>
-                            </div>
-                            {!notification.lu && <span className="w-2.5 h-2.5 rounded-full bg-green-500 mt-1 shrink-0" />}
-                          </div>
-                          <p className="text-[9px] text-ink-soft mt-2">{notification.heure}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
             {children}
+            <BoutonRemonter />
           </main>
         </div>
       </div>

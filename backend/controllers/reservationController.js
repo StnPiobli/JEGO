@@ -738,23 +738,56 @@ async function venteGuichet(req, res) {
     const prixTotalClient = prixAgenceFinal;
 
     const telNormalise = normaliserTelephone(telephone_client);
+    const [prenomSaisi, ...resteSaisi] = nom_client.trim().split(' ');
+    const nomSaisi = resteSaisi.join(' ') || prenomSaisi;
+
     let voyageurId;
-    const existant = await client.query(`SELECT id FROM voyageurs WHERE telephone = $1`, [telNormalise]);
+    // Recherche sur les 9 chiffres finaux : les numéros ont été
+    // enregistrés dans des écritures variées, et un guichetier ne peut
+    // pas deviner laquelle.
+    const existant = await client.query(
+      `SELECT id, cree_par_guichet FROM voyageurs
+       WHERE RIGHT(REGEXP_REPLACE(telephone, '[^0-9]', '', 'g'), 9) = RIGHT($1, 9)`,
+      [telNormalise]
+    );
     if (existant.rows.length > 0) {
       voyageurId = existant.rows[0].id;
+
+      // Le nom et l'email saisis au guichet mettent à jour le compte —
+      // mais UNIQUEMENT s'il a été créé au guichet. Sur un vrai compte,
+      // le voyageur seul décide de son nom : un guichetier ne doit pas
+      // pouvoir le renommer en vendant un billet.
+      if (existant.rows[0].cree_par_guichet) {
+        await client.query(
+          `UPDATE voyageurs
+           SET nom = $1, prenom = $2,
+               email = COALESCE(NULLIF($3, ''), email),
+               mis_a_jour_le = NOW()
+           WHERE id = $4`,
+          [nomSaisi, prenomSaisi, (email_client || '').trim().toLowerCase(), voyageurId]
+        );
+      } else if (email_client) {
+        // Compte réel sans email connu : on complète, sans jamais
+        // écraser une adresse déjà renseignée.
+        await client.query(
+          `UPDATE voyageurs SET email = COALESCE(email, $1), mis_a_jour_le = NOW()
+           WHERE id = $2`,
+          [email_client.trim().toLowerCase(), voyageurId]
+        );
+      }
     } else {
       // Compte "fantôme" : le guichet ne collecte ni email ni date/lieu de
       // naissance (colonnes rendues nullables en migration pour ce cas
       // précis). Le mot de passe est un hash bcrypt d'une valeur aléatoire
       // inutilisable -- ce compte ne pourra jamais se connecter par
       // mot de passe tant que le voyageur ne complète pas son profil.
-      const [prenom, ...resteNom] = nom_client.trim().split(' ');
       const motDePasseInutilisable = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
       const nouveau = await client.query(
-        `INSERT INTO voyageurs (nom, prenom, telephone, mot_de_passe, cree_par_guichet)
-         VALUES ($1, $2, $3, $4, true)
+        `INSERT INTO voyageurs (nom, prenom, telephone, email, mot_de_passe, cree_par_guichet)
+         VALUES ($1, $2, $3, $4, $5, true)
          RETURNING id`,
-        [resteNom.join(' ') || prenom, prenom, telNormalise, motDePasseInutilisable]
+        [nomSaisi, prenomSaisi, telNormalise,
+         (email_client || '').trim().toLowerCase() || null, motDePasseInutilisable]
       );
       voyageurId = nouveau.rows[0].id;
     }
@@ -791,6 +824,11 @@ async function venteGuichet(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Vrai tant qu'aucun email n'a été demandé ; passe à false si
+    // l'envoi échoue, pour que le guichetier le sache au lieu de croire
+    // le billet parti.
+    let emailEnvoye = true;
 
     if (email_client) {
       const trajetInfo = await pool.query(
@@ -840,16 +878,17 @@ async function venteGuichet(req, res) {
         console.error('⚠️ [PDF billet] Échec de génération :', err.message);
       }
 
-      envoyerEmailDirect(
+      emailEnvoye = await envoyerEmailDirect(
         email_client,
         `Confirmation de billet — ${billet.rows[0].numero}`,
         `Bonjour ${nom_client},\n\nVotre billet est confirmé, vous le trouverez en pièce jointe (PDF avec QR code à présenter au chauffeur).\n\nTrajet : ${ti ? `${ti.depart} → ${ti.arrivee}` : ''}\nDate : ${dateFr}${ti ? ` à ${heureFr}` : ''}\nSiège : ${siege.numero}\nMontant payé : ${prixTotalClient} FCFA\nNuméro de billet : ${billet.rows[0].numero}\n\nBon voyage avec JEGO !`,
         pieceJointe
-      ).catch(() => {});
+      ).catch(() => false);
     }
 
     res.status(201).json({
       message: 'Vente au guichet enregistrée',
+      email_envoye: emailEnvoye,
       billet: {
         id: billetId,
         numero: billet.rows[0].numero,

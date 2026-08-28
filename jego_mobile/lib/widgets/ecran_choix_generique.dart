@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// Widget partage : liste a choix unique avec en-tete premium. Utilise
 /// par Theme, Devise, Unites. Les options desactivees sont affichees
@@ -89,7 +90,7 @@ class _EcranChoixGeneriqueState extends State<EcranChoixGenerique> {
                             color: JegoTheme.champ,
                             borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                           ),
-                          child: Text('Bientot disponible',
+                          child: Text(Strings.t('bientot_disponible'),
                               style: TextStyle(color: JegoTheme.texteTernaire, fontSize: 10)),
                         ),
                     ],

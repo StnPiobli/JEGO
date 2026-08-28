@@ -14,10 +14,13 @@ async function recupererPaliers() {
   );
   const p = {};
   params.rows.forEach(r => { p[r.cle] = parseInt(r.valeur); });
+  // 0 est une valeur VALIDE : on ne retombe sur le defaut que si le
+  // parametre est absent ou illisible (NaN), jamais quand il vaut 0.
+  const lire = (cle, defaut) => Number.isInteger(p[cle]) ? p[cle] : defaut;
   return {
-    reductionPoints: p['points_palier_reduction_points'] || 500,
-    reductionFcfa: p['points_palier_reduction_fcfa'] || 500,
-    gratuitPoints: p['points_palier_gratuit_points'] || 1000
+    reductionPoints: lire('points_palier_reduction_points', 500),
+    reductionFcfa: lire('points_palier_reduction_fcfa', 500),
+    gratuitPoints: lire('points_palier_gratuit_points', 1000)
   };
 }
 

@@ -76,7 +76,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
             margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: JegoTheme.fondCarte,
               borderRadius: BorderRadius.circular(JegoTheme.rGrand),
             ),
             child: Column(
@@ -93,7 +93,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                 ),
                 Text(
                   Strings.t('choisir_annee'),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: JegoTheme.texte,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
@@ -128,7 +128,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                           builder: (context, i) => Center(
                             child: Text(
                               '${annees[i]}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontSize: 20,
                                 fontWeight: FontWeight.w800,
@@ -210,7 +210,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
         margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: JegoTheme.fondCarte,
           borderRadius: BorderRadius.circular(JegoTheme.rGrand),
           boxShadow: [
             BoxShadow(
@@ -240,14 +240,14 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                     children: [
                       Text(
                         nomMois[0].toUpperCase() + nomMois.substring(1),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 16.5,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.keyboard_arrow_down_rounded,
+                      Icon(Icons.keyboard_arrow_down_rounded,
                           size: 20, color: JegoTheme.vert),
                     ],
                   ),
@@ -271,7 +271,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                         child: Center(
                           child: Text(
                             j,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: JegoTheme.texteTernaire,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w700,

@@ -33,12 +33,20 @@ export default function Paiements() {
       const lignes = (rep.versements || []) as Record<string, unknown>[];
       setVersements(
         lignes.map((v) => {
-          const date = String(v.date_depart ?? '').split('T')[0];
+          // Date de VENTE : un billet vendu aujourd'hui pour un voyage
+          // dans trois jours est un encaissement d'aujourd'hui.
+          const date = String(v.date_vente ?? '').split('T')[0];
+          const dateVoyage = String(v.date_depart ?? '').split('T')[0];
           const heure = String(v.heure_depart ?? '').slice(0, 5);
+          const voyageLisible = dateVoyage
+            ? dateVoyage.split('-').reverse().join('/')
+            : '';
           return {
-            id: String(v.trajet_id),
+            // Un même trajet vendu sur plusieurs jours donne une ligne
+            // par journée : la clé doit donc porter les deux.
+            id: `${v.trajet_id}-${date}`,
             date,
-            trajet: `${v.depart ?? ''} → ${v.arrivee ?? ''} · ${heure}`,
+            trajet: `${v.depart ?? ''} → ${v.arrivee ?? ''} · voyage du ${voyageLisible} à ${heure}`,
             numeroVoyage: String(v.numero ?? ''),
             trajetId: String(v.trajet_id),
             // Net agence : la commission JEGO n'apparaît jamais ici.
@@ -86,7 +94,7 @@ export default function Paiements() {
 
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div className="bg-paper rounded-2xl border border-line p-6">
-            <p className="text-[11px] text-ink-soft mb-1">Total ce jour</p>
+            <p className="text-[11px] text-ink-soft mb-1">Encaisse ce jour</p>
             <p className="text-[26px] font-extrabold text-green-700">{total.toLocaleString('fr-FR')} FCFA</p>
           </div>
           <div className="bg-paper rounded-2xl border border-line p-6">
@@ -118,7 +126,7 @@ export default function Paiements() {
               </div>
             ))}
             {versementsDuJour.length === 0 && (
-              <div className="p-10 text-center"><p className="text-[13px] text-ink-soft">Aucun versement ce jour.</p></div>
+              <div className="p-10 text-center"><p className="text-[13px] text-ink-soft">Aucune vente ce jour.</p></div>
             )}
           </div>
         </div>

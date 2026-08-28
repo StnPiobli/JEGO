@@ -23,19 +23,19 @@ class EcranConditionsUtilisation extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     Strings.t('cgu_titre'),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
@@ -51,7 +51,7 @@ class EcranConditionsUtilisation extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: JegoTheme.fondCarte,
                       borderRadius:
                           BorderRadius.circular(JegoTheme.rMoyen),
                       border:
@@ -74,7 +74,7 @@ class EcranConditionsUtilisation extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           Strings.t('cgu_maj'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: JegoTheme.texteTernaire,
                             fontSize: 11,
                           ),
@@ -99,7 +99,7 @@ class EcranConditionsUtilisation extends StatelessWidget {
         children: [
           Text(
             titre,
-            style: const TextStyle(
+            style: TextStyle(
               color: JegoTheme.texte,
               fontSize: 14,
               fontWeight: FontWeight.w800,
@@ -108,7 +108,7 @@ class EcranConditionsUtilisation extends StatelessWidget {
           const SizedBox(height: 5),
           Text(
             texte,
-            style: const TextStyle(
+            style: TextStyle(
               color: JegoTheme.texteSecondaire,
               fontSize: 12.5,
               height: 1.55,

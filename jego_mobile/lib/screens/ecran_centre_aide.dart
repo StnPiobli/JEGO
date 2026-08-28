@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 class EcranCentreAide extends StatelessWidget {
   const EcranCentreAide({super.key});
@@ -24,8 +25,8 @@ class EcranCentreAide extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Centre d\'aide',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('aide_titre'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: ListView(
@@ -45,7 +46,7 @@ class EcranCentreAide extends StatelessWidget {
                 iconColor: JegoTheme.vert,
                 collapsedIconColor: JegoTheme.texteTernaire,
                 title: Text(q.$1,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JegoTheme.texte, fontSize: 13.5, fontWeight: FontWeight.w700)),
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,

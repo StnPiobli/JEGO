@@ -73,6 +73,10 @@ export default function PlanSieges() {
   const [quantiteBagages, setQuantiteBagages] = useState(0);
   const [prixBagageConfigure, setPrixBagageConfigure] = useState(0);
   const [etapeVente, setEtapeVente] = useState<'formulaire' | 'confirmation'>('formulaire');
+  // Le serveur dit si l'email est REELLEMENT parti. L'echec etait
+  // auparavant avale en silence, et le guichetier annoncait au client un
+  // billet envoye qui n'arrivait jamais.
+  const [emailEnvoye, setEmailEnvoye] = useState(true);
 
   // Charge les infos du trajet + la liste des tronçons vendables --
   // sans encore charger les sièges (inutiles tant que le tronçon n'est
@@ -223,7 +227,7 @@ export default function PlanSieges() {
       // par le serveur -- pas de ressaisie manuelle du montant côté
       // agence. Ce qui est affiché ici n'est qu'une estimation à
       // titre indicatif pour l'agent.
-      await apiFetch(`/api/reservations/trajets/${trajetId}/vente-guichet`, {
+      const vente = await apiFetch(`/api/reservations/trajets/${trajetId}/vente-guichet`, {
         method: 'POST',
         body: JSON.stringify({
           siege_id: siegeAVendre.id,
@@ -236,6 +240,7 @@ export default function PlanSieges() {
           quantite_bagages: quantiteBagages > 0 ? quantiteBagages : undefined,
         }),
       });
+      setEmailEnvoye(vente?.email_envoye !== false);
       setSieges((prev) => prev.map((s) => (s.id === siegeAVendre.id ? { ...s, statutVente: 'vendu_physique', sourceVente: 'physique' } : s)));
       setEtapeVente('confirmation');
     } catch (e) {
@@ -461,11 +466,18 @@ export default function PlanSieges() {
                 </div>
                 <p className="text-sm font-bold text-ink mb-1">Siege {siegeAVendre.numero} vendu</p>
                 <p className="text-[11.5px] text-purple font-semibold mb-2">{tronconVerrouille?.libelle}</p>
-                <p className="text-xs text-ink-soft mb-6">
-                  {emailClient
-                    ? `Email de confirmation envoye a ${emailClient}.`
-                    : 'Aucun email fourni -- confirmation non envoyee.'}
-                </p>
+                {emailClient && !emailEnvoye ? (
+                  <p className="text-xs text-red font-semibold mb-6">
+                    Le billet est bien vendu, mais l&apos;email n&apos;a pas pu partir a {emailClient}.
+                    Remettez le billet imprime au client.
+                  </p>
+                ) : (
+                  <p className="text-xs text-ink-soft mb-6">
+                    {emailClient
+                      ? `Email de confirmation envoye a ${emailClient}.`
+                      : 'Aucun email fourni -- confirmation non envoyee.'}
+                  </p>
+                )}
                 <button onClick={fermerVente} className="w-full rounded-xl bg-green-700 text-white font-bold text-sm py-3.5">Fermer</button>
               </div>
             )}

@@ -30,7 +30,17 @@ class ApiConfig {
 
   static String get baseUrl {
     if (baseUrlProduction.isNotEmpty) return baseUrlProduction;
-    if (kIsWeb) return 'http://localhost:$port';
+    // Sur le web, on vise la machine qui sert la page, pas « localhost ».
+    // Depuis un téléphone du même réseau, « localhost » désignerait le
+    // téléphone lui-même et aucune requête n'aboutirait.
+    if (kIsWeb) {
+      // Page servie en HTTPS (test scan sur telephone, camera oblige) :
+      // on reste sur la MEME origine, qui relaie /api vers le backend.
+      // Appeler http://host:3000 depuis une page https serait du
+      // contenu mixte, bloque par le navigateur.
+      if (Uri.base.scheme == 'https') return Uri.base.origin;
+      return 'http://${Uri.base.host}:$port';
+    }
     try {
       if (Platform.isAndroid) return 'http://10.0.2.2:$port';
     } catch (_) {
@@ -44,6 +54,10 @@ class ApiConfig {
   static String get villesAutocompletion => '$baseUrl/api/villes/autocompletion';
   static String get inscription => '$baseUrl/api/voyageurs/inscription';
   static String get connexion => '$baseUrl/api/voyageurs/connexion';
+  static String get connexionGoogle => '$baseUrl/api/voyageurs/connexion-google';
+  static String get mdpDemande => '$baseUrl/api/voyageurs/mot-de-passe/demande';
+  static String get mdpReinitialiser => '$baseUrl/api/voyageurs/mot-de-passe/reinitialiser';
+  static String get notifications => '$baseUrl/api/voyageurs/notifications';
   static String get profil => '$baseUrl/api/voyageurs/profil';
   static String get historique => '$baseUrl/api/voyageurs/historique';
   static String get verrou => '$baseUrl/api/reservations/verrou';
@@ -52,11 +66,21 @@ class ApiConfig {
   static String get avis => '$baseUrl/api/avis';
   static String get litiges => '$baseUrl/api/litiges';
   static String get denonciations => '$baseUrl/api/denonciations';
+  static String get deconnexion => '$baseUrl/api/voyageurs/deconnexion';
   static String get signalements => '$baseUrl/api/signalements';
   static String get connexionChauffeur => '$baseUrl/api/chauffeurs/connexion';
   static String get mesTrajetsChauffeur => '$baseUrl/api/chauffeurs/mes-trajets';
-  static String planTrajet(String trajetId) =>
-      '$baseUrl/api/reservations/trajets/$trajetId/plan';
+  static String planTrajet(String trajetId, {int? ordreDepart, int? ordreArrivee}) {
+    final base = '$baseUrl/api/reservations/trajets/$trajetId/plan';
+    // Sans troncon, le serveur retombe sur la ligne entiere : un siege
+    // vendu sur n'importe quel bout de la ligne ressort alors comme pris,
+    // meme pour un troncon qu'il ne recoupe pas.
+    if (ordreDepart == null || ordreArrivee == null) return base;
+    return '$base?ordre_depart=$ordreDepart&ordre_arrivee=$ordreArrivee';
+  }
+  static String get portefeuille => '$baseUrl/api/voyageurs/portefeuille';
+  static String get recupererBillet =>
+      '$baseUrl/api/voyageurs/billets/recuperer';
   static String agence(String id) => '$baseUrl/api/agences/$id';
   static String avisAgence(String id) => '$baseUrl/api/avis/agences/$id';
 }
@@ -99,6 +123,14 @@ class ApiService {
     final message = (corps is Map && corps['error'] != null)
         ? corps['error'].toString()
         : 'Une erreur est survenue (code ${r.statusCode})';
+
+    // Jeton expire ou revoque : la session enregistree ne vaut plus
+    // rien. On la ferme au lieu de laisser une connexion de facade qui
+    // echouerait sur chaque ecran.
+    if (r.statusCode == 401 && Session.token != null) {
+      Session.jetonRefuse();
+    }
+
     throw ErreurApi(message, r.statusCode);
   }
 
@@ -149,13 +181,14 @@ class ApiService {
   // AUTHENTIFICATION VOYAGEUR
   // ═══════════════════════════════════════════════════
 
-  /// Le backend attend le TÉLÉPHONE, pas l'email.
+  /// L'identifiant est indifféremment le numéro de téléphone, dans
+  /// n'importe quelle écriture, ou l'adresse email.
   static Future<void> connecter({
     required String telephone,
     required String motDePasse,
   }) async {
     final rep = await _post(ApiConfig.connexion, {
-      'telephone': telephone,
+      'identifiant': telephone,
       'mot_de_passe': motDePasse,
     });
     final v = rep['voyageur'] ?? {};
@@ -196,6 +229,104 @@ class ApiService {
     // Inscription réussie : on enchaîne sur la connexion pour obtenir
     // le jeton, l'utilisateur n'a pas à ressaisir ses identifiants.
     await connecter(telephone: telephone, motDePasse: motDePasse);
+  }
+
+  /// Connexion par compte Google.
+  ///
+  /// Renvoie `null` quand la session est ouverte. Renvoie les
+  /// informations du compte Google quand il reste à le créer : Google ne
+  /// donne jamais de numéro de téléphone, et c'est l'identifiant de
+  /// connexion chez nous. L'application le demande alors, puis rappelle
+  /// cette méthode avec.
+  static Future<Map<String, dynamic>?> connecterGoogle({
+    required String jeton,
+    String? telephone,
+  }) async {
+    final rep = await _post(ApiConfig.connexionGoogle, {
+      'jeton': jeton,
+      if (telephone != null && telephone.isNotEmpty) 'telephone': telephone,
+    });
+
+    if (rep['inscription_a_completer'] == true) {
+      return Map<String, dynamic>.from(rep);
+    }
+
+    final v = rep['voyageur'] ?? {};
+    Session.ouvrir(
+      pNom: (v['nom'] ?? '').toString(),
+      pPrenom: (v['prenom'] ?? '').toString(),
+      pTelephone: (v['telephone'] ?? '').toString(),
+      pEmail: (v['email'] ?? '').toString(),
+      pToken: rep['token']?.toString(),
+    );
+    if (v['id'] != null) Session.voyageurId = v['id'].toString();
+    if (v['points_fidelite'] != null) {
+      Session.pointsFidelite = int.tryParse('${v['points_fidelite']}') ?? 0;
+    }
+    return null;
+  }
+
+  /// Demande un code de réinitialisation. La réponse est volontairement
+  /// la même que le compte existe ou non : cette route ne doit pas
+  /// permettre de savoir qui est inscrit chez JEGO.
+  static Future<String> demanderReinitialisation(String identifiant) async {
+    final rep = await _post(ApiConfig.mdpDemande, {'identifiant': identifiant});
+    return (rep['message'] ?? '').toString();
+  }
+
+  static Future<String> reinitialiserMotDePasse({
+    required String identifiant,
+    required String code,
+    required String nouveauMotDePasse,
+  }) async {
+    final rep = await _post(ApiConfig.mdpReinitialiser, {
+      'identifiant': identifiant,
+      'code': code,
+      'nouveau_mot_de_passe': nouveauMotDePasse,
+    });
+    return (rep['message'] ?? '').toString();
+  }
+
+  // ═══════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════
+  static Future<List<Map<String, dynamic>>> mesNotifications() async {
+    final rep = await _get(ApiConfig.notifications, authentifie: true);
+    final liste = (rep['notifications'] as List?) ?? [];
+    return liste.map<Map<String, dynamic>>((n) => Map<String, dynamic>.from(n)).toList();
+  }
+
+  /// Sans identifiant, marque toutes les notifications comme lues.
+  static Future<void> marquerNotificationsLues({String? id}) async {
+    await _put(
+      id == null
+          ? '${ApiConfig.notifications}/lues'
+          : '${ApiConfig.notifications}/$id/lue',
+      {},
+    );
+  }
+
+  /// Sans identifiant, supprime toutes les notifications du voyageur.
+  static Future<void> supprimerNotification({String? id}) async {
+    final url = id == null ? ApiConfig.notifications : '${ApiConfig.notifications}/$id';
+    try {
+      final r = await http
+          .delete(Uri.parse(url), headers: _entetes(authentifie: true))
+          .timeout(_delai);
+      _traiter(r);
+    } on ErreurApi {
+      rethrow;
+    } catch (e) {
+      throw ErreurApi('Connexion au serveur impossible. Vérifiez votre réseau.');
+    }
+  }
+
+  /// Met à jour un réglage du profil. Le serveur renvoie le profil
+  /// complet, seule source de vérité sur ce qui a été retenu.
+  static Future<Map<String, dynamic>> modifierProfil(
+      Map<String, dynamic> champs) async {
+    final rep = await _put(ApiConfig.profil, champs);
+    return Map<String, dynamic>.from(rep['voyageur'] ?? rep);
   }
 
   static Future<Map<String, dynamic>> monProfil() async {
@@ -297,8 +428,35 @@ class ApiService {
   // ═══════════════════════════════════════════════════
   // PLAN DU BUS ET SIÈGES
   // ═══════════════════════════════════════════════════
-  static Future<Map<String, dynamic>> planTrajet(String trajetId) async {
-    final rep = await _get(ApiConfig.planTrajet(trajetId));
+  /// Recupere un billet sur un autre appareil, par son seul numero
+  /// (BIL-XXXXX-XXXXX). Aucune connexion requise. Renvoie le billet,
+  /// forme serveur, ou leve ErreurApi avec le message a afficher.
+  static Future<Map<String, dynamic>> recupererBillet({
+    required String numero,
+  }) async {
+    final rep = await _post(ApiConfig.recupererBillet, {'numero': numero});
+    return Map<String, dynamic>.from(rep['billet'] ?? {});
+  }
+
+  /// Signale la fin de session au serveur (statistiques d'activite).
+  /// Best-effort : on n'attend pas, la deconnexion locale prime.
+  static void signalerDeconnexion() {
+    // A appeler AVANT d'effacer le token : l'entete d'authentification
+    // lit Session.token, encore present a cet instant.
+    _post(ApiConfig.deconnexion, const {}, authentifie: true)
+        .catchError((_) => <String, dynamic>{});
+  }
+
+    /// Registre des remboursements du voyageur : solde et mouvements.
+  static Future<Map<String, dynamic>> monPortefeuille() async {
+    final rep = await _get(ApiConfig.portefeuille, authentifie: true);
+    return Map<String, dynamic>.from(rep);
+  }
+
+  static Future<Map<String, dynamic>> planTrajet(String trajetId,
+      {int? ordreDepart, int? ordreArrivee}) async {
+    final rep = await _get(ApiConfig.planTrajet(trajetId,
+        ordreDepart: ordreDepart, ordreArrivee: ordreArrivee));
     return Map<String, dynamic>.from(rep);
   }
 

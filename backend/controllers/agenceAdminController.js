@@ -34,9 +34,10 @@ async function listerAgencesAdmin(req, res) {
     }
 
     const resultat = await pool.query(
-      `SELECT a.id, a.nom, a.email, a.telephone, a.adresse, a.ville,
+      `SELECT a.id, a.numero, a.nom, a.email, a.telephone, a.adresse, a.ville,
               a.registre_commerce, a.statut, a.cree_le,
-              a.desactivee_le, a.motif_desactivation,
+              a.desactivee_le, a.motif_desactivation, a.refuse_le,
+              TO_CHAR(COALESCE(a.refuse_le, a.desactivee_le), 'DD/MM/YYYY') AS date_fin,
               MAX(t.date_depart) AS dernier_trajet,
               (MAX(t.date_depart) >= CURRENT_DATE + INTERVAL '14 days') AS a_jour,
               (SELECT COUNT(*) FROM documents_agence d WHERE d.agence_id = a.id) AS nb_documents,

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { Panel, Badge, StatCard } from "@/components/ui";
 import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch } from "@/lib/api";
+import { formatTelephone } from "@/lib/format";
 
 type VoyageurPoints = {
   id: string; nom: string; prenom: string; telephone: string;
@@ -90,7 +91,7 @@ export default function PointsPage() {
                 {voyageurs.map((v) => (
                   <tr key={v.id} className="border-t border-line">
                     <td className="px-[18px] py-2.5 text-[13px]"><b>{v.prenom} {v.nom}</b></td>
-                    <td className="px-[18px] py-2.5 text-[12px] font-mono">{v.telephone}</td>
+                    <td className="px-[18px] py-2.5 text-[12px] font-mono whitespace-nowrap">{formatTelephone(v.telephone)}</td>
                     <td className="px-[18px] py-2.5"><Badge color="green">{v.solde} pts</Badge></td>
                     <td className="px-[18px] py-2.5 text-[13px] font-mono">{v.gagnes}</td>
                     <td className="px-[18px] py-2.5 text-[13px] font-mono">{v.utilises}</td>

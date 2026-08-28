@@ -148,7 +148,7 @@ class _BanniereWidgetState extends State<_BanniereWidget>
                             Container(
                               width: 6,
                               height: 6,
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                 color: JegoTheme.vert,
                                 shape: BoxShape.circle,
                               ),
@@ -180,7 +180,7 @@ class _BanniereWidgetState extends State<_BanniereWidget>
                             Container(
                               width: 38,
                               height: 38,
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
@@ -204,7 +204,7 @@ class _BanniereWidgetState extends State<_BanniereWidget>
                                     widget.titre,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 14,
                                       color: JegoTheme.texte,
@@ -235,7 +235,7 @@ class _BanniereWidgetState extends State<_BanniereWidget>
                               value: 1 - _duree.value,
                               minHeight: 3,
                               backgroundColor: JegoTheme.champ,
-                              valueColor: const AlwaysStoppedAnimation(
+                              valueColor: AlwaysStoppedAnimation(
                                   JegoTheme.vert),
                             ),
                           ),

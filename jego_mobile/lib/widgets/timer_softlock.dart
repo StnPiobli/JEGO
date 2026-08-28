@@ -24,7 +24,8 @@ int _instancesActives = 0;
 // Empeche deux liberations simultanees (dialogue + expiration).
 bool _liberationEnCours = false;
 
-class _TimerSoftLockState extends State<TimerSoftLock> {
+class _TimerSoftLockState extends State<TimerSoftLock>
+    with WidgetsBindingObserver {
   Timer? _t;
   bool _proprietaire = false;
   bool _alerteMontree = false;
@@ -36,21 +37,33 @@ class _TimerSoftLockState extends State<TimerSoftLock> {
     if (_instancesActives == 0) {
       _proprietaire = true;
       _instancesActives = 1;
+      WidgetsBinding.instance.addObserver(this);
       _t = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     }
   }
 
+  /// Retour de l'arriere-plan : le systeme a gele nos tics pendant
+  /// l'absence. On relit l'horloge tout de suite plutot que d'attendre
+  /// le prochain tic, et le verrou tombe s'il a expire entre-temps.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState etat) {
+    if (etat == AppLifecycleState.resumed) _tick();
+  }
+
   void _tick() {
     if (!SoftLock.actif.value || SoftLock.suspendu.value) return;
-    final s = SoftLock.secondes.value;
+    final s = SoftLock.restant;
+    SoftLock.secondes.value = s;
     if (s <= 0) {
       _liberer();
-    } else {
-      SoftLock.secondes.value = s - 1;
-      if (s - 1 == seuilAlerte && !_alerteMontree) {
-        _alerteMontree = true;
-        _demanderPresence();
-      }
+      return;
+    }
+    // Comparaison large, pas une egalite : au retour d'une mise en
+    // veille le decompte saute plusieurs secondes d'un coup et le
+    // seuil exact ne serait jamais atteint.
+    if (s <= seuilAlerte && !_alerteMontree) {
+      _alerteMontree = true;
+      _demanderPresence();
     }
   }
 
@@ -116,7 +129,7 @@ class _TimerSoftLockState extends State<TimerSoftLock> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.timer_rounded,
+                  Icon(Icons.timer_rounded,
                       color: JegoTheme.vert, size: 34),
                   const SizedBox(height: 10),
                   Text(Strings.t('toujours_la_titre'),
@@ -125,7 +138,7 @@ class _TimerSoftLockState extends State<TimerSoftLock> {
                   const SizedBox(height: 6),
                   Text(Strings.t('toujours_la_texte'),
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texteSecondaire, fontSize: 12.5)),
                   const SizedBox(height: 16),
                   BoutonTactile(
@@ -171,6 +184,7 @@ class _TimerSoftLockState extends State<TimerSoftLock> {
   void dispose() {
     if (_proprietaire) {
       _t?.cancel();
+      WidgetsBinding.instance.removeObserver(this);
       _instancesActives = 0;
     }
     super.dispose();
@@ -200,19 +214,19 @@ class _TimerSoftLockState extends State<TimerSoftLock> {
                   alignment: Alignment.center,
                   padding: const EdgeInsets.symmetric(vertical: 7),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.6),
+                    color: JegoTheme.fondCarte.withOpacity(0.6),
                     borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                     border: Border.all(
-                        color: Colors.white.withOpacity(0.9), width: 0.8),
+                        color: JegoTheme.fondCarte.withOpacity(0.9), width: 0.8),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.lock_clock_rounded,
+                      Icon(Icons.lock_clock_rounded,
                           size: 14, color: JegoTheme.vert),
                       const SizedBox(width: 5),
                       Text(_fmt(s),
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texte,
                               fontSize: 12.5,
                               fontWeight: FontWeight.w800,

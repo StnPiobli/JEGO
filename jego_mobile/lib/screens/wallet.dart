@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/wallet_store.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// Ecran Portefeuille JEGO : solde credite par les remboursements
 /// d'annulation, historique des mouvements. Volontairement SANS recharge,
@@ -15,7 +16,14 @@ class EcranWallet extends StatefulWidget {
 }
 
 class _EcranWalletState extends State<EcranWallet> {
-  bool _masque = false;
+  @override
+  void initState() {
+    super.initState();
+    // Le solde vient du serveur : on le relit a chaque ouverture plutot
+    // que d'afficher celui de la derniere visite.
+    WalletStore.charger();
+  }
+
 
   String _fmt(int montant) {
     final s = montant.toString();
@@ -40,6 +48,38 @@ class _EcranWalletState extends State<EcranWallet> {
     }
   }
 
+  /// Le motif vient du serveur sous forme de code ('billet_flexible',
+  /// 'retard_excessif', 'annulation_agence'). On le dit en francais
+  /// plutot que d'exposer l'etiquette technique.
+  String _libelleMotif(String code) {
+    switch (code) {
+      case 'billet_flexible':
+        return Strings.t('motif_billet_flexible');
+      case 'retard_excessif':
+        return Strings.t('motif_retard');
+      case 'litige':
+        return Strings.t('motif_litige');
+      default:
+        // Annulation par l'agence : le motif porte alors le code de
+        // suppression choisi par l'agence, qui ne veut rien dire ici.
+        return Strings.t('motif_annulation_agence');
+    }
+  }
+
+  /// Le trajet concerne, et a defaut le numero du billet : sans l'un ni
+  /// l'autre, un montant seul ne se rattache a rien.
+  String _trajetEtReference(Map<String, dynamic> m) {
+    final depart = '${m['depart'] ?? ''}';
+    final arrivee = '${m['arrivee'] ?? ''}';
+    final numero = '${m['numero_billet'] ?? ''}';
+    if (depart.isNotEmpty && arrivee.isNotEmpty) {
+      return numero.isEmpty
+          ? '$depart → $arrivee'
+          : '$depart → $arrivee · $numero';
+    }
+    return numero.isEmpty ? '${m['reference'] ?? ''}' : numero;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -55,10 +95,10 @@ class _EcranWalletState extends State<EcranWallet> {
                 const SizedBox(height: 22),
                 Row(
                   children: [
-                    const Icon(Icons.receipt_long_rounded,
+                    Icon(Icons.receipt_long_rounded,
                         size: 16, color: JegoTheme.vert),
                     const SizedBox(width: 6),
-                    const Text(
+                    Text(
                       'HISTORIQUE',
                       style: TextStyle(
                           color: JegoTheme.vert,
@@ -89,7 +129,7 @@ class _EcranWalletState extends State<EcranWallet> {
                                   size: 34, color: JegoTheme.texteTernaire),
                               const SizedBox(height: 10),
                               Text(
-                                'Aucun mouvement pour l\'instant.',
+                                Strings.t('wallet_aucun_mouvement'),
                                 style: TextStyle(
                                     color: JegoTheme.texteSecondaire),
                               ),
@@ -121,7 +161,7 @@ class _EcranWalletState extends State<EcranWallet> {
                                   borderRadius:
                                       BorderRadius.circular(JegoTheme.rPetit),
                                 ),
-                                child: const Icon(Icons.arrow_downward_rounded,
+                                child: Icon(Icons.arrow_downward_rounded,
                                     color: JegoTheme.vert, size: 20),
                               ),
                               const SizedBox(width: 12),
@@ -130,8 +170,8 @@ class _EcranWalletState extends State<EcranWallet> {
                                   crossAxisAlignment:
                                       CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'Remboursement trajet',
+                                    Text(
+                                      _libelleMotif('${m['motif']}'),
                                       style: TextStyle(
                                           color: JegoTheme.texte,
                                           fontSize: 13.5,
@@ -139,8 +179,7 @@ class _EcranWalletState extends State<EcranWallet> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      '${m['motif']}'
-                                          .replaceFirst('Annulation ', ''),
+                                      _trajetEtReference(m),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -154,8 +193,8 @@ class _EcranWalletState extends State<EcranWallet> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    '+${_fmt(m['montant'] as int)} FCFA',
-                                    style: const TextStyle(
+                                    '+${_fmt(int.tryParse('${m['montant']}') ?? 0)} FCFA',
+                                    style: TextStyle(
                                         color: JegoTheme.vert,
                                         fontSize: 13.5,
                                         fontWeight: FontWeight.w800),
@@ -197,7 +236,7 @@ class _EcranWalletState extends State<EcranWallet> {
           Container(
             width: 38,
             height: 38,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: JegoTheme.vert,
               shape: BoxShape.circle,
             ),
@@ -205,9 +244,9 @@ class _EcranWalletState extends State<EcranWallet> {
                 color: Colors.white, size: 18),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Ce solde provient uniquement de vos remboursements et n\'est utilisable que pour vos paiements JEGO.',
+              Strings.t('info_portefeuille_texte'),
               style: TextStyle(
                   color: JegoTheme.texte,
                   fontSize: 11.5,
@@ -225,7 +264,7 @@ class _EcranWalletState extends State<EcranWallet> {
       clipper: _VagueClipperWallet(),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -242,7 +281,7 @@ class _EcranWalletState extends State<EcranWallet> {
                 height: 160,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.06),
+                  color: JegoTheme.fondCarte.withOpacity(0.06),
                 ),
               ),
             ),
@@ -271,7 +310,7 @@ class _EcranWalletState extends State<EcranWallet> {
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.16),
+                            color: JegoTheme.fondCarte.withOpacity(0.16),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.arrow_back_rounded,
@@ -285,7 +324,7 @@ class _EcranWalletState extends State<EcranWallet> {
                         Container(
                           padding: const EdgeInsets.all(9),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.16),
+                            color: JegoTheme.fondCarte.withOpacity(0.16),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -295,22 +334,11 @@ class _EcranWalletState extends State<EcranWallet> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          'Solde disponible',
+                          Strings.t('wallet_total_rembourse'),
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: 13,
                               fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => setState(() => _masque = !_masque),
-                          child: Icon(
-                            _masque
-                                ? Icons.visibility_off_rounded
-                                : Icons.visibility_rounded,
-                            color: Colors.white.withOpacity(0.75),
-                            size: 17,
-                          ),
                         ),
                       ],
                     ),
@@ -318,7 +346,7 @@ class _EcranWalletState extends State<EcranWallet> {
                     ValueListenableBuilder<int>(
                       valueListenable: WalletStore.solde,
                       builder: (context, solde, _) => Text(
-                        _masque ? '••••••' : '${_fmt(solde)} FCFA',
+                        '${_fmt(solde)} FCFA',
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 34,
@@ -331,7 +359,7 @@ class _EcranWalletState extends State<EcranWallet> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.16),
+                        color: JegoTheme.fondCarte.withOpacity(0.16),
                         borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                       ),
                       child: Row(

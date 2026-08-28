@@ -8,6 +8,7 @@ import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/timer_softlock.dart';
 import 'options_reservation.dart';
+import '../widgets/bouton_info.dart';
 
 class EcranSelectionSiege extends StatefulWidget {
   final Map<String, dynamic> offre;
@@ -39,7 +40,10 @@ class EcranSelectionSiege extends StatefulWidget {
 
 class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
   List<Map<String, dynamic>> _sieges = [];
-  final Set<int> _choisis = {};
+  /// Numéros des sièges choisis. Du TEXTE : un siège s'appelle « 1A »
+  /// ou « 10B ». Lus comme des entiers ils valaient tous zéro — tous
+  /// affichaient 0, et en cocher un les cochait tous.
+  final Set<String> _choisis = {};
   bool _verrouActif = false;
   bool _modeAuto = false;
   bool _expire = false;
@@ -53,6 +57,17 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
   /// montant qui fait foi est celui calculé côté serveur.
   static const int fraisChoixSiege = 500;
 
+  /// Disposition du bus : « 2+3 » ou « 2+2 ». Elle dit combien de
+  /// sièges précèdent le couloir. Sans elle, une rangée pleine était
+  /// dessinée d'un bloc, sans allée au milieu.
+  String _disposition = '2+2';
+
+  /// Nombre de sièges avant le couloir, déduit de la disposition.
+  int get _placesAvantCouloir {
+    final gauche = int.tryParse(_disposition.split('+').first.trim());
+    return (gauche != null && gauche > 0) ? gauche : 2;
+  }
+
   /// Supplément premium réel du bus, renvoyé avec le plan.
   int _supplementPremium = 0;
   int get _prixPremium => _supplementPremium;
@@ -60,7 +75,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
   /// Correspondance numéro affiché -> identifiant serveur du siège.
   /// Indispensable : le backend travaille en UUID, l'interface en
   /// numéros de siège.
-  final Map<int, String> _idParNumero = {};
+  final Map<String, String> _idParNumero = {};
 
   @override
   void initState() {
@@ -76,14 +91,18 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
       _erreurPlan = null;
     });
     try {
-      final rep = await ApiService.planTrajet('${widget.offre['id']}');
+      final rep = await ApiService.planTrajet(
+        '${widget.offre['id']}',
+        ordreDepart: int.tryParse('${widget.offre['ordre_depart'] ?? ''}'),
+        ordreArrivee: int.tryParse('${widget.offre['ordre_arrivee'] ?? ''}'),
+      );
       final trajet = Map<String, dynamic>.from(rep['trajet'] ?? {});
       final brut = (rep['sieges'] as List?) ?? [];
 
       _idParNumero.clear();
       final convertis = <Map<String, dynamic>>[];
       for (final s in brut) {
-        final numero = int.tryParse('${s['numero']}') ?? 0;
+        final numero = '${s['numero']}';
         if (s['id'] != null) _idParNumero[numero] = '${s['id']}';
 
         // Traduction des statuts serveur vers ceux attendus par
@@ -115,10 +134,18 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
       }
 
       if (!mounted) return;
+      // Une place retenue a pu partir pendant qu'on remplissait les
+      // options : on la retire plutot que de payer pour elle.
+      final libres = {
+        for (final s in convertis)
+          if (s['statut'] == 'disponible') '${s['numero']}'
+      };
+      _choisis.removeWhere((n) => !libres.contains(n));
       setState(() {
         _sieges = convertis;
         _supplementPremium =
             int.tryParse('${trajet['supplement_premium'] ?? 0}') ?? 0;
+        _disposition = '${trajet['disposition'] ?? '2+2'}';
         _chargement = false;
       });
     } on ErreurApi catch (e) {
@@ -140,7 +167,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
   void _taperSiege(Map<String, dynamic> siege) {
     if (_verrouActif) return;
     if (!_estDisponible(siege)) return;
-    final numero = siege['numero'] as int;
+    final numero = '${siege['numero']}';
     setState(() {
       _modeAuto = false;
       _expire = false;
@@ -164,9 +191,17 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
     return total;
   }
 
-  void _continuer() {
+  Future<void> _continuer() async {
     final pret = _modeAuto || _choisis.length == widget.passagers;
     if (!pret || _verrouActif) return;
+
+    // Etat a restaurer si la personne revient sur cette page. En mode
+    // automatique, _choisis va etre rempli plus bas avec des sieges
+    // attribues : ce ne sont pas des choix, il ne faut pas les
+    // reafficher comme tels au retour.
+    final auto = _modeAuto;
+    final choixManuels = Set<String>.from(_choisis);
+
     setState(() {
       _verrouActif = true;
       _expire = false;
@@ -182,7 +217,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
     if (_modeAuto && _choisis.isEmpty) {
       final libres = _sieges
           .where(_estDisponible)
-          .map((s) => s['numero'] as int)
+          .map((s) => '${s['numero']}')
           .toList()
         ..sort();
       _choisis.addAll(libres.take(widget.passagers));
@@ -192,7 +227,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
 
     // On mémorise l'identifiant serveur de chaque siège retenu :
     // le paiement en a besoin pour réserver la bonne place.
-    final idsChoisis = <int, String>{
+    final idsChoisis = <String, String>{
       for (final n in siegesActuels)
         if (_idParNumero[n] != null) n: _idParNumero[n]!,
     };
@@ -210,7 +245,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
         dateAllerAffichee: widget.dateAller,
         dateRetourAffichee: widget.dateRetour,
       );
-      Navigator.of(context).push(
+      await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => EcranSelectionSiege(
             offre: widget.offreSuivante!,
@@ -220,6 +255,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
           ),
         ),
       );
+      _rendreLaMain(auto, choixManuels);
       return;
     }
 
@@ -244,11 +280,32 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
         dateAllerAffichee: widget.dateAller,
       );
     }
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EcranOptionsReservation(reservation: resa),
       ),
     );
+    _rendreLaMain(auto, choixManuels);
+  }
+
+  /// Retour sur cette page depuis l'etape suivante. Sans cela, le verrou
+  /// pose par _continuer restait actif : les cases de sieges et la case
+  /// « laisser JEGO choisir » ne repondaient plus, le choix precedent
+  /// etait definitif.
+  void _rendreLaMain(bool auto, Set<String> choixManuels) {
+    if (!mounted) return;
+    SoftLock.arreter();
+    setState(() {
+      _verrouActif = false;
+      _expire = false;
+      _modeAuto = auto;
+      _choisis
+        ..clear()
+        ..addAll(auto ? const <String>[] : choixManuels);
+    });
+    // Le plan a pu changer entre-temps : une place libre a l'aller peut
+    // avoir ete vendue pendant qu'on remplissait les options.
+    _chargerPlan();
   }
 
   void _basculerAuto() {
@@ -311,12 +368,12 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: JegoTheme.fondCarte,
                         shape: BoxShape.circle,
                         border:
                             Border.all(color: JegoTheme.bordCarte, width: 1),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
+                      child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
                     ),
                   ),
@@ -324,7 +381,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                   Expanded(
                     child: Text(
                       Strings.t('siege_titre'),
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: JegoTheme.texte,
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -342,7 +399,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                       ),
                       child: Text(
                         widget.etiquette!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.vert,
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -374,7 +431,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                       padding: const EdgeInsets.only(top: 3),
                       child: Text(
                         Strings.t('siege_verrou_expire'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: JegoTheme.danger,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -390,7 +447,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: JegoTheme.fondCarte,
                     borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                     border:
                         Border.all(color: JegoTheme.bordCarte, width: 1),
@@ -400,11 +457,11 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(9),
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: JegoTheme.champ,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                             Icons.sports_motorsports_rounded,
                             size: 20,
                             color: JegoTheme.texteSecondaire),
@@ -412,17 +469,65 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                       const SizedBox(height: 4),
                       Text(
                         Strings.t('conducteur'),
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texteTernaire, fontSize: 10),
                       ),
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.symmetric(vertical: 10),
                         child: Divider(
                             height: 1, color: JegoTheme.bordCarte),
                       ),
+                      // Le plan vient du serveur : tant qu'il n'est pas
+                      // arrivé, ou s'il a échoué, on le dit. L'écran
+                      // affichait sinon un bus vide sans un mot — juste
+                      // avant le paiement, c'est là que ça fait le plus
+                      // de dégâts.
+                      if (_chargement)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40),
+                          child: Center(
+                              child: CircularProgressIndicator(
+                                  color: JegoTheme.vert)),
+                        )
+                      else if (_erreurPlan != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 32, horizontal: 24),
+                          child: Column(
+                            children: [
+                              Icon(Icons.wifi_off_rounded,
+                                  size: 36, color: JegoTheme.texteSecondaire),
+                              const SizedBox(height: 10),
+                              Text(_erreurPlan!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      color: JegoTheme.texteSecondaire,
+                                      fontSize: 13)),
+                              const SizedBox(height: 14),
+                              TextButton.icon(
+                                onPressed: _chargerPlan,
+                                icon: Icon(Icons.refresh_rounded,
+                                    size: 18, color: JegoTheme.vert),
+                                label: Text(Strings.t('act_reessayer'),
+                                    style: TextStyle(
+                                        color: JegoTheme.vert,
+                                        fontWeight: FontWeight.w700)),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (numRangees.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          child: Center(
+                            child: Text(Strings.t('aucun_siege'),
+                                style: TextStyle(
+                                    color: JegoTheme.texteSecondaire,
+                                    fontSize: 13)),
+                          ),
+                        ),
                       ...numRangees.map((r) {
                         final ligne = rangees[r]!;
-                        final pleine = ligne.length == 5;
                         return Padding(
                           padding:
                               const EdgeInsets.symmetric(vertical: 4),
@@ -430,7 +535,10 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               for (var i = 0; i < ligne.length; i++) ...[
-                                if (!pleine && i == 2)
+                                // Le couloir, à sa vraie place : après
+                                // les sièges de gauche, que la rangée
+                                // soit complète ou non.
+                                if (i == _placesAvantCouloir)
                                   const SizedBox(width: 30),
                                 if (ligne[i] == null)
                                   const SizedBox(width: 46, height: 40)
@@ -477,7 +585,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                         children: [
                           Text(
                             '${Strings.t('sieges_label')} ${(_choisis.toList()..sort()).join(', ')}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: JegoTheme.texte,
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -486,7 +594,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                           const Spacer(),
                           Text(
                             '+$_totalSupplements FCFA',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: JegoTheme.vert,
                               fontSize: 13.5,
                               fontWeight: FontWeight.w800,
@@ -534,7 +642,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                           height: 17,
                           decoration: BoxDecoration(
                             color:
-                                _modeAuto ? JegoTheme.vert : Colors.white,
+                                _modeAuto ? JegoTheme.vert : JegoTheme.fondCarte,
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: _modeAuto
@@ -551,11 +659,16 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                         const SizedBox(width: 7),
                         Text(
                           Strings.t('choix_auto'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: JegoTheme.texteSecondaire,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
+                        ),
+                        BoutonInfo(
+                          taille: 14,
+                          titre: Strings.t('info_choix_auto_titre'),
+                          texte: Strings.t('info_choix_auto_texte'),
                         ),
                       ],
                     ),
@@ -587,7 +700,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.warning_amber_rounded,
+              Icon(Icons.warning_amber_rounded,
                   color: JegoTheme.danger, size: 32),
               const SizedBox(height: 10),
               Text(Strings.t('retour_titre'),
@@ -597,7 +710,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
               const SizedBox(height: 6),
               Text(Strings.t('retour_texte'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texteSecondaire, fontSize: 12.5)),
               const SizedBox(height: 16),
               Row(
@@ -614,7 +727,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
                               BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(Strings.t('retour_continuer'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texte,
                                 fontWeight: FontWeight.w700)),
                       ),
@@ -670,7 +783,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
         ),
         const SizedBox(width: 5),
         Text(libelle,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 11, color: JegoTheme.texteSecondaire)),
       ],
     );

@@ -70,7 +70,7 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
       return Scaffold(
         backgroundColor: JegoTheme.fond,
         appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-        body: const Center(
+        body: Center(
           child: CircularProgressIndicator(color: JegoTheme.vert),
         ),
       );
@@ -89,12 +89,12 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
                 Text(
                   _erreur!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: JegoTheme.texteSecondaire),
+                  style: TextStyle(color: JegoTheme.texteSecondaire),
                 ),
                 const SizedBox(height: 14),
                 TextButton(
                   onPressed: _charger,
-                  child: const Text('Réessayer',
+                  child: Text(Strings.t('act_reessayer'),
                       style: TextStyle(
                           color: JegoTheme.vert, fontWeight: FontWeight.w700)),
                 ),
@@ -165,7 +165,7 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _CarteCommentaire(
                         auteur: '${c['auteur']}',
-                        note: c['note'] as int,
+                        note: c['note'] as double,
                         texte: '${c['texte']}',
                         date: '${c['date']}',
                       ),
@@ -216,7 +216,7 @@ class _EnTeteAgence extends StatelessWidget {
           clipper: _VagueClipper(),
           child: Container(
             height: 188,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -240,7 +240,7 @@ class _EnTeteAgence extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.16),
+                            color: JegoTheme.fondCarte.withOpacity(0.16),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.directions_bus_rounded,
@@ -318,7 +318,7 @@ class _BoutonRondClair extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.16),
+          color: JegoTheme.fondCarte.withOpacity(0.16),
           shape: BoxShape.circle,
         ),
         child: Icon(icone, color: Colors.white, size: 20),
@@ -355,7 +355,7 @@ class _SceauNote extends StatelessWidget {
               children: [
                 Text(
                   note.toStringAsFixed(1),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.w800,
                     color: JegoTheme.texte,
@@ -388,7 +388,7 @@ class _SceauNote extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: JegoTheme.ombreDouce,
                 ),
-                child: const Icon(Icons.verified_rounded,
+                child: Icon(Icons.verified_rounded,
                     color: JegoTheme.vert, size: 22),
               ),
             ),
@@ -430,7 +430,7 @@ class _CritereLigne extends StatelessWidget {
             width: 104,
             child: Text(
               donnee.libelle,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: JegoTheme.texte,
@@ -447,7 +447,7 @@ class _CritereLigne extends StatelessWidget {
                     widthFactor: (valeur / 5).clamp(0.0, 1.0),
                     child: Container(
                       height: 8,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [JegoTheme.vert, JegoTheme.vertVif],
                         ),
@@ -464,7 +464,7 @@ class _CritereLigne extends StatelessWidget {
             child: Text(
               '$valeur',
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: JegoTheme.texteSecondaire,
@@ -479,7 +479,7 @@ class _CritereLigne extends StatelessWidget {
 
 class _CarteCommentaire extends StatelessWidget {
   final String auteur;
-  final int note;
+  final double note;
   final String texte;
   final String date;
   const _CarteCommentaire({
@@ -512,7 +512,7 @@ class _CarteCommentaire extends StatelessWidget {
                   children: [
                     Text(
                       auteur,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
                         color: JegoTheme.texte,
@@ -520,10 +520,19 @@ class _CarteCommentaire extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Row(
+                      // Cinq etoiles toujours dessinees, les pleines
+                      // selon la note : trois etoiles seules ne disent
+                      // pas sur combien elles portent.
                       children: List.generate(
-                        note,
-                        (_) => const Icon(Icons.star_rounded,
-                            size: 12, color: JegoTheme.etoile),
+                        5,
+                        (i) => Icon(
+                            i < note.round()
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
+                            size: 12,
+                            color: i < note.round()
+                                ? JegoTheme.etoile
+                                : JegoTheme.texteTernaire),
                       ),
                     ),
                   ],
@@ -541,7 +550,7 @@ class _CarteCommentaire extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             texte,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               color: JegoTheme.texte,
               height: 1.4,
@@ -557,7 +566,7 @@ class _AvatarInitiales extends StatelessWidget {
   final String nom;
   const _AvatarInitiales({required this.nom});
 
-  static const List<Color> _palette = [
+  static List<Color> _palette = [
     JegoTheme.vert,
     JegoTheme.vertVif,
     Color(0xFF3D6FE0),

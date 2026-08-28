@@ -28,10 +28,10 @@ class BarreNavVerre extends StatelessWidget {
           child: Container(
             height: 54,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.72),
+              color: JegoTheme.fondCarte.withOpacity(0.72),
               borderRadius: BorderRadius.circular(27),
               border: Border.all(
-                  color: Colors.white.withOpacity(0.9), width: 0.8),
+                  color: JegoTheme.fondCarte.withOpacity(0.9), width: 0.8),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFF14201A).withOpacity(0.10),

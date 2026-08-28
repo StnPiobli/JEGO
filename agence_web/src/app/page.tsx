@@ -71,10 +71,14 @@ export default function ConnexionAgence() {
     }
   }
 
-  function routeSelonStatut(agence: { id: number; statut?: string }): string {
+  function routeSelonStatut(agence: { id: number; statut?: string; ville?: string | null; telephone?: string | null }): string {
     if (agence.statut === 'en_attente') return '/en-attente';
     if (agence.statut === 'refuse') return '/rejete';
-    if (!onboardingComplet(agence.id)) return '/completer-profil';
+    // Une agence deja renseignee (ville + telephone en base) n'a pas a
+    // repasser par la premiere connexion, meme sur un nouveau navigateur
+    // ou le flag local est absent.
+    const dejaRenseignee = !!(agence.ville && agence.telephone);
+    if (!dejaRenseignee && !onboardingComplet(agence.id)) return '/completer-profil';
     return '/accueil';
   }
 
@@ -110,14 +114,6 @@ export default function ConnexionAgence() {
     setErreurInscription('');
     setNomAgence(''); setEmailInscription(''); setTelInscription(''); setAdresseInscription('');
     setVilleInscription(''); setRegistreInscription(''); setMdpInscription('');
-  }
-
-  // ⚠️ DÉMO — prévisualisation directe des 4 états post-connexion, pour
-  // tester sans avoir besoin de 4 vrais comptes agence à statuts différents.
-  const demoAgenceId = -1;
-  function previsualiser(destination: string) {
-    setSession('demo-token', { id: demoAgenceId, nom: 'Agence Démo', statut: 'demo' });
-    router.push(destination);
   }
 
   return (
@@ -174,15 +170,6 @@ export default function ConnexionAgence() {
 
         <p className="text-center text-[10.5px] text-green-300/70 mt-5">{t.reserved}</p>
 
-        <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-3.5">
-          <p className="text-[10px] font-bold text-green-300 uppercase tracking-wide mb-2">Démo — prévisualiser un état de compte</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button onClick={() => previsualiser('/en-attente')} className="text-[10.5px] font-semibold bg-white/10 hover:bg-white/15 text-on-dark rounded-lg py-2">En attente</button>
-            <button onClick={() => previsualiser('/rejete')} className="text-[10.5px] font-semibold bg-white/10 hover:bg-white/15 text-on-dark rounded-lg py-2">Rejeté</button>
-            <button onClick={() => previsualiser('/completer-profil')} className="text-[10.5px] font-semibold bg-white/10 hover:bg-white/15 text-on-dark rounded-lg py-2">1ère connexion</button>
-            <button onClick={() => previsualiser('/accueil')} className="text-[10.5px] font-semibold bg-white/10 hover:bg-white/15 text-on-dark rounded-lg py-2">Compte actif</button>
-          </div>
-        </div>
       </div>
 
       {inscriptionOuverte && (

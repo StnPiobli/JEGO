@@ -12,6 +12,7 @@ import { Panel, Badge, ExpandableCard, BtnMini } from "@/components/ui";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch } from "@/lib/api";
+import { formatTelephone } from "@/lib/format";
 
 type Passager = {
   nom: string; tel: string; siege: string;
@@ -23,11 +24,14 @@ type Passager = {
 
 type Signalement = { passager: string; motif: string; heure: string };
 
+type Avis = { passager: string; note: number; commentaire: string | null; date: string };
+
 type Trajet = {
   id: string; trajet: string; agence: string; depart: string; arrivee: string;
-  occ: string; statut: string; color: "green" | "amber" | "grey";
+  occ: string; statut: string; statutCode?: string; color: "green" | "amber" | "grey";
   app: number; site: number;
   signalements: Signalement[];
+  avis: Avis[];
   passagers: Passager[];
   categorie: "standard" | "mixte" | "vip";
   nom_bus: string;
@@ -47,16 +51,17 @@ function estDeNuit(heureDepart: string): boolean {
 function estExpress(t: Trajet): boolean {
   return t.points_detail.length <= 2;
 }
+const hhmm = (h: string | null | undefined) => (h ? h.slice(0, 5) : "");
 function chaineHoraires(t: Trajet): string {
-  const heures = [t.depart];
+  const heures = [hhmm(t.depart)];
   if (t.points_detail.length > 2) {
     for (let i = 1; i < t.points_detail.length - 1; i++) {
       const h = t.points_detail[i].heure;
-      if (h) heures.push(h);
+      if (h) heures.push(hhmm(h));
     }
   }
-  if (t.arrivee) heures.push(t.arrivee);
-  return heures.join(" → ");
+  if (t.arrivee) heures.push(hhmm(t.arrivee));
+  return heures.filter(Boolean).join(" → ");
 }
 const libellesCategorie: Record<Trajet["categorie"], string> = { standard: "Standard", mixte: "Mixte", vip: "VIP" };
 
@@ -88,7 +93,9 @@ function TableDetail({ lignes }: { lignes: Detail[] }) {
 
 export default function BilletsPage() {
   const [date, setDate] = useState(new Date());
-  const [tri, setTri] = useState<Tri>("recent");
+  const [tri, setTri] = useState<Tri>("ancien");
+  const [filtreStatut, setFiltreStatut] = useState<string>("tous");
+  const [filtreAgence, setFiltreAgence] = useState<string>("toutes");
   const [depliés, setDepliés] = useState<Set<string>>(new Set());
   const [signalementsOuvert, setSignalementsOuvert] = useState<string | null>(null);
   const [trajets, setTrajets] = useState<Trajet[]>([]);
@@ -98,8 +105,8 @@ export default function BilletsPage() {
 
   useEffect(() => {
     let annule = false;
-    async function charger() {
-      setChargement(true);
+    async function charger(silencieux = false) {
+      if (!silencieux) setChargement(true);
       try {
         const iso = date.toISOString().slice(0, 10);
         const res = await apiFetch(`/api/admin/trajets?date=${iso}`);
@@ -113,7 +120,10 @@ export default function BilletsPage() {
       }
     }
     charger();
-    return () => { annule = true; };
+    // Rafraichissement automatique : ce que fait le chauffeur (depart,
+    // arrivee, signalement) apparait sans avoir a recharger la page.
+    const minuterie = setInterval(() => { charger(true); }, 5000);
+    return () => { annule = true; clearInterval(minuterie); };
   }, [date]);
 
   function toggleDeplier(id: string) {
@@ -124,14 +134,19 @@ export default function BilletsPage() {
     });
   }
 
-  const trajetsTries = [...trajets].sort((a, b) =>
-    tri === "recent" ? b.id.localeCompare(a.id) : a.id.localeCompare(b.id)
-  );
+  const agencesDispo = Array.from(new Set(trajets.map((t) => t.agence))).sort();
+  const trajetsTries = [...trajets]
+    .filter((t) => filtreStatut === "tous" || t.statutCode === filtreStatut)
+    .filter((t) => filtreAgence === "toutes" || t.agence === filtreAgence)
+    // Du plus tot au plus tard, par heure de depart.
+    .sort((a, b) => tri === "recent"
+      ? b.depart.localeCompare(a.depart)
+      : a.depart.localeCompare(b.depart));
 
   const trajetOuvert = trajets.find((t) => t.id === signalementsOuvert);
 
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-baseline justify-between mb-5">
         <div>
           <h1 className="font-display text-[22px] tracking-tight">Billets &amp; trajets</h1>
@@ -140,10 +155,18 @@ export default function BilletsPage() {
         <HistoriqueButton entrees={[]} />
       </div>
 
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-2">
-          <button onClick={() => setTri("recent")} className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${tri === "recent" ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}>+ récent</button>
-          <button onClick={() => setTri("ancien")} className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${tri === "ancien" ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}>− récent</button>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+          {([["tous", "Tous"], ["programme", "Programmé"], ["en_cours", "En cours"], ["termine", "Terminé"]] as const).map(([code, label]) => (
+            <button key={code} onClick={() => setFiltreStatut(code)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${filtreStatut === code ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}>{label}</button>
+          ))}
+          <select value={filtreAgence} onChange={(e) => setFiltreAgence(e.target.value)} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-line text-ink-soft bg-paper">
+            <option value="toutes">Toutes les agences</option>
+            {agencesDispo.map((ag) => <option key={ag} value={ag}>{ag}</option>)}
+          </select>
+          <button onClick={() => setTri(tri === "recent" ? "ancien" : "recent")} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-line text-ink-soft">
+            Heure {tri === "recent" ? "↓" : "↑"}
+          </button>
         </div>
         <DateNav date={date} onChange={setDate} />
       </div>
@@ -165,7 +188,7 @@ export default function BilletsPage() {
         </ExpandableCard>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1 pb-4">
         {trajetsTries.map((t) => (
           <Panel key={t.id}>
             <div className="px-[18px] py-3.5">
@@ -186,8 +209,9 @@ export default function BilletsPage() {
                         : <span className="font-bold text-ink">{t.trajet}</span>}
                     </span>
                   </button>
-                  <div className="text-[11.5px] text-ink-soft mt-0.5">
-                    {t.agence} · {date.toLocaleDateString("fr-FR")} · {t.occ}
+                  <div className="text-[11.5px] text-ink-soft mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 font-semibold px-2 py-0.5 text-[11px] border border-green-300">{t.agence}</span>
+                    <span>· {date.toLocaleDateString("fr-FR")} · {t.occ}</span>
                   </div>
                   <div className="text-[11px] text-ink-soft mt-1">
                     <span className="font-semibold text-ink">Chauffeur :</span> {t.chauffeur ?? "non assigné"}
@@ -215,7 +239,9 @@ export default function BilletsPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-3">
                   {t.signalements.length > 0 ? (
-                    <BtnMini variant="danger" onClick={() => setSignalementsOuvert(t.id)}>⚠️ {t.signalements.length} signalement(s)</BtnMini>
+                    <BtnMini variant="danger" onClick={() => setSignalementsOuvert(t.id)}>⚠️ {t.signalements.length} signalement(s){t.avis?.length ? ` · ${t.avis.length} avis` : ''}</BtnMini>
+                  ) : t.avis && t.avis.length > 0 ? (
+                    <BtnMini onClick={() => setSignalementsOuvert(t.id)}>{t.avis.length} avis</BtnMini>
                   ) : (
                     <span className="text-ink-soft text-[12px]">Aucun signalement</span>
                   )}
@@ -243,7 +269,7 @@ export default function BilletsPage() {
                           {t.passagers.map((p, i) => (
                             <tr key={i} className="border-t border-line">
                               <td className="py-1.5 pr-3">{p.nom}</td>
-                              <td className="py-1.5 pr-3 font-mono">{p.tel}</td>
+                              <td className="py-1.5 pr-3 font-mono whitespace-nowrap">{formatTelephone(p.tel)}</td>
                               <td className="py-1.5 pr-3 font-mono">{p.siege}</td>
                               <td className="py-1.5 pr-3">
                                 <Badge color={p.vente === "app" ? "green" : "grey"}>{p.vente === "app" ? "App JEGO" : "Guichet"}</Badge>
@@ -280,10 +306,13 @@ export default function BilletsPage() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setSignalementsOuvert(null)}>
           <div className="bg-paper rounded-2xl shadow-card p-6 w-[420px]" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-3">
-              <h3 className="font-display text-[15px] font-semibold">Signalements — {trajetOuvert.trajet}</h3>
+              <h3 className="font-display text-[15px] font-semibold">Signalements &amp; avis — {trajetOuvert.trajet}</h3>
               <button onClick={() => setSignalementsOuvert(null)} className="text-ink-soft text-xs">✕</button>
             </div>
             <div className="space-y-2 max-h-[280px] overflow-y-auto">
+              {trajetOuvert.signalements.length === 0 && (
+                <div className="text-ink-soft text-[12px]">Aucun signalement.</div>
+              )}
               {trajetOuvert.signalements.map((s, i) => (
                 <div key={i} className="border border-line rounded-lg px-3 py-2 text-[12.5px]">
                   <div className="flex justify-between"><b>{s.passager}</b><span className="text-ink-soft font-mono text-[11px]">{s.heure}</span></div>
@@ -291,6 +320,26 @@ export default function BilletsPage() {
                 </div>
               ))}
             </div>
+
+            {trajetOuvert.avis && trajetOuvert.avis.length > 0 && (
+              <>
+                <div className="mt-4 mb-2 font-display text-[14px] font-semibold">
+                  Avis des voyageurs ({trajetOuvert.avis.length})
+                </div>
+                <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                  {trajetOuvert.avis.map((a, i) => (
+                    <div key={i} className="border border-line rounded-lg px-3 py-2 text-[12.5px]">
+                      <div className="flex justify-between">
+                        <b>{a.passager}</b>
+                        <span className="text-amber-500">{'★'.repeat(Math.round(a.note))}<span className="text-ink-soft">{'★'.repeat(5 - Math.round(a.note))}</span></span>
+                      </div>
+                      {a.commentaire && <div className="text-ink-soft mt-0.5">« {a.commentaire} »</div>}
+                      <div className="text-ink-soft font-mono text-[10px] mt-0.5">{a.date}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

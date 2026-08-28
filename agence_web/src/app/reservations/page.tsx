@@ -12,6 +12,7 @@ import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
 import { todayInputDate } from '../lib/date';
 import { apiFetch } from '../lib/api';
+import { formatTelephone } from '../lib/format';
 
 type Passager = {
   id: string;
@@ -84,7 +85,7 @@ export default function Reservations() {
                 id: String(p.numero ?? p.id),
                 nom: `${p.prenom ?? ''} ${p.nom ?? ''}`.trim(),
                 telephone: String(p.telephone ?? ''),
-                email: '',
+                email: String(p.email ?? ''),
                 siege: String(p.siege ?? ''),
                 // Net perçu par l'agence, hors commission JEGO.
                 montantAgence: Number(p.prix_agence ?? p.prix_total_client ?? 0),
@@ -189,7 +190,7 @@ export default function Reservations() {
                         <span className="text-[10px] font-mono text-ink-soft">#{passager.id}</span>
                       </div>
                       <p className="text-[12px] text-ink-soft">{trajet.trajet} <span className="font-mono">{trajet.numeroVoyage}</span> · {trajet.date.split('-').reverse().join('/')} · départ {trajet.heure} · arrivée estimée {trajet.heureArrivee}</p>
-                      <p className="text-[11px] text-ink-soft">{passager.telephone} · {passager.email} · Siege {passager.siege}</p>
+                      <p className="text-[11px] text-ink-soft">{formatTelephone(passager.telephone)}{passager.email ? ` · ${passager.email}` : ''} · Siege {passager.siege}</p>
                       <p className="text-[11px] text-ink-soft mt-1">Options : {passager.optionsSupp && passager.optionsSupp.length ? passager.optionsSupp.join(', ') : 'Aucune'}</p>
                       <p className="text-[10.5px] text-purple font-semibold mt-0.5">Trajet associé : {passager.trajetAssocie}</p>
                     </div>
@@ -256,7 +257,7 @@ export default function Reservations() {
                               <p className="text-[13px] font-semibold text-ink">{p.nom}</p>
                               <span className="text-[10px] font-mono text-ink-soft">#{p.id}</span>
                             </div>
-                            <p className="text-[12px] text-ink-soft">{p.telephone} · Siege {p.siege}</p>
+                            <p className="text-[12px] text-ink-soft">{formatTelephone(p.telephone)} · Siege {p.siege}</p>
                             <p className="text-[11px] text-ink-soft truncate">{p.email}</p>
                             <p className="text-[11px] text-ink-soft mt-1">Options : <strong className="text-ink">{p.optionsSupp && p.optionsSupp.length ? p.optionsSupp.join(', ') : 'Aucune'}</strong></p>
                             <p className="text-[10.5px] text-purple font-semibold mt-0.5">Trajet associé : {p.trajetAssocie}</p>

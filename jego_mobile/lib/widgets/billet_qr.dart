@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../config/format_date.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../config/nature_trajet.dart';
 
 /// Ticket JEGO : rendu billet reel (encoches laterales + ligne perforee),
 /// villes en grand, dates lisibles, toutes les infos + frais souscrits,
@@ -13,7 +14,7 @@ class BilletCarre extends StatelessWidget {
   final String villeArrivee;
   final String date;
   final Map<String, dynamic> offre;
-  final List<int> sieges;
+  final List<String> sieges;
   final bool auto;
   final bool detaille; // affiche frais + toutes infos (onglet Billets)
   final VoidCallback? onTelecharger;
@@ -76,7 +77,7 @@ class BilletCarre extends StatelessWidget {
                                 size: 20),
                           ),
                           const SizedBox(width: 10),
-                          const Text(
+                          Text(
                             'JEGO',
                             style: TextStyle(
                               color: JegoTheme.texte,
@@ -98,7 +99,7 @@ class BilletCarre extends StatelessWidget {
                               ),
                               child: Text(
                                 etiquette!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.vert,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800),
@@ -122,7 +123,7 @@ class BilletCarre extends StatelessWidget {
                                         shape: BoxShape.circle,
                                       ),
                                       child: chargementPdf
-                                          ? const Padding(
+                                          ? Padding(
                                               padding: EdgeInsets.all(7),
                                               child:
                                                   CircularProgressIndicator(
@@ -130,7 +131,7 @@ class BilletCarre extends StatelessWidget {
                                                 color: JegoTheme.vert,
                                               ),
                                             )
-                                          : const Icon(
+                                          : Icon(
                                               Icons.picture_as_pdf_rounded,
                                               size: 15,
                                               color: JegoTheme.vert,
@@ -150,7 +151,7 @@ class BilletCarre extends StatelessWidget {
                                         border: Border.all(
                                             color: JegoTheme.bordCarte),
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.ios_share_rounded,
                                         size: 14,
                                         color: JegoTheme.texteSecondaire,
@@ -165,12 +166,12 @@ class BilletCarre extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.calendar_month_rounded,
+                          Icon(Icons.calendar_month_rounded,
                               size: 15, color: JegoTheme.texteSecondaire),
                           const SizedBox(width: 6),
                           Text(
                             FormatDate.lisible(date),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: JegoTheme.texteSecondaire,
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700),
@@ -186,20 +187,20 @@ class BilletCarre extends StatelessWidget {
                                   CrossAxisAlignment.start,
                               children: [
                                 Text(villeDepart,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         color: JegoTheme.texte,
                                         fontSize: 22,
                                         fontWeight: FontWeight.w800)),
                                 Text(
                                   '${offre['point_depart']} · ${offre['heure_depart']}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: JegoTheme.texteTernaire,
                                       fontSize: 11),
                                 ),
                               ],
                             ),
                           ),
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.symmetric(horizontal: 8),
                             child: Icon(Icons.directions_bus_rounded,
                                 color: JegoTheme.vert, size: 22),
@@ -209,13 +210,13 @@ class BilletCarre extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(villeArrivee,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         color: JegoTheme.texte,
                                         fontSize: 22,
                                         fontWeight: FontWeight.w800)),
                                 Text(
                                   '${offre['point_arrivee']} · ${offre['heure_arrivee']}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: JegoTheme.texteTernaire,
                                       fontSize: 11),
                                 ),
@@ -228,7 +229,7 @@ class BilletCarre extends StatelessWidget {
                   ),
                 ),
                 // --- Ligne perforee ---
-                const _LignePointillee(),
+                _LignePointillee(),
                 // --- Partie basse : QR + infos ---
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
@@ -257,13 +258,20 @@ class BilletCarre extends StatelessWidget {
                                     version: QrVersions.auto,
                                     size: 84,
                                     backgroundColor: Colors.white,
+                                    eyeStyle: const QrEyeStyle(
+                                        eyeShape: QrEyeShape.square,
+                                        color: Colors.black),
+                                    dataModuleStyle: const QrDataModuleStyle(
+                                        dataModuleShape:
+                                            QrDataModuleShape.square,
+                                        color: Colors.black),
                                     errorCorrectionLevel: QrErrorCorrectLevel.M,
                                   ),
                                   const SizedBox(height: 4),
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(
+                                      Icon(
                                           Icons.zoom_out_map_rounded,
                                           size: 11,
                                           color:
@@ -271,7 +279,7 @@ class BilletCarre extends StatelessWidget {
                                       const SizedBox(width: 3),
                                       Text(
                                         Strings.t('billet_agrandir'),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                             color:
                                                 JegoTheme.texteTernaire,
                                             fontSize: 9.5),
@@ -300,7 +308,7 @@ class BilletCarre extends StatelessWidget {
                                         const EdgeInsets.only(top: 2),
                                     child: Text(
                                       Strings.t('confirm_auto_revele'),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           color:
                                               JegoTheme.texteTernaire,
                                           fontSize: 10),
@@ -348,20 +356,20 @@ class BilletCarre extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.confirmation_number_rounded,
+                              Icon(Icons.confirmation_number_rounded,
                                   size: 16,
                                   color: JegoTheme.texteSecondaire),
                               const SizedBox(width: 8),
                               Text(
                                 Strings.t('billet_num_resa'),
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texteSecondaire,
                                     fontSize: 11.5),
                               ),
                               const Spacer(),
                               SelectableText(
                                 '$numResa',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: JegoTheme.texte,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w800,
@@ -402,7 +410,7 @@ class BilletCarre extends StatelessWidget {
         Flexible(
           child: Text(
             valeur.isEmpty ? libelle : '$libelle $valeur',
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texte,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700),
@@ -448,9 +456,9 @@ class BilletCarre extends StatelessWidget {
 
   Widget _blocEquipements() {
     final eqs = (offre['equipements'] as List?) ?? [];
-    final cat = offre['categorie'];
+    final cat = NatureTrajet.etiquettes(offre).join(' · ');
     final arrets = (offre['arrets_liste'] as List?) ?? [];
-    if (eqs.isEmpty && cat == null) return const SizedBox.shrink();
+    if (eqs.isEmpty && cat.isEmpty) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -463,22 +471,22 @@ class BilletCarre extends StatelessWidget {
         children: [
           Text(
             Strings.t('billet_infos_trajet'),
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texte,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
-          if (cat != null)
+          if (cat.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.style_rounded,
+                  Icon(Icons.style_rounded,
                       size: 14, color: JegoTheme.vert),
                   const SizedBox(width: 6),
                   Text('${Strings.t('categorie')} : $cat',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texteSecondaire,
                           fontSize: 12)),
                 ],
@@ -490,13 +498,13 @@ class BilletCarre extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.alt_route_rounded,
+                  Icon(Icons.alt_route_rounded,
                       size: 14, color: JegoTheme.vert),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                         '${Strings.t('arrets_label')} ${arrets.join(', ')}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texteSecondaire,
                             fontSize: 12)),
                   ),
@@ -512,7 +520,7 @@ class BilletCarre extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: JegoTheme.fondCarte,
                     borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                     border:
                         Border.all(color: JegoTheme.bordCarte, width: 1),
@@ -523,7 +531,7 @@ class BilletCarre extends StatelessWidget {
                       Icon(_iconeEq('$e'), size: 13, color: JegoTheme.vert),
                       const SizedBox(width: 5),
                       Text(_libEq('$e'),
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texteSecondaire,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600)),
@@ -552,7 +560,7 @@ class BilletCarre extends StatelessWidget {
         children: [
           Text(
             Strings.t('billet_frais_titre'),
-            style: const TextStyle(
+            style: TextStyle(
                 color: JegoTheme.texte,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w800),
@@ -562,37 +570,37 @@ class BilletCarre extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(
                   children: [
-                    const Icon(Icons.check_circle_rounded,
+                    Icon(Icons.check_circle_rounded,
                         size: 13, color: JegoTheme.vert),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text('${f['libelle']}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JegoTheme.texteSecondaire,
                               fontSize: 12)),
                     ),
                     Text('${f['montant']}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: JegoTheme.texte,
                             fontSize: 12,
                             fontWeight: FontWeight.w700)),
                   ],
                 ),
               )),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 6),
             child: Divider(height: 1, color: JegoTheme.bordCarte),
           ),
           Row(
             children: [
               Text(Strings.t('total'),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 13,
                       fontWeight: FontWeight.w800)),
               const Spacer(),
               Text('${offre['total'] ?? ''} FCFA',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JegoTheme.vert,
                       fontSize: 14,
                       fontWeight: FontWeight.w800)),
@@ -627,19 +635,26 @@ class BilletCarre extends StatelessWidget {
                   version: QrVersions.auto,
                   size: 260,
                   backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square, color: Colors.black),
+                  dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Colors.black),
                   // Correction haute : un écran rayé ou peu lumineux
                   // reste lisible par le scanner du chauffeur.
                   errorCorrectionLevel: QrErrorCorrectLevel.H,
                 ),
                 const SizedBox(height: 16),
+                // Couleurs fixes : le cadre est blanc en permanence,
+                // les gris du theme sombre y seraient illisibles.
                 Text(Strings.t('billet_qr_presenter'),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: JegoTheme.texteSecondaire, fontSize: 13)),
+                        color: Color(0xFF444B47), fontSize: 13)),
                 const SizedBox(height: 8),
                 Text(Strings.t('billet_fermer'),
                     style: const TextStyle(
-                        color: JegoTheme.texteTernaire, fontSize: 11)),
+                        color: Color(0xFF8A918C), fontSize: 11)),
               ],
             ),
           ),

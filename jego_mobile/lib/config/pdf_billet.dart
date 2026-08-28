@@ -32,10 +32,21 @@ Future<Uint8List> genererPdfBillet(Map<String, dynamic> billet) async {
   final sieges = (billet['sieges'] as List?)?.join(', ') ?? '';
   final totalPersonnes = billet['total_personnes'] ?? billet['personne'] ?? 1;
 
-  final nomPassager =
-      '${Session.prenom ?? ''} ${Session.nom ?? ''}'.trim();
-  final telPassager = Session.telephone ?? '';
-  final emailPassager = Session.email ?? '';
+  // Le titulaire vient du billet quand il est connu (billet recupere
+  // au nom d'un autre), sinon de la session pour ses propres billets.
+  final passagerBillet =
+      '${billet['passager_prenom'] ?? ''} ${billet['passager_nom'] ?? ''}'.trim();
+  final nomPassager = passagerBillet.isNotEmpty
+      ? passagerBillet
+      : '${Session.prenom ?? ''} ${Session.nom ?? ''}'.trim();
+  final telPassager =
+      '${billet['passager_tel'] ?? ''}'.isNotEmpty
+          ? '${billet['passager_tel']}'
+          : (Session.telephone ?? '');
+  final emailPassager =
+      '${billet['passager_email'] ?? ''}'.isNotEmpty
+          ? '${billet['passager_email']}'
+          : (Session.email ?? '');
 
   String duree = '';
   int minutesTotal = 0;

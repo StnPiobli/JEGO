@@ -90,7 +90,7 @@ class ChampTelephone extends StatelessWidget {
               ),
               const Spacer(),
               if (actif)
-                const Icon(Icons.check_rounded,
+                Icon(Icons.check_rounded,
                     size: 16, color: JegoTheme.vert),
             ],
           ),
@@ -122,13 +122,13 @@ class ChampTelephone extends StatelessWidget {
                   const SizedBox(width: 5),
                   Text(
                     pays.indicatif,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const Icon(Icons.keyboard_arrow_down_rounded,
+                  Icon(Icons.keyboard_arrow_down_rounded,
                       size: 17, color: JegoTheme.texteTernaire),
                 ],
               ),
@@ -141,11 +141,11 @@ class ChampTelephone extends StatelessWidget {
               keyboardType: TextInputType.phone,
               onChanged: onChange,
               style:
-                  const TextStyle(color: JegoTheme.texte, fontSize: 14),
+                  TextStyle(color: JegoTheme.texte, fontSize: 14),
               cursorColor: JegoTheme.vert,
               decoration: InputDecoration(
                 hintText: libelle,
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                     color: JegoTheme.texteTernaire, fontSize: 13.5),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(

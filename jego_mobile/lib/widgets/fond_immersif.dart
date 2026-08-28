@@ -51,12 +51,14 @@ class _FondImmersifState extends State<FondImmersif>
           clipBehavior: Clip.hardEdge,
           children: [
             // Ciel clair
-            const DecoratedBox(
+            DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFFE9F6EE), Color(0xFFF6FAF6), JegoTheme.fond],
+                  colors: modeSombre.value
+                      ? [const Color(0xFF0F1B16), const Color(0xFF0C1512), JegoTheme.fond]
+                      : [const Color(0xFFE9F6EE), const Color(0xFFF6FAF6), JegoTheme.fond],
                   stops: [0.0, 0.65, 1.0],
                 ),
               ),
@@ -74,10 +76,10 @@ class _FondImmersifState extends State<FondImmersif>
                     height: 54 + t * 8,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFFFE9B8),
+                      color: Color(modeSombre.value ? 0xFF3A3018 : 0xFFFFE9B8),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFFFD97A)
+                          color: Color(modeSombre.value ? 0xFF4A3D1E : 0xFFFFD97A)
                               .withOpacity(0.45 + t * 0.2),
                           blurRadius: 34 + t * 14,
                           spreadRadius: 4,
@@ -110,17 +112,17 @@ class _FondImmersifState extends State<FondImmersif>
             Positioned(
               top: h * 0.45,
               left: -60,
-              child: _colline(280, const Color(0xFFBFE6CF)),
+              child: _colline(280, Color(modeSombre.value ? 0xFF16241C : 0xFFBFE6CF)),
             ),
             Positioned(
               top: h * 0.52,
               right: -90,
-              child: _colline(320, const Color(0xFF9FD9B8)),
+              child: _colline(320, Color(modeSombre.value ? 0xFF13201A : 0xFF9FD9B8)),
             ),
             Positioned(
               top: h * 0.62,
               left: 60,
-              child: _colline(230, const Color(0xFF7CCB9F)),
+              child: _colline(230, Color(modeSombre.value ? 0xFF101B15 : 0xFF7CCB9F)),
             ),
             // Route
             Positioned(
@@ -131,8 +133,8 @@ class _FondImmersifState extends State<FondImmersif>
                 child: Container(
                   width: 76,
                   height: h * 0.34,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF57866C),
+                  decoration: BoxDecoration(
+                    color: Color(modeSombre.value ? 0xFF5E7F6D : 0xFF57866C),
                     borderRadius:
                         BorderRadius.vertical(top: Radius.circular(38)),
                   ),
@@ -155,7 +157,7 @@ class _FondImmersifState extends State<FondImmersif>
                                   width: 5,
                                   height: 16,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.55),
+                                    color: JegoTheme.fondCarte.withOpacity(0.55),
                                     borderRadius:
                                         BorderRadius.circular(3),
                                   ),
@@ -230,7 +232,7 @@ class _FondImmersifState extends State<FondImmersif>
         width: taille,
         height: taille * 0.38,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.85),
+          color: JegoTheme.fondCarte.withOpacity(0.85),
           borderRadius: BorderRadius.circular(taille),
         ),
       ),

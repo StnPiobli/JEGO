@@ -5,7 +5,7 @@
 // (agenceController.js n'a que inscription/connexion/monProfil), donc la
 // sauvegarde reste locale (marque juste "onboarding terminé").
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getAgenceLocale, marquerOnboardingComplet, clearSession } from '../lib/api';
 import TelephoneInput from '../components/TelephoneInput';
@@ -13,6 +13,14 @@ import TelephoneInput from '../components/TelephoneInput';
 export default function CompleterProfilPage() {
   const router = useRouter();
   const agence = getAgenceLocale();
+
+  // Une agence deja renseignee (ville + telephone) n'a rien a completer :
+  // on la renvoie directement au tableau de bord au lieu de la bloquer
+  // sur ce formulaire.
+  useEffect(() => {
+    if (agence?.ville && agence?.telephone) router.replace('/accueil');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [nomAgence, setNomAgence] = useState(agence?.nom ?? '');
   const [description, setDescription] = useState('');
@@ -45,7 +53,7 @@ export default function CompleterProfilPage() {
   }
 
   return (
-    <div className="min-h-screen bg-off-white flex items-center justify-center p-6">
+    <div className="h-screen bg-off-white flex items-start justify-center p-6 overflow-y-auto">
       <div className="w-full max-w-xl">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2.5">

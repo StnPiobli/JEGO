@@ -54,65 +54,149 @@ async function signaler(req, res) {
       throw e;
     }
 
-    // 3. Compter le nombre de passagers du trajet (billets confirmés/utilisés)
-    const passagers = await client.query(
-      `SELECT COUNT(*) AS nb FROM billets
-       WHERE trajet_id = $1 AND statut IN ('confirme','utilise')`,
-      [trajet_id]
+    // 3. Auteur, trajet, et destinataires (agence + admins).
+    const auteurRes = await client.query(
+      `SELECT prenom, nom FROM voyageurs WHERE id = $1`, [voyageurId]
     );
-    const nbPassagers = parseInt(passagers.rows[0].nb);
+    const auteur = auteurRes.rows[0] || { prenom: 'Un', nom: 'voyageur' };
+    const nomAuteur = `${auteur.prenom || ''} ${auteur.nom || ''}`.trim();
 
-    // 4. Déterminer le seuil collectif
+    const trajetRes = await client.query(
+      `SELECT t.chauffeur_id, t.agence_id, t.numero,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee
+         FROM trajets t
+         JOIN lignes l ON l.id = t.ligne_id
+         JOIN villes vd ON vd.code = l.ville_depart
+         JOIN villes va ON va.code = l.ville_arrivee
+        WHERE t.id = $1`, [trajet_id]
+    );
+    const trj = trajetRes.rows[0] || {};
+    const trajetLibelle = `${trj.depart || ''} → ${trj.arrivee || ''} (${trj.numero || ''})`;
+    const heureFr = new Date().toLocaleTimeString('fr-FR',
+      { hour: '2-digit', minute: '2-digit' });
+
+    const LIBELLES = {
+      'exces_vitesse': 'excès de vitesse',
+      'conduite_dangereuse': 'conduite dangereuse',
+      'comportement_inapproprie': 'comportement inapproprié',
+      'panne_technique': 'panne technique',
+      'arret_prolonge': 'arrêt prolongé',
+      'fausse_arrivee': 'une fausse arrivée',
+      'autre': 'un autre problème'
+    };
+    const libCat = LIBELLES[categorie] || categorie;
+    const estFausseArrivee = categorie === 'fausse_arrivee';
+
+    // 4. Seuil collectif base sur le nombre de voyageurs REELLEMENT
+    //    montes a bord (billets scannes), pas seulement vendus : c'est
+    //    le nombre de temoins possibles.
+    const embarques = await client.query(
+      `SELECT COUNT(*) AS nb FROM billets
+       WHERE trajet_id = $1 AND qr_scanne = true`, [trajet_id]
+    );
+    let nbEmbarques = parseInt(embarques.rows[0].nb);
+    // Repli : si le scan n'a pas encore eu lieu, on prend les billets
+    // confirmes pour ne pas laisser le seuil a 3 par defaut absolu.
+    if (nbEmbarques === 0) {
+      const conf = await client.query(
+        `SELECT COUNT(*) AS nb FROM billets
+         WHERE trajet_id = $1 AND statut IN ('confirme','utilise')`, [trajet_id]
+      );
+      nbEmbarques = parseInt(conf.rows[0].nb);
+    }
     let seuil;
-    if (nbPassagers <= 20) seuil = 3;
-    else if (nbPassagers <= 40) seuil = 4;
+    if (nbEmbarques <= 20) seuil = 3;
+    else if (nbEmbarques <= 40) seuil = 4;
     else seuil = 5;
 
-    // 5. Compter les signalements de CETTE catégorie pour ce trajet
+    // 5. Compter les signalements de CETTE categorie pour ce trajet.
     const signalements = await client.query(
       `SELECT COUNT(*) AS nb FROM signalements
-       WHERE trajet_id = $1 AND categorie = $2`,
-      [trajet_id, categorie]
+       WHERE trajet_id = $1 AND categorie = $2`, [trajet_id, categorie]
     );
     const nbSignalements = parseInt(signalements.rows[0].nb);
 
-    // 6. Si le seuil est atteint, marquer et déclencher l'alerte
+    const admins = await client.query(
+      `SELECT id FROM membres_admin WHERE statut = 'actif' AND niveau = 0`
+    );
+
+    // 6. Notification INDIVIDUELLE, a chaque signalement : agence + admin
+    //    voient qui a signale quoi, et a quelle heure, sur ce trajet.
+    const titreIndiv = estFausseArrivee
+      ? 'Fausse arrivée signalée'
+      : 'Nouveau signalement sur un trajet';
+    const contenuIndiv = estFausseArrivee
+      ? `${nomAuteur} a dénoncé une fausse arrivée sur ${trajetLibelle} à ${heureFr}.`
+      : `${nomAuteur} a signalé ${libCat} sur ${trajetLibelle} à ${heureFr}.`;
+
+    if (trj.agence_id) {
+      await creerNotification({
+        destinataire_type: 'agence', destinataire_id: trj.agence_id,
+        type: estFausseArrivee ? 'fausse_arrivee' : 'signalement_trajet',
+        titre: titreIndiv, contenu: contenuIndiv, canal: 'push',
+        trajet_id
+      });
+    }
+    for (const a of admins.rows) {
+      await creerNotification({
+        destinataire_type: 'admin', destinataire_id: a.id,
+        type: estFausseArrivee ? 'fausse_arrivee' : 'signalement_trajet',
+        titre: titreIndiv, contenu: contenuIndiv, canal: 'push',
+        trajet_id
+      });
+    }
+
+    // 7. Seuil atteint : on le marque et on previent en plus, avec la
+    //    consigne au chauffeur. Une fausse arrivee au seuil suspend le
+    //    versement (investigation).
     let alerteDeclenchee = false;
     if (nbSignalements >= seuil) {
       await client.query(
-        `UPDATE signalements
-         SET seuil_atteint = true, alerte_envoyee = true
-         WHERE trajet_id = $1 AND categorie = $2`,
-        [trajet_id, categorie]
+        `UPDATE signalements SET seuil_atteint = true, alerte_envoyee = true
+         WHERE trajet_id = $1 AND categorie = $2`, [trajet_id, categorie]
       );
       alerteDeclenchee = true;
-      // [SIMULATION] Alerte à l'agence + chauffeur (notifications plus tard)
+
+      const titreSeuil = estFausseArrivee
+        ? 'Seuil atteint — fausse arrivée'
+        : `Seuil atteint — ${libCat}`;
+      const contenuSeuil = estFausseArrivee
+        ? `${nbSignalements} voyageurs ont dénoncé une fausse arrivée sur ${trajetLibelle}. Versement suspendu, investigation requise.`
+        : `${nbSignalements} voyageurs ont signalé ${libCat} sur ${trajetLibelle}. Seuil collectif atteint.`;
+
+      if (trj.agence_id) {
+        await creerNotification({
+          destinataire_type: 'agence', destinataire_id: trj.agence_id,
+          type: 'alerte_signalement', titre: titreSeuil,
+          contenu: contenuSeuil, canal: 'push', trajet_id
+        });
+      }
+      for (const a of admins.rows) {
+        await creerNotification({
+          destinataire_type: 'admin', destinataire_id: a.id,
+          type: 'alerte_signalement', titre: titreSeuil,
+          contenu: contenuSeuil, canal: 'push', trajet_id
+        });
+      }
+      if (trj.chauffeur_id && !estFausseArrivee) {
+        await creerNotification({
+          destinataire_type: 'chauffeur', destinataire_id: trj.chauffeur_id,
+          type: 'alerte_signalement', titre: 'Signalement collectif',
+          contenu: `Plusieurs passagers ont signalé : ${libCat}. Merci de rester vigilant.`,
+          canal: 'push', trajet_id
+        });
+      }
+
+      // Fausse arrivee au seuil : le trajet part en investigation.
+      if (estFausseArrivee) {
+        await client.query(
+          `UPDATE trajets SET statut = 'incident', mis_a_jour_le = NOW()
+           WHERE id = $1 AND statut NOT IN ('annule')`, [trajet_id]
+        );
+      }
     }
 
-    await client.query(
-        `SELECT chauffeur_id, agence_id FROM trajets WHERE id = $1`,
-        [trajet_id]
-      ).then(async r => {
-        const { chauffeur_id, agence_id } = r.rows[0];
-        await creerNotification({
-          destinataire_type: 'agence',
-          destinataire_id: agence_id,
-          type: 'alerte_signalement',
-          titre: 'Alerte signalement collectif',
-          contenu: `Le seuil de signalements "${categorie}" a été atteint sur un de vos trajets (${nbSignalements} signalements).`,
-          canal: 'push'
-        });
-        if (chauffeur_id) {
-          await creerNotification({
-            destinataire_type: 'chauffeur',
-            destinataire_id: chauffeur_id,
-            type: 'alerte_signalement',
-            titre: 'Signalement collectif',
-            contenu: `Plusieurs passagers ont signalé : ${categorie}. Merci de rester vigilant.`,
-            canal: 'push'
-          });
-        }
-      });
+    const nbPassagers = nbEmbarques;
 
     await client.query('COMMIT');
 

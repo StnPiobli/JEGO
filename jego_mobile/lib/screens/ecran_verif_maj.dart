@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../l10n/strings.dart';
 
 /// DEMO : ne verifie rien reellement, aucun serveur de mise a jour
 /// n'existe encore -- simule juste un court delai puis affiche "a jour".
@@ -31,8 +32,8 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: JegoTheme.texte),
-        title: const Text('Mises a jour',
+        iconTheme: IconThemeData(color: JegoTheme.texte),
+        title: Text(Strings.t('mises_a_jour'),
             style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
       ),
       body: Center(
@@ -47,7 +48,7 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
                 shape: BoxShape.circle,
               ),
               child: _enCours
-                  ? const Padding(
+                  ? Padding(
                       padding: EdgeInsets.all(24),
                       child: CircularProgressIndicator(
                           strokeWidth: 2.4, color: JegoTheme.vert),
@@ -61,7 +62,7 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
             const SizedBox(height: 18),
             Text(
               _verifie ? 'JEGO est a jour' : 'Version 1.0.0',
-              style: const TextStyle(
+              style: TextStyle(
                   color: JegoTheme.texte, fontSize: 16, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
@@ -81,7 +82,7 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
                     color: JegoTheme.vert,
                     borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                   ),
-                  child: const Text('Verifier maintenant',
+                  child: Text(Strings.t('verifier_maintenant'),
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
                 ),

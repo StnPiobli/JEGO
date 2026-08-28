@@ -5,6 +5,7 @@ import '../config/reservation.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/billet_qr.dart';
+import '../config/notifs_store.dart';
 
 /// Ecran de confirmation apres paiement valide.
 /// 1 billet PAR PERSONNE, aller puis retour. Tous affiches, tous enregistres.
@@ -17,8 +18,8 @@ class EcranConfirmation extends StatefulWidget {
 }
 
 class _EcranConfirmationState extends State<EcranConfirmation> {
-  late final List<int> _siegesAller;
-  late final List<int> _siegesRetour;
+  late final List<String> _siegesAller;
+  late final List<String> _siegesRetour;
   final List<Map<String, dynamic>> _billetsAller = [];
   final List<Map<String, dynamic>> _billetsRetour = [];
 
@@ -29,8 +30,8 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
   /// Même en mode automatique, les places ont été choisies parmi les
   /// sièges réellement libres du bus avant le paiement : il n'y a
   /// donc plus rien à « révéler », on affiche ce qui a été payé.
-  List<int> _siegesReveles(
-      Map<String, dynamic> offre, List<int> choisis, bool auto) {
+  List<String> _siegesReveles(
+      Map<String, dynamic> offre, List<String> choisis, bool auto) {
     return choisis;
   }
 
@@ -39,7 +40,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
     super.initState();
     _siegesAller = _siegesReveles(r.offreAller, r.siegesAller, r.autoAller);
     _siegesRetour = r.offreRetour == null
-        ? []
+        ? <String>[]
         : _siegesReveles(r.offreRetour!, r.siegesRetour, r.autoRetour);
 
     final groupeAller = DateTime.now().microsecondsSinceEpoch.toString();
@@ -59,25 +60,29 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
       }
     }
 
-    // Enregistre tous les billets dans le store (visibles dans l'onglet Billets).
+    // L'onglet Billets se remplit depuis le serveur, seule source de
+    // verite. Y pousser les billets construits ici les affichait en
+    // double des le rechargement suivant.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final b in _billetsAller) {
-        BilletsStore.ajouter(b);
-      }
-      for (final b in _billetsRetour) {
-        BilletsStore.ajouter(b);
-      }
+      BilletsStore.charger();
+      // Le paiement vient de declencher « Billet confirme » cote
+      // serveur : la cloche doit le montrer sans attendre un
+      // redemarrage de l'application.
+      NotifsStore.charger();
     });
   }
 
   Map<String, dynamic> _billetData(Map<String, dynamic> offre,
-      List<int> sieges, String villeD, String villeA, String date,
+      List<String> sieges, String villeD, String villeA, String date,
       {required bool estRetour,
       required int indexPersonne,
       required String groupe}) {
     final siege = indexPersonne < sieges.length
         ? sieges[indexPersonne]
-        : (sieges.isNotEmpty ? sieges.first : 0);
+        : (sieges.isNotEmpty ? sieges.first : '');
+
+    // Ce que le serveur a emis pour cette place.
+    final emis = r.billetsEmis['$siege'] ?? const <String, dynamic>{};
 
     final flex = estRetour
         ? r.flexibleRetour[indexPersonne]
@@ -131,7 +136,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
     return {
       'id': '${offre['id']}-$groupe-$indexPersonne',
       'groupe': groupe,
-      'num_resa': Reservation.genererNumero(),
+      'num_resa': '${emis['numero'] ?? ''}',
       'ville_depart': villeD,
       'ville_arrivee': villeA,
       'point_depart': offre['point_depart'],
@@ -150,7 +155,9 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
       'flexible': flex,
       'cadeau': estCadeau,
       'cadeau_nom': cadeauNom,
-      'code_qr': '${offre['id']}-$siege-JEGO',
+      // QR signe par le serveur. Celui qui etait fabrique ici ne
+      // passait aucune verification de signature : il ne scannait pas.
+      'code_qr': '${emis['qr_code'] ?? ''}',
       'frais': frais,
       'total': total,
     };
@@ -177,7 +184,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
                         color: JegoTheme.vert.withOpacity(0.12),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.check_circle_rounded,
+                      child: Icon(Icons.check_circle_rounded,
                           color: JegoTheme.vert, size: 56),
                     ),
                   )
@@ -191,7 +198,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
                   Center(
                     child: Text(
                       Strings.t('confirm_titre'),
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texte,
                           fontSize: 21,
                           fontWeight: FontWeight.w800),
@@ -202,7 +209,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
                     child: Text(
                       '${_billetsAller.length + _billetsRetour.length} ${Strings.t('confirm_nb_billets')}',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: JegoTheme.texteSecondaire, fontSize: 13),
                     ),
                   ).animate(delay: 220.ms).fadeIn(),
@@ -222,7 +229,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
                         villeArrivee: e.value['ville_arrivee'],
                         date: e.value['date'],
                         offre: e.value,
-                        sieges: (e.value['sieges'] as List).cast<int>(),
+                        sieges: (e.value['sieges'] as List).map((s) => '$s').toList(),
                         auto: r.autoAller,
                       ),
                     );
@@ -243,7 +250,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
                         villeArrivee: e.value['ville_arrivee'],
                         date: e.value['date'],
                         offre: e.value,
-                        sieges: (e.value['sieges'] as List).cast<int>(),
+                        sieges: (e.value['sieges'] as List).map((s) => '$s').toList(),
                         auto: r.autoRetour,
                       ),
                     );

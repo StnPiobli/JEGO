@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { formatTelephone } from "@/lib/format";
 import DateNav from "@/components/DateNav";
 import HistoriqueButton from "@/components/HistoriqueButton";
 import TypeToConfirm from "@/components/TypeToConfirm";
@@ -20,6 +21,7 @@ import TypeToConfirm from "@/components/TypeToConfirm";
 type Litige = {
   id: number | string; numero: string; motif: string; description: string;
   statut: string; niveau: number; reponse_agence: string | null; cree_le: string;
+  escalade_le?: string | null;
   nom_agence: string; nom_voyageur: string; prenom_voyageur: string;
   // ⚠️ Champs suivants absents de la vraie réponse API actuelle
   // (litigesAdmin() ne les sélectionne pas) — undefined si branché en vrai.
@@ -115,7 +117,10 @@ export default function LitigesPage() {
                     <b className="font-mono text-xs">{l.numero}</b>
                     <span className="text-[11px] text-ink-soft ml-2">{l.nom_agence} · {l.prenom_voyageur} {l.nom_voyageur}</span>
                   </div>
-                  {l.reponse_agence && <Badge color="amber">L&apos;agence a répondu</Badge>}
+                  <div className="flex items-center gap-1.5">
+                    {l.escalade_le && <Badge color="red">Agence hors délai</Badge>}
+                    {l.reponse_agence && <Badge color="amber">L&apos;agence a répondu</Badge>}
+                  </div>
                 </div>
                 <p className="text-[13px] mt-2 mb-1"><b>Motif :</b> {l.motif}</p>
                 <p className="text-[13px] text-ink-soft mb-1">{l.description}</p>
@@ -125,7 +130,7 @@ export default function LitigesPage() {
                   <div className="border border-line rounded-lg px-3 py-2">
                     <div className="text-[10px] uppercase tracking-wide text-ink-soft mb-1">Plaignant</div>
                     <div className="font-semibold">{l.prenom_voyageur} {l.nom_voyageur}</div>
-                    <div className="font-mono text-ink-soft">{l.telephone_voyageur ?? "non fourni par l'API"}</div>
+                    <div className="font-mono text-ink-soft">{l.telephone_voyageur ? formatTelephone(l.telephone_voyageur) : "non fourni par l'API"}</div>
                     <div className="text-ink-soft">{l.email_voyageur ?? "non fourni par l'API"}</div>
                   </div>
                   <div className="border border-line rounded-lg px-3 py-2">

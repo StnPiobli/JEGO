@@ -12,8 +12,11 @@ async function calculerHorizon(agenceId) {
   );
   const seuils = {};
   params.rows.forEach(p => { seuils[p.cle] = parseInt(p.valeur); });
-  const minInitial = seuils['programmation_min_jours_initial'] || 30;
-  const seuilAlerte = seuils['programmation_seuil_alerte_jours'] || 14;
+  // 0 est une valeur VALIDE (pas de minimum / pas de seuil) : on ne
+  // retombe sur le defaut que si le parametre est absent ou illisible.
+  const lire = (cle, defaut) => Number.isInteger(seuils[cle]) ? seuils[cle] : defaut;
+  const minInitial = lire('programmation_min_jours_initial', 30);
+  const seuilAlerte = lire('programmation_seuil_alerte_jours', 14);
 
   // 2. Récupérer la date d'inscription de l'agence
   const agence = await pool.query(`SELECT cree_le FROM agences WHERE id = $1`, [agenceId]);

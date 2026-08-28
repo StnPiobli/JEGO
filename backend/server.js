@@ -9,6 +9,11 @@ const { demarrerVersementEscrow } = require('./jobs/versementEscrow');
 
 const app = express();
 
+// Derrière le proxy HTTPS / le tunnel Cloudflare : faire confiance à
+// l'en-tête X-Forwarded-For pour que req.ip soit la VRAIE adresse du
+// visiteur (et non celle du proxy). En local, req.ip vaut ::1 (localhost).
+app.set('trust proxy', true);
+
 // Middleware
 app.use(cors());
 // Fichiers publics (logos d'agence) — pas les documents officiels,
@@ -41,6 +46,7 @@ app.use('/api/groupes', require('./routes/groupeRoutes'));
 app.use('/api/denonciations', require('./routes/denonciationRoutes'));
 app.use('/api/messages', require('./routes/messageRoutes'));
 const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
+const { demarrerEcheanceLitige } = require('./jobs/echeanceLitige');
 
 // Route de test
 app.get('/', (req, res) => {
@@ -67,4 +73,5 @@ app.listen(PORT, () => {
   demarrerNettoyageVerrous();
   demarrerVersementEscrow();
   demarrerAlerteProgrammation();
+  demarrerEcheanceLitige();
 });

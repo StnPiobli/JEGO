@@ -25,15 +25,15 @@ type Periode = "jour" | "mois" | "annee";
 type PointSerie = { jour: string; valeur: number };
 type Resume = {
   revenu: string; billets: string; verseAgences: string; encaisse: string;
-  commissionMoyenne: string; remboursementsEnCours: string; remboursementsNb: string;
+  commissionMoyenne: string; soldesVoyageurs: string; soldesNb: string;
 };
 const resumeVide: Resume = {
   revenu: "—", billets: "—", verseAgences: "—", encaisse: "—",
-  commissionMoyenne: "—", remboursementsEnCours: "—", remboursementsNb: "0",
+  commissionMoyenne: "—", soldesVoyageurs: "—", soldesNb: "0",
 };
 
 // ── Détail cliquable : colonnes et mise en forme par type ──────────────
-type TypeDetail = "revenu" | "remboursements";
+type TypeDetail = "revenu" | "soldes";
 type Colonne = { cle: string; libelle: string; type: "text" | "money" | "percent" | "date" };
 type Ligne = Record<string, string | number | null>;
 
@@ -48,14 +48,10 @@ const COLONNES: Record<TypeDetail, Colonne[]> = {
     { cle: "taux", libelle: "Commission", type: "percent" },
     { cle: "date", libelle: "Date", type: "date" },
   ],
-  remboursements: [
-    { cle: "client", libelle: "Client", type: "text" },
-    { cle: "agence", libelle: "Agence", type: "text" },
-    { cle: "ref", libelle: "Billet", type: "text" },
-    { cle: "motif", libelle: "Motif", type: "text" },
-    { cle: "prixBillet", libelle: "Prix billet initial", type: "money" },
-    { cle: "montant", libelle: "À rembourser", type: "money" },
-    { cle: "date", libelle: "Date", type: "date" },
+  soldes: [
+    { cle: "client", libelle: "Voyageur", type: "text" },
+    { cle: "telephone", libelle: "Téléphone", type: "text" },
+    { cle: "montant", libelle: "Solde dû", type: "money" },
   ],
 };
 
@@ -170,7 +166,7 @@ export default function FinancesPage() {
 
   const totalMontant = useMemo(() => {
     if (!detail) return null;
-    const champ = detail.type === "remboursements" ? "montant" : "marge";
+    const champ = detail.type === "soldes" ? "montant" : "marge";
     return lignesAffichees.reduce((s, l) => s + Number(l[champ] ?? 0), 0);
   }, [detail, lignesAffichees]);
 
@@ -244,9 +240,9 @@ export default function FinancesPage() {
         <StatCard num={resume.billets} label={`Billets vendus — ${libellePeriode}`} />
         {/* Commission moyenne — NON cliquable */}
         <StatCard num={resume.commissionMoyenne} label={`Commission moyenne — ${libellePeriode}`} />
-        {/* Remboursements en cours — cliquable */}
-        <button onClick={() => ouvrirDetail("remboursements", "Remboursements en cours")} className="text-left">
-          <StatCard num={resume.remboursementsEnCours} label={`Remboursements en cours (${resume.remboursementsNb})`} />
+        {/* Soldes JEGO dus aux voyageurs — cliquable (liste par voyageur) */}
+        <button onClick={() => ouvrirDetail("soldes", "Soldes JEGO dus aux voyageurs")} className="text-left">
+          <StatCard num={resume.soldesVoyageurs} label={`Soldes dus aux voyageurs (${resume.soldesNb} comptes)`} />
         </button>
       </div>
 
@@ -296,7 +292,7 @@ export default function FinancesPage() {
                 <h3 className="font-display text-[15px] font-semibold">{detail.titre}</h3>
                 <div className="text-[11.5px] text-ink-soft mt-0.5">
                   {lignesAffichees.length} ligne(s)
-                  {totalMontant !== null && ` · ${detail.type === "remboursements" ? "à rembourser" : "revenu JEGO"} ${fmtMoney(totalMontant)}`}
+                  {totalMontant !== null && ` · ${detail.type === "soldes" ? "dû aux voyageurs" : "revenu JEGO"} ${fmtMoney(totalMontant)}`}
                 </div>
               </div>
               <button onClick={() => setDetail(null)} className="text-ink-soft text-sm">✕</button>

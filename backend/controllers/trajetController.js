@@ -2,7 +2,8 @@
 const { verserEscrowTrajet } = require('../services/escrowService');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
-const { genererIdentifiant } = require('../utils/identifiant');
+const { rembourserBillet } = require('../services/portefeuilleService');
+const { rendrePointsDepenses } = require('../services/pointsService');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -346,38 +347,70 @@ async function rembourserBilletsDuTrajet(client, trajetId, motifCode, texteNotif
   );
 
   let totalRembourse = 0;
+  let nombreRembourses = 0;
+  // Billets vendus au guichet : payés en espèces, l'agence rembourse
+  // ces clients en espèces. Ils sont comptés à part pour le lui dire.
+  let guichet = 0;
+  let totalGuichet = 0;
   for (const billet of billets.rows) {
     await client.query(
       `UPDATE billets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
       [billet.id]
     );
 
-    await client.query(
-      `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1`,
-      [billet.id]
-    );
+    await rendrePointsDepenses(billet.id, client);
 
-    const reference = genererIdentifiant('RMB');
-    await client.query(
-      `INSERT INTO remboursements
-        (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-       VALUES ($1, $2, $3, $4, 100, 'traite', $5, NOW())`,
-      [billet.id, billet.voyageur_id, billet.prix_total_client, motifCode, reference]
-    );
+    // 100 % à l'acheteur (CDC §16) ; l'agence n'est pas versée et JEGO
+    // perd sa commission.
+    const remb = await rembourserBillet(billet.id, { motif: motifCode, pourcentage: 100 }, client);
+    if (remb.guichet) {
+      guichet++;
+      totalGuichet += remb.montantGuichet;
+      continue;
+    }
 
-    totalRembourse += billet.prix_total_client;
+    totalRembourse += remb.montant;
+    nombreRembourses++;
 
     await creerNotification({
       destinataire_type: 'voyageur',
-      destinataire_id: billet.voyageur_id,
+      destinataire_id: remb.beneficiaire,
       type: 'remboursement',
       titre: 'Remboursement intégral',
-      contenu: `${texteNotification} Vous êtes remboursé à 100% (${billet.prix_total_client} FCFA).`,
+      contenu: `${texteNotification} ${remb.montant} FCFA ont été crédités sur votre solde JEGO, utilisable sur votre prochain billet.`,
       canal: 'push'
     });
   }
 
-  return { nombre: billets.rows.length, total: totalRembourse };
+  // Le chauffeur assigné ne doit pas se présenter pour un trajet qui
+  // n'aura pas lieu.
+  const trajet = await client.query(
+    `SELECT t.chauffeur_id, t.numero, TO_CHAR(t.date_depart, 'DD/MM/YYYY') AS date,
+            TO_CHAR(t.heure_depart, 'HH24:MI') AS heure
+       FROM trajets t WHERE t.id = $1`,
+    [trajetId]
+  );
+  const t = trajet.rows[0];
+  if (t?.chauffeur_id) {
+    await creerNotification({
+      destinataire_type: 'chauffeur',
+      destinataire_id: t.chauffeur_id,
+      type: 'trajet_annule',
+      titre: 'Trajet annulé',
+      contenu: `Le trajet ${t.numero} du ${t.date} à ${t.heure} est annulé par l'agence. Vous n'avez pas à vous présenter.`,
+      canal: 'push'
+    });
+  }
+
+  return { nombre: nombreRembourses, total: totalRembourse, guichet, totalGuichet };
+}
+
+// Phrase ajoutée à la réponse de l'agence quand des billets du guichet
+// sont annulés : personne d'autre qu'elle ne peut rembourser ces clients.
+function avertissementGuichet(guichet, totalGuichet) {
+  return guichet > 0
+    ? ` ${guichet} billet(s) vendu(s) au guichet : remboursez ces clients en espèces (${totalGuichet} FCFA au total).`
+    : '';
 }
 
 async function annulerTrajet(req, res) {
@@ -413,7 +446,7 @@ async function annulerTrajet(req, res) {
       return res.status(400).json({ error: 'Ce trajet est déjà annulé' });
     }
 
-    const { nombre, total } = await rembourserBilletsDuTrajet(
+    const { nombre, total, guichet, totalGuichet } = await rembourserBilletsDuTrajet(
       client, trajetId, 'annulation_agence',
       "Votre trajet a été annulé par l'agence."
     );
@@ -428,9 +461,12 @@ async function annulerTrajet(req, res) {
     await client.query('COMMIT');
 
     res.json({
-      message: 'Trajet annulé. Tous les voyageurs seront remboursés à 100%.',
+      message: 'Trajet annulé. Les voyageurs sont remboursés à 100 % sur leur solde JEGO.'
+        + avertissementGuichet(guichet, totalGuichet),
       billets_rembourses: nombre,
-      total_rembourse: total
+      total_rembourse: total,
+      billets_guichet: guichet,
+      total_guichet_especes: totalGuichet
     });
 
   } catch (err) {
@@ -677,8 +713,8 @@ async function supprimerTrajet(req, res) {
       return res.status(400).json({ error: 'Ce trajet est déjà supprimé.' });
     }
 
-    const { nombre, total } = await rembourserBilletsDuTrajet(
-      client, trajetId, 'suppression_trajet',
+    const { nombre, total, guichet, totalGuichet } = await rembourserBilletsDuTrajet(
+      client, trajetId, 'annulation_agence',
       "Votre trajet a été supprimé par l'agence."
     );
 
@@ -692,11 +728,13 @@ async function supprimerTrajet(req, res) {
     await client.query('COMMIT');
 
     res.json({
-      message: nombre > 0
-        ? `Trajet supprimé. ${nombre} voyageur(s) remboursé(s) à 100% (${total} FCFA au total) et notifié(s).`
-        : 'Trajet supprimé.',
+      message: (nombre > 0
+        ? `Trajet supprimé. ${nombre} voyageur(s) remboursé(s) à 100 % sur leur solde JEGO (${total} FCFA au total) et notifié(s).`
+        : 'Trajet supprimé.') + avertissementGuichet(guichet, totalGuichet),
       billets_rembourses: nombre,
-      total_rembourse: total
+      total_rembourse: total,
+      billets_guichet: guichet,
+      total_guichet_especes: totalGuichet
     });
 
   } catch (err) {

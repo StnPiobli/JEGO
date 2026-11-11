@@ -1,3 +1,4 @@
+import 'photo_profil.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -125,6 +126,7 @@ class Session {
       NotifsStore.charger();
       BilletsStore.charger();
       WalletStore.charger();
+      PhotoProfil.synchroniser();
     } catch (_) {
       // Rien de restaurable : on demarre deconnecte, sans bruit.
     }
@@ -158,6 +160,8 @@ class Session {
     // connexion, il restait vide -- les billets semblaient perdus.
     BilletsStore.charger();
     WalletStore.charger();
+    // La photo du compte, gardée par le serveur.
+    PhotoProfil.synchroniser();
     _enregistrer();
   }
 

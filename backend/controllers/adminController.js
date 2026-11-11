@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { recalculerNotes } = require('../services/noteService');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
 const { creerNotification } = require('../services/notificationService');
@@ -1022,14 +1023,17 @@ async function resumeFinances(req, res) {
 
     // Revenu net JEGO, billets, versé agences et encaissé — MÊME période
     // partout (plus de mélange jour/mois).
+    // Le revenu compte aussi les billets annulés : leur part JEGO est
+    // recalculée à chaque remboursement (souvent négative quand JEGO
+    // rend plus qu'il n'a gagné), l'ignorer gonflerait le revenu.
     const rev = await pool.query(
       `SELECT COALESCE(SUM(e.montant_jego), 0) AS revenu,
-              COUNT(*) AS billets,
+              COUNT(*) FILTER (WHERE b.statut IN ('confirme', 'utilise')) AS billets,
               COALESCE(SUM(e.montant_agence), 0) AS verse_agences,
               COALESCE(SUM(e.montant_total), 0) AS encaisse
        FROM escrow e
        JOIN billets b ON b.id = e.billet_id
-       WHERE ${clause} AND b.statut IN ('confirme', 'utilise')`,
+       WHERE ${clause}`,
       [date]
     );
 
@@ -1042,11 +1046,22 @@ async function resumeFinances(req, res) {
       [date]
     );
 
-    // Remboursements en cours : instantané des demandes en attente
-    // (indépendant de la période — c'est un « reste à traiter »).
-    const remboursements = await pool.query(
-      `SELECT COALESCE(SUM(montant), 0) AS total, COUNT(*) AS nb
-       FROM remboursements WHERE statut = 'en_attente'`
+    // Soldes JEGO dus aux voyageurs : l'argent remboursé que JEGO garde
+    // pour eux jusqu'à leur prochain billet. Instantané, indépendant de
+    // la période -- c'est ce que JEGO doit à l'instant.
+    const soldes = await pool.query(
+      `SELECT COALESCE(SUM(solde), 0) AS total, COUNT(*) AS nb FROM (
+         SELECT v.id, v.prenom || ' ' || v.nom AS client, v.telephone,
+              COALESCE(cr.total, 0) - COALESCE(db.total, 0) AS solde
+         FROM voyageurs v
+         LEFT JOIN (SELECT r.voyageur_id, SUM(r.montant) AS total
+                      FROM remboursements r JOIN billets b ON b.id = r.billet_id
+                     WHERE r.statut = 'traite' AND b.source_vente IS DISTINCT FROM 'physique'
+                     GROUP BY r.voyageur_id) cr ON cr.voyageur_id = v.id
+         LEFT JOIN (SELECT voyageur_id, SUM(montant) AS total
+                      FROM utilisations_portefeuille GROUP BY voyageur_id) db ON db.voyageur_id = v.id
+        WHERE COALESCE(cr.total, 0) - COALESCE(db.total, 0) > 0
+       ) s`
     );
 
     const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' F';
@@ -1057,8 +1072,8 @@ async function resumeFinances(req, res) {
       verseAgences: fmt(rev.rows[0].verse_agences),
       encaisse: fmt(rev.rows[0].encaisse),
       commissionMoyenne: commission.rows[0].taux + '%',
-      remboursementsEnCours: fmt(remboursements.rows[0].total),
-      remboursementsNb: String(remboursements.rows[0].nb),
+      soldesVoyageurs: fmt(soldes.rows[0].total),
+      soldesNb: String(soldes.rows[0].nb),
     });
 
   } catch (err) {
@@ -1186,26 +1201,24 @@ async function detailFinances(req, res) {
         taux: x.taux === null ? null : Number(x.taux),
       }));
 
-    } else if (type === 'remboursements') {
+    } else if (type === 'soldes') {
       const r = await pool.query(
-        `SELECT r.montant::numeric AS montant, r.motif, r.pourcentage,
-                b.prix_total_client::numeric AS prix_billet,
-                v.prenom || ' ' || v.nom AS client,
-                a.nom AS agence, b.numero,
-                TO_CHAR(r.cree_le, 'DD/MM/YYYY HH24:MI') AS date
-         FROM remboursements r
-         LEFT JOIN billets b ON b.id = r.billet_id
-         LEFT JOIN voyageurs v ON v.id = r.voyageur_id
-         LEFT JOIN agences a ON a.id = b.agence_id
-         WHERE r.statut = 'en_attente'
-         ORDER BY r.cree_le DESC`
+        `SELECT v.id, v.prenom || ' ' || v.nom AS client, v.telephone,
+              COALESCE(cr.total, 0) - COALESCE(db.total, 0) AS solde
+         FROM voyageurs v
+         LEFT JOIN (SELECT r.voyageur_id, SUM(r.montant) AS total
+                      FROM remboursements r JOIN billets b ON b.id = r.billet_id
+                     WHERE r.statut = 'traite' AND b.source_vente IS DISTINCT FROM 'physique'
+                     GROUP BY r.voyageur_id) cr ON cr.voyageur_id = v.id
+         LEFT JOIN (SELECT voyageur_id, SUM(montant) AS total
+                      FROM utilisations_portefeuille GROUP BY voyageur_id) db ON db.voyageur_id = v.id
+        WHERE COALESCE(cr.total, 0) - COALESCE(db.total, 0) > 0
+        ORDER BY solde DESC`
       );
       lignes = r.rows.map((x) => ({
-        client: x.client || '—', agence: x.agence || '—',
-        ref: x.numero || '—', motif: x.motif || '—', date: x.date,
-        prixBillet: x.prix_billet === null ? null : Number(x.prix_billet),
-        montant: Number(x.montant),
-        pourcentage: x.pourcentage === null ? null : Number(x.pourcentage),
+        client: x.client || '—',
+        telephone: x.telephone || '—',
+        montant: Number(x.solde),
       }));
     } else {
       return res.status(400).json({ error: 'Type de détail inconnu' });
@@ -1588,13 +1601,15 @@ async function moderationTraiter(req, res) {
       return res.status(400).json({ error: "Action invalide (supprimer, conserver ou ignorer attendu)" });
     }
 
-    const check = await pool.query(`SELECT id FROM avis WHERE id = $1`, [id]);
+    const check = await pool.query(`SELECT id, agence_id, chauffeur_id FROM avis WHERE id = $1`, [id]);
     if (check.rows.length === 0) {
       return res.status(404).json({ error: 'Commentaire introuvable' });
     }
 
     const nouveauStatut = action === 'supprimer' ? 'supprime' : 'visible';
     await pool.query(`UPDATE avis SET statut = $1 WHERE id = $2`, [nouveauStatut, id]);
+    // Un avis retiré ou rétabli change la note de l'agence et du chauffeur.
+    await recalculerNotes({ agenceId: check.rows[0].agence_id, chauffeurId: check.rows[0].chauffeur_id });
 
     await journaliser({
       acteurType: 'membre_admin', acteurId: req.utilisateur.id,
@@ -1697,7 +1712,42 @@ async function agenceTrajets(req, res) {
   }
 }
 
-module.exports = {
+// ═══════════════════════════════════════════════════
+// NOTIFICATIONS DE L'ADMIN CONNECTÉ
+// Messages « Nous contacter », dénonciations, litiges à trancher : ils
+// ne partaient que par email, l'espace admin ne les montrait nulle part.
+// ═══════════════════════════════════════════════════
+async function mesNotificationsAdmin(req, res) {
+  try {
+    const r = await pool.query(
+      `SELECT id, type, titre, contenu, lu, cree_le FROM notifications
+        WHERE destinataire_type = 'admin' AND destinataire_id = $1
+        ORDER BY cree_le DESC LIMIT 100`,
+      [req.utilisateur.id]
+    );
+    res.json({
+      non_lues: r.rows.filter((n) => !n.lu).length,
+      notifications: r.rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function marquerNotificationsLuesAdmin(req, res) {
+  try {
+    await pool.query(
+      `UPDATE notifications SET lu = true
+        WHERE destinataire_type = 'admin' AND destinataire_id = $1 AND lu = false`,
+      [req.utilisateur.id]
+    );
+    res.json({ message: 'Notifications lues' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { mesNotificationsAdmin, marquerNotificationsLuesAdmin,
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
   listerVoyageurs, modifierStatutVoyageur, activiteStats, activiteEvenements, activiteDetail, agenceTrajets,

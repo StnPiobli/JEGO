@@ -115,7 +115,7 @@ class _EcranConfirmationState extends State<EcranConfirmation> {
     if (bagages > 0) {
       frais.add({
         'libelle': '${Strings.t('recap_bagages')} × $bagages',
-        'montant': '${bagages * Reservation.prixBagage} FCFA'
+        'montant': '${bagages * widget.reservation.prixBagage} FCFA'
       });
     }
     if (flex) {

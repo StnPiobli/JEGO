@@ -102,10 +102,10 @@ class _PanneauParametresState extends State<PanneauParametres> {
                         Strings.t('param_politique_confidentialite'), onTap: () {
                       Navigator.of(context).pushNamed('/politique-confidentialite');
                     }),
-                    _ligneValeur(Icons.refresh_rounded,
-                        Strings.t('param_verifier_maj'), 'v1.0.0', onTap: () {
-                      Navigator.of(context).pushNamed('/verif-maj');
-                    }),
+                    // Simple affichage : aucun serveur de mises à jour
+                    // n'existe, l'écran qui prétendait vérifier est retiré.
+                    _ligneValeur(Icons.info_outline_rounded,
+                        Strings.t('param_version'), 'v1.0.0'),
                   ]),
                 ],
               ),

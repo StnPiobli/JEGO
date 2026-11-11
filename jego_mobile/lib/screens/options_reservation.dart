@@ -1,3 +1,4 @@
+import '../config/tarifs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/reservation.dart';
@@ -332,7 +333,7 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
                         ],
                       ),
                       Text(
-                        '${Strings.t('bagage_inclus')} · +${Reservation.prixBagage} FCFA/${Strings.t('bagage_unite')}',
+                        '${Strings.t('bagage_inclus')} · +${r.prixBagage} FCFA/${Strings.t('bagage_unite')}',
                         style: TextStyle(
                             color: JegoTheme.texteTernaire, fontSize: 10.5),
                       ),
@@ -592,22 +593,22 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
             }),
           ),
           _optionPoints(
-            libelle: '${Strings.t('points_500')} (-500 FCFA)',
-            detail: '500 pts',
-            actif: r.pointsConsommes == 500,
-            disponible: Reservation.pointsDisponibles >= 500,
+            libelle: '${Strings.t('points_500')} (-${Tarifs.palierReductionFcfa} FCFA)',
+            detail: '${Tarifs.palierReductionPoints} pts',
+            actif: r.pointsConsommes == Tarifs.palierReductionPoints,
+            disponible: Reservation.pointsDisponibles >= Tarifs.palierReductionPoints,
             onTap: () => setState(() {
-              r.pointsConsommes = 500;
-              r.pointsReduction = 500;
+              r.pointsConsommes = Tarifs.palierReductionPoints;
+              r.pointsReduction = Tarifs.palierReductionFcfa;
             }),
           ),
           _optionPoints(
             libelle: '${Strings.t('points_1000')} (-$prixStandard FCFA)',
-            detail: '1000 pts',
-            actif: r.pointsConsommes == 1000,
-            disponible: Reservation.pointsDisponibles >= 1000,
+            detail: '${Tarifs.palierGratuitPoints} pts',
+            actif: r.pointsConsommes == Tarifs.palierGratuitPoints,
+            disponible: Reservation.pointsDisponibles >= Tarifs.palierGratuitPoints,
             onTap: () => setState(() {
-              r.pointsConsommes = 1000;
+              r.pointsConsommes = Tarifs.palierGratuitPoints;
               r.pointsReduction = prixStandard;
             }),
           ),

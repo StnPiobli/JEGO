@@ -979,9 +979,9 @@ async function mesAvertissements(req, res) {
         WHERE destinataire_type = 'chauffeur'
           AND destinataire_id = $1
           AND lu = false
-          -- Uniquement les alertes de conduite : les envois
-          -- d'identifiants ne sont pas des avertissements.
-          AND type = 'alerte_signalement'
+          -- Alertes de conduite et trajets annulés : le chauffeur doit
+          -- les lire. Les envois d'identifiants n'en font pas partie.
+          AND type IN ('alerte_signalement', 'trajet_annule')
         ORDER BY cree_le DESC
         LIMIT 20`,
       [req.utilisateur.id]
@@ -1004,7 +1004,7 @@ async function accuserReceptionAvertissements(req, res) {
         WHERE destinataire_type = 'chauffeur'
           AND destinataire_id = $1
           AND lu = false
-          AND type = 'alerte_signalement'`,
+          AND type IN ('alerte_signalement', 'trajet_annule')`,
       [req.utilisateur.id]
     );
     res.json({ message: 'Avertissements acquittés', nombre: resultat.rowCount });
@@ -1013,4 +1013,49 @@ async function accuserReceptionAvertissements(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur, mesAvertissements, accuserReceptionAvertissements };
+// ═══════════════════════════════════════════════════
+// BILLETS VALIDES D'UN TRAJET (chauffeur assigné)
+// Téléchargés par l'application avant le départ, pour contrôler les
+// billets sans réseau : hors ligne, un QR n'est accepté que s'il
+// figure dans cette liste avec sa signature exacte. Un faux QR « bien
+// formé » est donc refusé même sans connexion.
+// ═══════════════════════════════════════════════════
+async function billetsTrajet(req, res) {
+  try {
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+    const trajet = await pool.query(
+      `SELECT id FROM trajets WHERE id = $1 AND chauffeur_id = $2`,
+      [req.params.id, req.utilisateur.id]
+    );
+    if (trajet.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable ou non assigné à vous' });
+    }
+    const r = await pool.query(
+      `SELECT b.numero, b.qr_code, b.statut, b.qr_scanne, s.numero AS siege,
+              TRIM(COALESCE(v.prenom, '') || ' ' || COALESCE(v.nom, '')) AS passager
+         FROM billets b
+         JOIN sieges s ON s.id = b.siege_id
+         LEFT JOIN voyageurs v ON v.id = b.voyageur_id
+        WHERE b.trajet_id = $1 AND b.statut IN ('confirme', 'utilise')`,
+      [req.params.id]
+    );
+    res.json({
+      trajet_id: req.params.id,
+      genere_le: new Date().toISOString(),
+      billets: r.rows.map((b) => ({
+        numero: b.numero,
+        // Dernier segment du QR signé : JEGO|numéro|trajet|siège|signature
+        signature: (b.qr_code || '').split('|')[4] || '',
+        siege: b.siege,
+        passager: b.passager,
+        deja_scanne: b.qr_scanne === true
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { billetsTrajet, creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur, mesAvertissements, accuserReceptionAvertissements };

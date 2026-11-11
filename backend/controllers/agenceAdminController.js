@@ -3,6 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { rembourserBillet } = require('../services/portefeuilleService');
+const { rendrePointsDepenses } = require('../services/pointsService');
 const { journaliser } = require('../services/logService');
 
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'agences');
@@ -348,27 +350,21 @@ async function desactiverAgence(req, res) {
     );
 
     let totalRembourse = 0;
+    let totalGuichet = 0;
     for (const billet of aRembourser.rows) {
-      await client.query(
-        `INSERT INTO remboursements
-          (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-         VALUES ($1, $2, $3, 'agence_desactivee', 100, 'traite', $4, NOW())`,
-        [billet.id, billet.voyageur_id, billet.prix_total_client, `REMB-DES-${billet.numero}`]
-      );
-
-      if (billet.escrow_id) {
-        await client.query(
-          `UPDATE escrow SET statut = 'rembourse' WHERE id = $1 AND statut = 'retenu'`,
-          [billet.escrow_id]
-        );
-      }
+      await rendrePointsDepenses(billet.id, client);
+      // 100 % sur le solde JEGO de l'acheteur ; un billet du guichet a
+      // été payé en espèces et se rembourse en espèces.
+      const remb = await rembourserBillet(billet.id, { motif: 'agence_desactivee', pourcentage: 100 }, client);
+      billet.beneficiaire = remb.beneficiaire;
+      billet.montantRembourse = remb.montant;
+      if (remb.guichet) totalGuichet += remb.montantGuichet;
+      else totalRembourse += remb.montant;
 
       await client.query(
         `UPDATE billets SET statut = 'annule', mis_a_jour_le = NOW() WHERE id = $1`,
         [billet.id]
       );
-
-      totalRembourse += billet.prix_total_client;
     }
 
     // Les trajets à venir sont annulés : ils restent en base pour l'historique
@@ -404,10 +400,12 @@ async function desactiverAgence(req, res) {
     for (const billet of aRembourser.rows) {
       await creerNotification({
         destinataire_type: 'voyageur',
-        destinataire_id: billet.voyageur_id,
+        destinataire_id: billet.beneficiaire || billet.voyageur_id,
         type: 'remboursement',
         titre: 'Votre trajet a été annulé',
-        contenu: `L'agence n'est plus active sur JEGO. Votre billet ${billet.numero} a été intégralement remboursé (${billet.prix_total_client} FCFA).`,
+        contenu: billet.beneficiaire
+          ? `L'agence n'est plus active sur JEGO. Votre billet ${billet.numero} est intégralement remboursé : ${billet.montantRembourse} FCFA crédités sur votre solde JEGO, utilisable sur votre prochain billet.`
+          : `L'agence n'est plus active sur JEGO. Votre billet ${billet.numero}, acheté au guichet, est annulé : son remboursement en espèces (${billet.prix_total_client} FCFA) se fait auprès de l'agence.`,
         canal: 'email'
       });
     }
@@ -416,6 +414,7 @@ async function desactiverAgence(req, res) {
       message: `${agence.rows[0].nom} désactivée`,
       billets_rembourses: aRembourser.rows.length,
       montant_rembourse: totalRembourse,
+      montant_guichet_especes: totalGuichet,
       trajets_annules: trajetsAnnules.rows.length,
     });
 

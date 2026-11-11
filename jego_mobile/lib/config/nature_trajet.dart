@@ -66,6 +66,7 @@ class NatureTrajet {
     if (estExpress(offre)) e.add(Strings.t('cat_express'));
     final c = classe(offre);
     if (c != null) e.add(c);
+    if (offre['repas_inclus'] == true) e.add(Strings.t('eq_repas'));
     return e;
   }
 

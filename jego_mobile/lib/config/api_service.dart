@@ -342,6 +342,32 @@ class ApiService {
     });
   }
 
+  /// Envoie la photo de profil ; renvoie son adresse sur le serveur.
+  static Future<String> envoyerPhoto(List<int> octets) async {
+    final requete = http.MultipartRequest(
+        'POST', Uri.parse('${ApiConfig.baseUrl}/api/voyageurs/photo'))
+      ..headers['Authorization'] = 'Bearer ${Session.token ?? ''}'
+      ..files.add(http.MultipartFile.fromBytes('fichier', octets, filename: 'photo'));
+    final reponse = await http.Response.fromStream(
+        await requete.send().timeout(_delai));
+    final rep = _traiter(reponse);
+    return '${rep['photo_url']}';
+  }
+
+  static Future<void> supprimerPhoto() async {
+    final r = await http.delete(
+      Uri.parse('${ApiConfig.baseUrl}/api/voyageurs/photo'),
+      headers: {'Authorization': 'Bearer ${Session.token ?? ''}'},
+    ).timeout(_delai);
+    _traiter(r);
+  }
+
+  /// Octets d'un fichier public servi par le backend (/uploads/...).
+  static Future<List<int>?> telechargerFichier(String chemin) async {
+    final r = await http.get(Uri.parse('${ApiConfig.baseUrl}$chemin')).timeout(_delai);
+    return r.statusCode == 200 ? r.bodyBytes : null;
+  }
+
   static Future<Map<String, dynamic>> monProfil() async {
     final rep = await _get(ApiConfig.profil, authentifie: true);
     return Map<String, dynamic>.from(rep['voyageur'] ?? rep);
@@ -380,6 +406,8 @@ class ApiService {
     if (t['wifi'] == true) equipements.add('wifi');
     if (t['toilettes'] == true) equipements.add('toilettes');
     if (t['sieges_inclinables'] == true) equipements.add('inclinable');
+    // Repas distribué à bord, coché par l'agence sur le trajet.
+    if (t['distribution_nourriture'] == true) equipements.add('repas');
 
     String heure(dynamic v) {
       if (v == null) return '--:--';
@@ -408,9 +436,12 @@ class ApiService {
       'nombre_arrets': arrets.length,
       'arrets_liste': arrets.map((a) => '${a['ville'] ?? ''}').toList(),
       'equipements': equipements,
+      'repas_inclus': t['distribution_nourriture'] == true,
       'places_disponibles': int.tryParse('${t['places_disponibles'] ?? 0}') ?? 0,
       'point_depart': t['lieu_embarquement'] ?? t['depart_affiche'] ?? '',
-      'point_arrivee': t['arrivee_affiche'] ?? '',
+      // Lieu précis de descente (« ecole »), comme pour le départ ; la
+      // ville seule n'aide pas à savoir où le bus s'arrête.
+      'point_arrivee': t['lieu_debarquement'] ?? t['arrivee_affiche'] ?? '',
       'depart_affiche': t['depart_affiche'] ?? '',
       'arrivee_affiche': t['arrivee_affiche'] ?? '',
       'nom_bus': t['nom_bus'] ?? '',
@@ -504,29 +535,32 @@ class ApiService {
   static Future<Map<String, dynamic>> payer({
     required String trajetId,
     required String siegeId,
-    required String operateur, // mtn_momo | orange_money
+    // mtn_momo | orange_money ; null quand le solde couvre tout le prix
+    String? operateur,
     required String cleIdempotence,
     int ordreDepart = 0,
     int ordreArrivee = 1,
     bool siegePremium = false,
-    int supplementBagage = 0,
+    int quantiteBagages = 0,
     bool billetFlexible = false,
     bool estCadeau = false,
     String? destinataireTel,
     String? destinataireEmail,
     bool utiliserReduction = false,
     bool utiliserGratuit = false,
+    bool utiliserSolde = false,
   }) async {
     final rep = await _post(
       ApiConfig.payer,
       {
         'trajet_id': trajetId,
         'siege_id': siegeId,
-        'operateur': operateur,
+        if (operateur != null) 'operateur': operateur,
+        'utiliser_solde': utiliserSolde,
         'point_embarquement_ordre': ordreDepart,
         'point_debarquement_ordre': ordreArrivee,
         'est_premium_choisi': siegePremium,
-        'supplement_bagage': supplementBagage,
+        'quantite_bagages': quantiteBagages,
         'est_flexible': billetFlexible,
         'est_cadeau': estCadeau,
         if (destinataireTel != null) 'destinataire_tel': destinataireTel,
@@ -569,6 +603,28 @@ class ApiService {
   // ═══════════════════════════════════════════════════
   // APRÈS VOYAGE : notation, signalement, dénonciation
   // ═══════════════════════════════════════════════════
+  /// Écran « Nous contacter » : le message part aux administrateurs.
+  static Future<void> contacterSupport({
+    required String email,
+    required String message,
+  }) async {
+    await _post('${ApiConfig.baseUrl}/api/voyageurs/contact',
+        {'email': email, 'message': message});
+  }
+
+  /// Tarifs et règles appliqués par le serveur (route publique).
+  static Future<Map<String, dynamic>> tarifs() async {
+    final rep = await _get('${ApiConfig.baseUrl}/api/parametres/tarifs');
+    return Map<String, dynamic>.from(rep);
+  }
+
+  static Future<List<Map<String, dynamic>>> mesAvis() async {
+    final rep = await _get('${ApiConfig.avis}/mes-avis', authentifie: true);
+    return ((rep['avis'] as List?) ?? [])
+        .map<Map<String, dynamic>>((a) => Map<String, dynamic>.from(a))
+        .toList();
+  }
+
   static Future<void> noterVoyage({
     required String trajetId,
     required int noteService,
@@ -613,6 +669,15 @@ class ApiService {
     final rep = await _get('${ApiConfig.denonciations}/billets-denoncables', authentifie: true);
     final liste = (rep['billets'] as List?) ?? [];
     return liste.map<Map<String, dynamic>>((b) => Map<String, dynamic>.from(b)).toList();
+  }
+
+  /// Dénonciations ouvertes par le voyageur, avec la réponse de
+  /// l'agence et la décision de JEGO.
+  static Future<List<Map<String, dynamic>>> mesDenonciations() async {
+    final rep = await _get('${ApiConfig.denonciations}/mes-denonciations', authentifie: true);
+    return ((rep['denonciations'] as List?) ?? [])
+        .map<Map<String, dynamic>>((d) => Map<String, dynamic>.from(d))
+        .toList();
   }
 
   static Future<void> denoncer({
@@ -711,6 +776,18 @@ class ApiService {
   }
 
   /// Feuille de route : tous les points de la ligne, déclarés ou non.
+  /// Billets valides d'un trajet du chauffeur, pour le contrôle hors ligne.
+  static Future<List<Map<String, dynamic>>> billetsTrajetChauffeur(
+      String trajetId, String token) async {
+    final r = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/api/chauffeurs/trajets/$trajetId/billets'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+    ).timeout(_delai);
+    final rep = _traiter(r);
+    final liste = (rep['billets'] as List?) ?? [];
+    return liste.map<Map<String, dynamic>>((b) => Map<String, dynamic>.from(b)).toList();
+  }
+
   static Future<List<Map<String, dynamic>>> arretsTrajet(
       String trajetId, String token) async {
     final r = await http.get(

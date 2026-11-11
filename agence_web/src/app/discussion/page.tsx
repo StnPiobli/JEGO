@@ -7,9 +7,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
-import { apiFetch, getToken } from '../lib/api';
+import { API_BASE, apiFetch, getToken } from '../lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 type Message = {
   id: string;

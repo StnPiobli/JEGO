@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {
+const { billetsTrajet,
   creerChauffeur, listerChauffeurs, connexionChauffeur,
   mesTrajets, declarerDepart, declarerArriveeChauffeur,
   desactiverUrgence, reactiverChauffeur,
@@ -33,6 +33,8 @@ router.put('/trajets/:id/depart', authentifier, verifierChauffeurActif, declarer
 router.put('/trajets/:id/arrivee', authentifier, verifierChauffeurActif, declarerArriveeChauffeur);
 // Feuille de route et déclaration de passage aux arrêts intermédiaires
 router.get('/trajets/:id/arrets', authentifier, verifierChauffeurActif, arretsTrajet);
+// Liste des billets valides, pour le contrôle sans réseau
+router.get('/trajets/:id/billets', authentifier, verifierChauffeurActif, billetsTrajet);
 router.put('/trajets/:id/arret', authentifier, verifierChauffeurActif, declarerArriveeArret);
 // Départ d'un arrêt : ferme l'embarquement à ce point
 router.put('/trajets/:id/arret/depart', authentifier, verifierChauffeurActif, declarerDepartArret);

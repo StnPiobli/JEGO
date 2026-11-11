@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../config/api.dart';
 import '../config/billets_store.dart';
 import '../config/theme_jego.dart';
 import '../widgets/dialogues_voyage.dart';
@@ -25,8 +26,9 @@ const _criteresNotation = <_CritereNotation>[
 /// Pendant le voyage) est mise en avant tout en haut, avant le formulaire,
 /// puisque cet ecran est accessible directement depuis une notification ou
 /// une banniere sans etre passe par l'autre ecran au prealable.
-/// La notation est definitive : ecrite sur le billet via BilletsStore des
-/// l'envoi, pour ne plus jamais pouvoir etre renvoyee.
+/// La notation part au serveur, qui la rattache a l'agence et au
+/// chauffeur du trajet et recalcule leurs notes. Elle est definitive :
+/// le serveur refuse un second avis sur le meme voyage.
 class EcranApresVoyage extends StatefulWidget {
   final Map<String, dynamic> billet;
   const EcranApresVoyage({super.key, required this.billet});
@@ -42,13 +44,18 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
   final TextEditingController _commentaire = TextEditingController();
   late bool _envoye;
   late bool _fausseArriveeSignalee;
+  bool _envoiEnCours = false;
+  String? _erreurEnvoi;
 
   bool get _pret => _notes.values.every((n) => n > 0);
 
   @override
   void initState() {
     super.initState();
-    _envoye = widget.billet['note_envoyee'] == true;
+    // deja_note vient du serveur : l'avis a pu etre laisse sur un autre
+    // appareil.
+    _envoye = widget.billet['note_envoyee'] == true ||
+        widget.billet['deja_note'] == true;
     _fausseArriveeSignalee = widget.billet['fausse_arrivee_signalee'] == true;
   }
 
@@ -58,16 +65,48 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
     super.dispose();
   }
 
-  void _envoyer() {
-    if (!_pret) return;
+  Future<void> _envoyer() async {
+    if (!_pret || _envoiEnCours) return;
+    setState(() {
+      _envoiEnCours = true;
+      _erreurEnvoi = null;
+    });
     final noteMoyenne =
         _notes.values.reduce((a, b) => a + b) / _notes.length;
+    try {
+      await ApiService.noterVoyage(
+        trajetId: '${widget.billet['trajet_id']}',
+        noteService: _notes['service']!,
+        noteConduite: _notes['conduite']!,
+        noteHoraires: _notes['horaires']!,
+        noteConfort: _notes['confort']!,
+        commentaire: _commentaire.text.trim(),
+      );
+    } on ErreurApi catch (e) {
+      // 409 : deja note (sur un autre appareil) -> l'avis existe, on
+      // l'affiche comme envoye plutot que de redemander.
+      if (e.statut != 409) {
+        if (mounted) {
+          setState(() {
+            _envoiEnCours = false;
+            _erreurEnvoi = e.message;
+          });
+        }
+        return;
+      }
+    }
     BilletsStore.mettreAJour('${widget.billet['id']}', {
       'note_envoyee': true,
+      'deja_note': true,
       'note_moyenne_envoyee': noteMoyenne,
       'commentaire_envoye': _commentaire.text.trim(),
     });
-    setState(() => _envoye = true);
+    if (mounted) {
+      setState(() {
+        _envoiEnCours = false;
+        _envoye = true;
+      });
+    }
   }
 
   Future<void> _signalerFausseArrivee() async {
@@ -219,8 +258,19 @@ class _EcranApresVoyageState extends State<EcranApresVoyage> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  if (_erreurEnvoi != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        _erreurEnvoi!,
+                        style: TextStyle(
+                            color: JegoTheme.danger,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   BoutonTactile(
-                    onTap: _pret ? _envoyer : null,
+                    onTap: _pret && !_envoiEnCours ? _envoyer : null,
                     child: Container(
                       width: double.infinity,
                       height: 50,

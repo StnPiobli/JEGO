@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { recalculerNotes } = require('../services/noteService');
 
 // ═══════════════════════════════════════════════════
 // NOTER UN VOYAGE (voyageur avec billet utilisé)
@@ -66,24 +67,8 @@ async function noterVoyage(req, res) {
       throw e;
     }
 
-    // 6. Recalculer la note moyenne de l'AGENCE
-    await client.query(
-      `UPDATE agences SET
-        note_moyenne = (SELECT ROUND(AVG(note_globale), 2) FROM avis WHERE agence_id = $1 AND statut = 'visible'),
-        nombre_avis = (SELECT COUNT(*) FROM avis WHERE agence_id = $1 AND statut = 'visible')
-       WHERE id = $1`,
-      [agence_id]
-    );
-
-    // 7. Recalculer la note moyenne du CHAUFFEUR (s'il y en a un)
-    if (chauffeur_id) {
-      await client.query(
-        `UPDATE chauffeurs SET
-          note_moyenne = (SELECT ROUND(AVG(note_conduite), 2) FROM avis WHERE chauffeur_id = $1 AND statut = 'visible')
-         WHERE id = $1`,
-        [chauffeur_id]
-      );
-    }
+    // 6. Recalculer les notes de l'agence et du chauffeur
+    await recalculerNotes({ agenceId: agence_id, chauffeurId: chauffeur_id }, client);
 
     await client.query('COMMIT');
 
@@ -188,4 +173,37 @@ async function avisTrajet(req, res) {
   }
 }
 
-module.exports = { noterVoyage, avisAgence, avisTrajet };
+// ═══════════════════════════════════════════════════
+// MES AVIS (voyageur connecté)
+// Les avis qu'il a laissés, avec le trajet concerné. Un avis retiré
+// par la modération reste listé, marqué comme tel : le voyageur doit
+// savoir pourquoi il ne le voit plus sur la fiche de l'agence.
+// ═══════════════════════════════════════════════════
+async function mesAvis(req, res) {
+  try {
+    const r = await pool.query(
+      `SELECT av.id, av.note_globale, av.note_service, av.note_conduite,
+              av.note_horaires, av.note_confort, av.commentaire, av.statut,
+              av.cree_le,
+              ag.nom AS nom_agence,
+              TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+              TO_CHAR(t.heure_depart, 'HH24:MI') AS heure_depart,
+              t.numero AS numero_trajet,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee
+         FROM avis av
+         JOIN agences ag ON ag.id = av.agence_id
+         JOIN trajets t ON t.id = av.trajet_id
+         JOIN lignes l ON l.id = t.ligne_id
+         JOIN villes vd ON vd.code = l.ville_depart
+         JOIN villes va ON va.code = l.ville_arrivee
+        WHERE av.voyageur_id = $1
+        ORDER BY av.cree_le DESC`,
+      [req.utilisateur.id]
+    );
+    res.json({ avis: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { noterVoyage, avisAgence, avisTrajet, mesAvis };

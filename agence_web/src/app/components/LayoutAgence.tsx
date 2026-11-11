@@ -19,6 +19,7 @@ const liens = [
   { href: '/statistiques', key: 'statistiques', icone: 'statistiques' },
   { href: '/signalements', key: 'incidents', icone: 'incidents' },
   { href: '/litiges', key: 'litiges', icone: 'litiges' },
+  { href: '/denonciations', key: 'denonciations', icone: 'denonciations' },
   { href: '/discussion', key: 'discussion', icone: 'discussion' },
   { href: '/avis', key: 'avis', icone: 'avis' },
 ] as const;
@@ -38,6 +39,7 @@ function Icone({ nom, className }: { nom: string; className?: string }) {
     case 'statistiques': return <svg {...props}><path d="M3 3v18h18" /><rect x="7" y="12" width="3" height="6" /><rect x="13" y="8" width="3" height="10" /><path d="M18 6v12h2V6z" /></svg>;
     case 'incidents': return <svg {...props}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
     case 'litiges': return <svg {...props}><path d="M8 3h8l4 4v14H4V3h4Z" /><path d="M8 11h8M8 15h6M8 7h4" /></svg>;
+    case 'denonciations': return <svg {...props}><path d="M4 22V4" /><path d="M4 4h13l-2 4 2 4H4" /></svg>;
     case 'discussion': return <svg {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
     case 'avis': return <svg {...props}><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>;
     case 'profil': return <svg {...props}><circle cx="12" cy="12" r="10" /><circle cx="12" cy="10" r="3" /><path d="M6.5 19a5.5 5.5 0 0 1 11 0" /></svg>;
@@ -86,9 +88,12 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
   useEffect(() => {
     apiFetch('/api/agences/notifications')
       .then((data) => {
-        const liste: Notification[] = (data.notifications || []).map((n: { id: string; titre: string; texte: string; heure: string; lien?: string }) => ({
+        // `lu` vient du serveur pour les notifications stockées ; les
+        // alertes calculées (litige sans réponse, programme incomplet)
+        // restent non lues tant que la situation dure.
+        const liste: Notification[] = (data.notifications || []).map((n: { id: string; titre: string; texte: string; heure: string; lien?: string; lu?: boolean }) => ({
           ...n,
-          lu: false,
+          lu: n.lu === true,
         }));
         setNotifications(liste);
       })
@@ -159,6 +164,9 @@ export default function LayoutAgence({ children }: { children: React.ReactNode }
 
   function marquerToutCommeLu() {
     setNotifications((liste) => liste.map((n) => ({ ...n, lu: true })));
+    // Enregistré côté serveur : sans cela, tout redevenait non lu au
+    // rechargement de la page.
+    apiFetch('/api/agences/notifications/lues', { method: 'PUT' }).catch(() => {});
   }
 
   return (

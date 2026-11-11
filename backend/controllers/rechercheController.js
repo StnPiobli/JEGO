@@ -41,6 +41,7 @@ async function rechercherTrajets(req, res) {
           vdp.ville AS code_depart, vap.ville AS code_arrivee,
           vdp.ordre AS ordre_depart, vap.ordre AS ordre_arrivee,
           vdp.lieu_prise_en_charge AS lieu_embarquement,
+          vap.lieu_prise_en_charge AS lieu_debarquement,
           vd.nom_affiche AS depart_affiche,
           va.nom_affiche AS arrivee_affiche,
           l.est_direct,
@@ -51,6 +52,8 @@ async function rechercherTrajets(req, res) {
             ) THEN t.prix_base
             ELSE NULL
           END AS prix,
+          t.prix_bagage_supplementaire AS prix_bagage,
+          t.distribution_nourriture,
           b.nom AS nom_bus, b.disposition, b.type_bus,
           b.climatisation, b.prises_usb, b.wifi, b.toilettes, b.sieges_inclinables,
           a.id AS agence_id, a.nom AS nom_agence, a.badge_certifie,

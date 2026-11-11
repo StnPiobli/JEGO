@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Certificat https de test (servir_web.js) : propre à cette machine
+certs_dev/

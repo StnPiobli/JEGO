@@ -122,6 +122,10 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
 
   Future<void> _afficherAvertissements(
       List<Map<String, dynamic>> liste) async {
+    // Une alerte de conduite est un reproche (rouge) ; un trajet annulé
+    // n'est qu'une information de l'agence (vert).
+    final alerte = liste.any((a) => a['type'] == 'alerte_signalement');
+    final couleur = alerte ? JegoTheme.danger : JegoTheme.vert;
     await showDialog<void>(
       context: context,
       // Ni clic à côté ni bouton retour : le chauffeur doit acquitter.
@@ -140,18 +144,22 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: JegoTheme.danger, size: 34),
+                  Icon(alerte ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                      color: couleur, size: 34),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      liste.length > 1
-                          ? '${liste.length} avertissements'
-                          : 'Avertissement',
+                      alerte
+                          ? (liste.length > 1
+                              ? '${liste.length} avertissements'
+                              : 'Avertissement')
+                          : (liste.length > 1
+                              ? '${liste.length} messages de l\'agence'
+                              : 'Message de l\'agence'),
                       style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w800,
-                          color: JegoTheme.danger),
+                          color: couleur),
                     ),
                   ),
                 ]),
@@ -166,12 +174,12 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                                 margin: const EdgeInsets.only(bottom: 10),
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: JegoTheme.danger.withOpacity(0.08),
+                                  color: couleur.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(
                                       JegoTheme.rPetit),
                                   border: Border.all(
                                       color:
-                                          JegoTheme.danger.withOpacity(0.35)),
+                                          couleur.withOpacity(0.35)),
                                 ),
                                 child: Column(
                                   crossAxisAlignment:
@@ -183,7 +191,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                                         style: TextStyle(
                                             fontSize: 17,
                                             fontWeight: FontWeight.w800,
-                                            color: JegoTheme.danger)),
+                                            color: couleur)),
                                     const SizedBox(height: 4),
                                     Text('${a['contenu'] ?? ''}',
                                         style: TextStyle(
@@ -211,7 +219,7 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
                   height: 56,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: JegoTheme.danger,
+                      backgroundColor: couleur,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                           borderRadius:

@@ -1,3 +1,4 @@
+import 'tarifs.dart';
 import 'session.dart';
 
 /// Données de la réservation en cours, transportées dans tout le
@@ -99,8 +100,9 @@ class Reservation {
 
   // Barème indicatif affiché pendant le parcours. Le montant qui
   // fait foi est celui calculé par le serveur au paiement.
-  static const int prixBagage = 1000; // FCFA / bagage supp -> agence
-  static const double tauxFlexible = 0.10;
+  /// Prix d'un bagage supplémentaire, fixé par l'agence sur le trajet.
+  int get prixBagage => int.tryParse('${offreAller['prix_bagage'] ?? ''}') ?? 1000;
+  static double get tauxFlexible => Tarifs.optionFlexiblePourcent / 100;
   /// Solde réel de points JEGO du voyageur connecté, renvoyé par le
   /// serveur à la connexion. Aucun solde n'est inventé : un compte
   /// neuf démarre naturellement à zéro.

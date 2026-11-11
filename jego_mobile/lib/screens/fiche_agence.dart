@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/api.dart';
+import '../config/format_date.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// Fiche publique de l'agence, consultee par le voyageur :
 /// note generale, notes par critere, commentaires moderes, badge Certifiee JEGO.
@@ -67,20 +69,18 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
   @override
   Widget build(BuildContext context) {
     if (_chargement) {
-      return Scaffold(
-        backgroundColor: JegoTheme.fond,
-        appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-        body: Center(
+      return EcranJego(
+        titre: '',
+        corps: Center(
           child: CircularProgressIndicator(color: JegoTheme.vert),
         ),
       );
     }
 
     if (_erreur != null) {
-      return Scaffold(
-        backgroundColor: JegoTheme.fond,
-        appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-        body: Center(
+      return EcranJego(
+        titre: '',
+        corps: Center(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Column(
@@ -112,7 +112,8 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
               'auteur': a['voyageur_prenom'] ?? 'Voyageur',
               'note': double.tryParse('${a['note_globale']}') ?? 0.0,
               'texte': a['commentaire'],
-              'date': a['cree_le'],
+              // « 29 août 2026 », pas l'horodatage brut du serveur.
+              'date': FormatDate.lisible('${a['cree_le'] ?? ''}'),
             })
         .toList();
     final certifiee = agence['badge_certifie'] == true;
@@ -132,64 +133,74 @@ class _EcranFicheAgenceState extends State<EcranFicheAgence> {
 
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: _EnTeteAgence(
-              nom: '${agence['nom']}',
-              certifiee: certifiee,
-              noteGenerale: noteGenerale,
-            ),
+      body: Stack(
+        children: [
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 300),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 56, 20, 32),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                ...List.generate(criteres.length, (i) {
-                  return _CritereLigne(donnee: criteres[i])
-                      .animate(delay: (80 * i).ms)
-                      .fadeIn(duration: 350.ms)
-                      .slideX(begin: 0.05);
-                }),
-                const SizedBox(height: 20),
-                Text(
-                  '${Strings.t('commentaires_titre')} (${commentaires.length})',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: JegoTheme.texte,
-                  ),
-                ).animate().fadeIn(duration: 350.ms),
-                const SizedBox(height: 12),
-                ...commentaires.map((c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _CarteCommentaire(
-                        auteur: '${c['auteur']}',
-                        note: c['note'] as double,
-                        texte: '${c['texte']}',
-                        date: '${c['date']}',
-                      ),
-                    )),
-                const SizedBox(height: 24),
-                Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.call_rounded,
-                          size: 14, color: JegoTheme.texteTernaire),
-                      const SizedBox(width: 6),
-                      Text(
-                        Strings.t('support_tel'),
-                        style: TextStyle(
-                          color: JegoTheme.texteTernaire,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
+          CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: _EnTeteAgence(
+                  nom: '${agence['nom']}',
+                  certifiee: certifiee,
+                  noteGenerale: noteGenerale,
                 ),
-              ]),
-            ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    ...List.generate(criteres.length, (i) {
+                      return _CritereLigne(donnee: criteres[i])
+                          .animate(delay: (80 * i).ms)
+                          .fadeIn(duration: 350.ms)
+                          .slideX(begin: 0.05);
+                    }),
+                    const SizedBox(height: 20),
+                    Text(
+                      '${Strings.t('commentaires_titre')} (${commentaires.length})',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: JegoTheme.texte,
+                      ),
+                    ).animate().fadeIn(duration: 350.ms),
+                    const SizedBox(height: 12),
+                    ...commentaires.map((c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _CarteCommentaire(
+                            auteur: '${c['auteur']}',
+                            note: c['note'] as double,
+                            texte: '${c['texte']}',
+                            date: '${c['date']}',
+                          ),
+                        )),
+                    const SizedBox(height: 24),
+                    Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.call_rounded,
+                              size: 14, color: JegoTheme.texteTernaire),
+                          const SizedBox(width: 6),
+                          Text(
+                            Strings.t('support_tel'),
+                            style: TextStyle(
+                              color: JegoTheme.texteTernaire,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -209,119 +220,31 @@ class _EnTeteAgence extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        ClipPath(
-          clipper: _VagueClipper(),
-          child: Container(
-            height: 188,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [JegoTheme.vert, JegoTheme.vertVif],
-              ),
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            EnteteJego(
+              titre: nom,
+              sousTitre: certifiee ? Strings.t('agence_certifiee') : null,
+              retour: true,
             ),
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 4, 20, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        _BoutonRondClair(
-                          icone: Icons.arrow_back_rounded,
-                          onTap: () => Navigator.of(context).pop(),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.fondCarte.withOpacity(0.16),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.directions_bus_rounded,
-                              color: Colors.white, size: 20),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      nom,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        height: 1.15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(height: 22),
+            Center(
+              child: _SceauNote(note: noteGenerale, certifiee: certifiee)
+                  .animate()
+                  .scale(
+                    delay: 150.ms,
+                    duration: 380.ms,
+                    curve: Curves.easeOutBack,
+                    begin: const Offset(0.7, 0.7),
+                  ),
             ),
-          ),
-        ).animate().fadeIn(duration: 300.ms),
-        Positioned(
-          bottom: -44,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: _SceauNote(note: noteGenerale, certifiee: certifiee)
-                .animate()
-                .scale(
-                  delay: 150.ms,
-                  duration: 380.ms,
-                  curve: Curves.easeOutBack,
-                  begin: const Offset(0.7, 0.7),
-                ),
-          ),
+          ],
         ),
-      ],
-    );
-  }
-}
-
-class _VagueClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final chemin = Path();
-    chemin.lineTo(0, size.height - 34);
-    chemin.quadraticBezierTo(
-      size.width / 2,
-      size.height,
-      size.width,
-      size.height - 34,
-    );
-    chemin.lineTo(size.width, 0);
-    chemin.close();
-    return chemin;
-  }
-
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
-}
-
-class _BoutonRondClair extends StatelessWidget {
-  final IconData icone;
-  final VoidCallback onTap;
-  const _BoutonRondClair({required this.icone, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: JegoTheme.fondCarte.withOpacity(0.16),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icone, color: Colors.white, size: 20),
       ),
     );
   }
@@ -346,8 +269,8 @@ class _SceauNote extends StatelessWidget {
             decoration: BoxDecoration(
               color: JegoTheme.fondCarte,
               shape: BoxShape.circle,
-              border: Border.all(
-                  color: JegoTheme.vert.withOpacity(0.15), width: 3),
+              border:
+                  Border.all(color: JegoTheme.vert.withOpacity(0.15), width: 3),
               boxShadow: JegoTheme.ombreDouce,
             ),
             child: Column(
@@ -460,9 +383,11 @@ class _CritereLigne extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           SizedBox(
-            width: 26,
+            width: 30,
             child: Text(
-              '$valeur',
+              // Une décimale : la moyenne brute (3.3333333333) s'empilait
+              // sur six lignes dans cette case étroite.
+              valeur.toStringAsFixed(1),
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 13,
@@ -577,10 +502,7 @@ class _AvatarInitiales extends StatelessWidget {
   Widget build(BuildContext context) {
     final parties =
         nom.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    final initiales = parties
-        .take(2)
-        .map((p) => p[0].toUpperCase())
-        .join();
+    final initiales = parties.take(2).map((p) => p[0].toUpperCase()).join();
     final couleur = _palette[nom.hashCode.abs() % _palette.length];
 
     return Container(

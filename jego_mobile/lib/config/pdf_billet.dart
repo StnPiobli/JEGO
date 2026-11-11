@@ -8,13 +8,9 @@ import 'session.dart';
 /// QR, carte details trajet, carte passager, carte paiement, carte infos
 /// importantes, banniere de confiance, pied de page.
 ///
-/// DONNEES DEMO SANS SOURCE REELLE (a corriger au branchement backend,
-/// affichees normalement dans le PDF mais marquees ici explicitement) :
-/// - "Piece d'identite" : aucune collecte reelle n'existe encore cote
-///   inscription/profil -- affiche "Non renseignee" plutot qu'un faux
-///   numero invente.
-/// - "Methode de paiement" : fixee a "Mobile Money", aucun suivi reel
-///   par transaction n'existe encore.
+/// Le moyen de paiement est celui enregistre par le serveur (operateur,
+/// solde JEGO, especes au guichet). Aucune piece d'identite n'est
+/// collectee par JEGO : le billet n'en affiche donc pas.
 ///
 /// La fleche/separateur de trajet utilise "»" (U+00BB) et non "->"
 /// (U+2192) : la police de base du PDF (Helvetica) ne supporte pas cette
@@ -63,9 +59,6 @@ Future<Uint8List> genererPdfBillet(Map<String, dynamic> billet) async {
     duree = '-';
   }
 
-  // DEMO : aucune collecte de piece d'identite n'existe encore cote
-  // inscription/profil.
-  const pieceIdentite = 'Non renseignee';
 
   doc.addPage(
     pw.MultiPage(
@@ -277,8 +270,6 @@ Future<Uint8List> genererPdfBillet(Map<String, dynamic> billet) async {
                     _ligne('Email',
                         emailPassager.isEmpty ? '-' : emailPassager, gris,
                         vertFonce, vert),
-                    _ligne('Piece d\'identite', pieceIdentite, gris,
-                        vertFonce, vert),
                     _ligne('Passagers', '$totalPersonnes', gris, vertFonce,
                         vert,
                         dernier: true),
@@ -335,11 +326,8 @@ Future<Uint8List> genererPdfBillet(Map<String, dynamic> billet) async {
                       ],
                     ),
                     pw.SizedBox(height: 8),
-                    // DEMO : methode de paiement non tracee reellement
-                    // par transaction -- valeur fixe en attendant le
-                    // branchement backend.
-                    _ligne('Methode', 'Mobile Money', gris, vertFonce,
-                        vert),
+                    _ligne('Methode', '${billet['methode_paiement'] ?? 'Mobile Money'}',
+                        gris, vertFonce, vert),
                   ],
                 ),
               ),

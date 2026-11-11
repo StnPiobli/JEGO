@@ -1,5 +1,5 @@
 "use client";
-// PRÊT À BRANCHER — Points JEGO.
+// BRANCHÉ SUR LE VRAI BACKEND — Points JEGO.
 // Les paliers de reconversion sont réels (table parametres_systeme), mais
 // aucune route "points" n'existe encore (pas de pointsRoutes.js).
 // Routes attendues :

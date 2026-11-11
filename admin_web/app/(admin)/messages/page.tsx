@@ -6,9 +6,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/ui";
-import { apiFetch, getToken } from "@/lib/api";
+import { API_BASE, apiFetch, getToken } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
 type Conversation = {
   agence_id: string;

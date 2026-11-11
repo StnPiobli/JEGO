@@ -21,6 +21,7 @@ app.use(cors());
 app.use('/uploads/agences/logos', express.static(path.join(__dirname, 'uploads', 'agences', 'logos')));
 app.use('/uploads/messages', express.static(path.join(__dirname, 'uploads', 'messages')));
 app.use('/uploads/litiges', express.static(path.join(__dirname, 'uploads', 'litiges')));
+app.use('/uploads/voyageurs/photos', express.static(path.join(__dirname, 'uploads', 'voyageurs', 'photos')));
 // express.json() doit laisser passer les envois de fichiers : la route
 // de téléversement lit le flux multipart brut elle-même.
 app.use((req, res, next) => {
@@ -43,9 +44,9 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/programmation', require('./routes/programmationRoutes'));
 app.use('/api/litiges', require('./routes/litigeRoutes'));
 app.use('/api/rapports', require('./routes/rapportRoutes'));
-app.use('/api/groupes', require('./routes/groupeRoutes'));
 app.use('/api/denonciations', require('./routes/denonciationRoutes'));
 app.use('/api/messages', require('./routes/messageRoutes'));
+app.use('/api/parametres', require('./routes/parametreRoutes'));
 const { demarrerAlerteProgrammation } = require('./jobs/alerteProgrammation');
 const { demarrerEcheanceLitige } = require('./jobs/echeanceLitige');
 

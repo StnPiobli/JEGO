@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+import '../config/api.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/style_jego.dart';
 
-/// DEMO : le message n'est envoye nulle part reellement -- juste une
-/// confirmation visuelle. Au branchement, appel a une vraie API support
-/// (ou envoi email via Resend, deja utilise ailleurs dans le projet).
+/// Le message part aux administrateurs JEGO (notification + email) ;
+/// l'email saisi sert a repondre.
 class EcranNousContacter extends StatefulWidget {
   const EcranNousContacter({super.key});
 
@@ -19,10 +19,26 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
       TextEditingController(text: Session.email ?? '');
   final TextEditingController _message = TextEditingController();
   bool _envoye = false;
+  bool _envoi = false;
+  String? _erreur;
 
-  void _envoyer() {
-    if (_message.text.trim().isEmpty) return;
-    setState(() => _envoye = true);
+  Future<void> _envoyer() async {
+    if (_message.text.trim().isEmpty || _envoi) return;
+    setState(() {
+      _envoi = true;
+      _erreur = null;
+    });
+    try {
+      await ApiService.contacterSupport(
+        email: _email.text.trim(),
+        message: _message.text.trim(),
+      );
+      if (mounted) setState(() => _envoye = true);
+    } on ErreurApi catch (e) {
+      if (mounted) setState(() => _erreur = e.message);
+    } finally {
+      if (mounted) setState(() => _envoi = false);
+    }
   }
 
   @override
@@ -67,6 +83,14 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
                 _champ('Email', _email, TextInputType.emailAddress),
                 const SizedBox(height: 12),
                 _champ('Ton message', _message, TextInputType.multiline, lignes: 6),
+                if (_erreur != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_erreur!,
+                      style: TextStyle(
+                          color: JegoTheme.danger,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ],
                 const SizedBox(height: 18),
                 BoutonTactile(
                   onTap: _envoyer,

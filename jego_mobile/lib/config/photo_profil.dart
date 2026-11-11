@@ -6,14 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api.dart';
+
 /// Photo de profil du voyageur.
 ///
-/// Conservée sur l'appareil, en base64, dans les préférences locales :
-/// elle survit à la fermeture de l'application et ne change que quand
-/// la personne la change. Le serveur n'a pas de champ pour l'accueillir
-/// — le jour où il en aura un (Cloudinary, prévu au cahier des
-/// charges), c'est cette classe qui l'enverra, le reste de l'interface
-/// n'aura pas à bouger.
+/// Gardée par le serveur, et en copie sur l'appareil pour s'afficher
+/// tout de suite au démarrage, même sans réseau. Changer de téléphone
+/// ne la fait plus disparaître : elle est rechargée à la connexion.
 class PhotoProfil {
   static const _cle = 'photo_profil_base64';
 
@@ -60,16 +59,43 @@ class PhotoProfil {
     if (fichier == null) return false;
 
     final octets = await fichier.readAsBytes();
-    image.value = octets;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_cle, base64Encode(octets));
+    // Le serveur d'abord : si l'envoi échoue, l'ancienne photo reste
+    // affichée et l'erreur remonte à l'écran.
+    await ApiService.envoyerPhoto(octets);
+    await _garderLocalement(octets);
     return true;
   }
 
   static Future<void> retirer() async {
+    await ApiService.supprimerPhoto();
     image.value = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_cle);
+  }
+
+  /// À la connexion : la photo du compte est celle du serveur. La
+  /// copie locale n'est jamais renvoyée -- sur un téléphone partagé,
+  /// elle peut appartenir au compte précédent.
+  static Future<void> synchroniser() async {
+    try {
+      final profil = await ApiService.monProfil();
+      final url = profil['photo_url'];
+      if (url is String && url.isNotEmpty) {
+        final octets = await ApiService.telechargerFichier(url);
+        if (octets != null) await _garderLocalement(Uint8List.fromList(octets));
+      } else {
+        image.value = null;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_cle);
+      }
+    } catch (_) {
+      // Sans réseau, la copie locale fait l'affaire jusqu'à la prochaine fois.
+    }
+  }
+
+  static Future<void> _garderLocalement(Uint8List octets) async {
+    image.value = octets;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cle, base64Encode(octets));
   }
 }

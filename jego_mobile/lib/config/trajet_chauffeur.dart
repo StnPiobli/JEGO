@@ -1,3 +1,4 @@
+import 'scan_hors_ligne.dart';
 import 'api.dart';
 import 'session_chauffeur.dart';
 
@@ -31,6 +32,11 @@ class TrajetChauffeur {
       final brut = await ApiService.trajetsChauffeur(token);
       tous = brut.map<Map<String, dynamic>>(_convertir).toList()
         ..sort((a, b) => dateHeure(a).compareTo(dateHeure(b)));
+      // Billets valides des trajets à venir ou en cours, gardés sur le
+      // téléphone pour contrôler sans réseau.
+      ScanHorsLigne.telechargerListes(tous
+          .where((t) => t['statut'] != 'termine' && t['statut'] != 'annule')
+          .map((t) => '${t['id']}'));
       // Le serveur fait foi sur ce qui est terminé.
       _termines
         ..clear()

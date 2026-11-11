@@ -1,7 +1,13 @@
 // Utilitaire d'appel au vrai backend Express (http://localhost:3000 par défaut).
 // Le token JWT est stocké en localStorage après connexion (voir app/login/page.tsx).
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+// Depuis un autre appareil du réseau (téléphone), « localhost » désignerait
+// cet appareil : on vise alors la machine qui sert la page, comme jego_mobile.
+const API_CONFIG = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+export const API_BASE =
+  typeof window !== "undefined" && API_CONFIG.includes("localhost")
+    ? API_CONFIG.replace("localhost", window.location.hostname)
+    : API_CONFIG;
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

@@ -1,5 +1,5 @@
 "use client";
-// PRÊT À BRANCHER — file de modération des commentaires signalés.
+// BRANCHÉ SUR LE VRAI BACKEND — file de modération des commentaires signalés.
 // Routes attendues :
 //   GET /api/admin/moderation?date=YYYY-MM-DD
 //     → { commentaires: [{ id, texte, auteur, agence, motif, color, primaryDanger }] }

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/billets_store.dart';
@@ -670,6 +671,24 @@ class _CarteBilletAvecAction extends StatefulWidget {
 class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
   bool _enCoursPdf = false;
 
+  /// PDF préparé à l'avance : Safari refuse un partage qui ne suit pas
+  /// immédiatement l'appui, et fabriquer le PDF à ce moment-là prenait
+  /// trop de temps -- le partage échouait.
+  Uint8List? _pdfPret;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      try {
+        final b = await genererPdfBillet(widget.billet);
+        if (mounted) _pdfPret = b;
+      } catch (_) {
+        // On le fabriquera au moment de l'appui.
+      }
+    });
+  }
+
   String _fmt(int montant) {
     final s = montant.toString();
     final buf = StringBuffer();
@@ -710,7 +729,7 @@ class _CarteBilletAvecActionState extends State<_CarteBilletAvecAction> {
     if (_enCoursPdf) return;
     setState(() => _enCoursPdf = true);
     try {
-      final bytes = await genererPdfBillet(widget.billet);
+      final bytes = _pdfPret ?? await genererPdfBillet(widget.billet);
       final partage = await partagerPdf(
         bytes,
         'Billet_${widget.billet['num_resa'] ?? ''}.pdf',

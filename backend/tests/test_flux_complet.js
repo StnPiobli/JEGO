@@ -241,7 +241,7 @@ async function main() {
     headers: { 'Idempotency-Key': cleIdem },
     body: {
       trajet_id: trajetId, siege_id: siegeId, operateur: 'mtn_momo',
-      supplement_bagage: 1000,
+      quantite_bagages: 1,
       point_embarquement_ordre: 0, point_debarquement_ordre: 2
     }
   });
@@ -257,7 +257,7 @@ async function main() {
     headers: { 'Idempotency-Key': cleIdem },
     body: {
       trajet_id: trajetId, siege_id: siegeId, operateur: 'mtn_momo',
-      supplement_bagage: 1000,
+      quantite_bagages: 1,
       point_embarquement_ordre: 0, point_debarquement_ordre: 2
     }
   });
@@ -299,7 +299,7 @@ async function main() {
     token: tokenAgence,
     body: {
       nom: 'Eto\'o', prenom: 'Paul', date_naissance: '1985-03-10',
-      lieu_naissance: 'Douala', telephone: `+2379${U}`, mot_de_passe: 'Chauffeur123!'
+      lieu_naissance: 'Douala', telephone: `+2379${U.slice(-8)}`, email: `ch${U}@t.cm`, mot_de_passe: 'Chauffeur123!'
     }
   });
   ok('Création chauffeur par l\'agence', chauffeur.statut === 201, JSON.stringify(chauffeur.donnees));
@@ -311,10 +311,21 @@ async function main() {
   ok('Assignation chauffeur au trajet', assign.statut === 200, JSON.stringify(assign.donnees));
 
   const cnxCh = await appel('POST', '/api/chauffeurs/connexion', {
-    body: { telephone: `+2379${U}`, mot_de_passe: 'Chauffeur123!' }
+    body: { telephone: `+2379${U.slice(-8)}`, mot_de_passe: 'Chauffeur123!' }
   });
   ok('Connexion chauffeur', cnxCh.statut === 200 && !!cnxCh.donnees?.token);
   const tokenCh = cnxCh.donnees?.token;
+
+  // L'embarquement n'ouvre qu'une heure avant le départ : le trajet,
+  // créé pour demain, est ramené à dans 30 minutes.
+  const dans30 = new Date(Date.now() + 30 * 60000);
+  const deux = (n) => String(n).padStart(2, '0');
+  await pool.query(
+    `UPDATE trajets SET date_depart = $2::date, heure_depart = $3 WHERE id = $1`,
+    [trajetId,
+     `${dans30.getFullYear()}-${deux(dans30.getMonth() + 1)}-${deux(dans30.getDate())}`,
+     `${deux(dans30.getHours())}:${deux(dans30.getMinutes())}`]
+  );
 
   // Scan du VRAI QR généré au paiement
   const scan1 = await appel('POST', '/api/reservations/scanner', {
@@ -434,7 +445,7 @@ async function main() {
     token: tokenAgence,
     body: {
       siege_id: siege2?.id, nom_client: 'Marie Fotso',
-      telephone_client: `+2378${U}`, montant_recu: prixAttendu,
+      telephone_client: `+2378${U.slice(-8)}`, montant_recu: prixAttendu,
       point_embarquement_ordre: 0, point_debarquement_ordre: 2
     }
   });
@@ -442,7 +453,7 @@ async function main() {
 
   const fantome = await pool.query(
     `SELECT cree_par_guichet, email FROM voyageurs WHERE telephone LIKE $1`,
-    [`%${U}`]
+    [`%${U.slice(-8)}`]
   );
   ok('Compte fantôme créé par le guichet',
      fantome.rows.some(r => r.cree_par_guichet === true),

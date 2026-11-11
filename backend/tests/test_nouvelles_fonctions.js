@@ -104,7 +104,7 @@ async function main() {
     token: tokenAgence,
     body: {
       nom: 'Eto', prenom: 'Paul', date_naissance: '1985-03-10',
-      lieu_naissance: 'Douala', telephone: telCh, mot_de_passe: mdpInitial
+      lieu_naissance: 'Douala', telephone: telCh, email: `ch${U}@t.cm`, mot_de_passe: mdpInitial
     }
   })).donnees?.chauffeur?.id;
   ok('Chauffeur créé', !!chauffeurId);
@@ -183,8 +183,9 @@ async function main() {
      AND tranche_min <= 5000 AND (tranche_max IS NULL OR tranche_max >= 5000)
      ORDER BY agence_id NULLS LAST LIMIT 1`
   );
-  const pct = grille.rows.length ? parseFloat(grille.rows[0].pourcentage) : 7;
-  const prixGuichet = 5000 + Math.round(5000 * pct / 100);
+  // Vente au guichet : aucune commission JEGO, le client paie le prix
+  // de l'agence.
+  const prixGuichet = 5000;
 
   const vente = await appel('POST', `/api/reservations/trajets/${trajetId}/vente-guichet`, {
     token: tokenAgence,
@@ -278,7 +279,7 @@ async function main() {
     token: tokenAgence,
     body: {
       nom: 'Nkeng', prenom: 'Luc', date_naissance: '1980-01-01',
-      lieu_naissance: 'Douala', telephone: `+23769${U.slice(0,7)}`, mot_de_passe: 'Chauffeur999!'
+      lieu_naissance: 'Douala', telephone: `+23769${U.slice(0,7)}`, email: `ch2${U}@t.cm`, mot_de_passe: 'Chauffeur999!'
     }
   })).donnees?.chauffeur?.id;
   await appel('PUT', `/api/trajets/${trajetId}/chauffeur`, {

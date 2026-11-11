@@ -1,5 +1,5 @@
 "use client";
-// PRÊT À BRANCHER — rapports & statistiques.
+// BRANCHÉ SUR LE VRAI BACKEND — rapports & statistiques.
 // La génération PDF (jsPDF) est réelle et conservée telle quelle : mise en
 // page, filigrane JEGO, KPI, graphes. Seules les DONNÉES viennent désormais
 // de l'état, alimenté par le backend.

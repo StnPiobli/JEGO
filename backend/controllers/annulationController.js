@@ -1,6 +1,8 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
 const { genererIdentifiant } = require('../utils/identifiant');
+const { beneficiaireRemboursement, rembourserBillet } = require('../services/portefeuilleService');
+const { lireParametreEntier } = require('../services/parametreService');
 
 // ═══════════════════════════════════════════════════
 // ANNULER SON BILLET (route protégée — voyageur)
@@ -48,14 +50,18 @@ async function annulerBillet(req, res) {
     const heuresAvantDepart = (dateDepart - maintenant) / (1000 * 60 * 60);
 
     // 4. Déterminer le pourcentage de remboursement
+    // Taux et délai réglables par l'admin (CDC §16).
     let pourcentage = 0;
     if (billet.est_flexible) {
-      pourcentage = heuresAvantDepart >= 24 ? 80 : 50;
+      const delai = await lireParametreEntier('flexible_delai_heures', 24);
+      pourcentage = heuresAvantDepart >= delai
+        ? await lireParametreEntier('flexible_remboursement_avant_delai_pourcent', 80)
+        : await lireParametreEntier('flexible_remboursement_apres_delai_pourcent', 50);
     } else {
       pourcentage = 0; // billet standard : aucun remboursement
     }
 
-    const montantRembourse = Math.round(billet.prix_total_client * pourcentage / 100);
+    let montantRembourse = Math.round(billet.prix_total_client * pourcentage / 100);
 
     // 5. Passer le billet en "annule"
     await client.query(
@@ -72,23 +78,17 @@ async function annulerBillet(req, res) {
     // 7. Gérer l'escrow et le remboursement
     let referenceRemb = null;
 
+    // Le crédit va à l'acheteur : celui qui annule un billet cadeau en
+    // est le détenteur, pas celui qui l'a payé.
+    const beneficiaire = (await beneficiaireRemboursement(billetId, client)) || voyageurId;
+
     if (montantRembourse > 0) {
-      // Remboursement partiel : escrow passe en "rembourse"
-      await client.query(
-        `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1`,
-        [billetId]
-      );
-
-      // Créer la ligne de remboursement
-      referenceRemb = genererIdentifiant('RMB');
-      await client.query(
-        `INSERT INTO remboursements
-          (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-         VALUES ($1,$2,$3,'billet_flexible',$4,'traite',$5,NOW())`,
-        [billetId, voyageurId, montantRembourse, pourcentage, referenceRemb]
-      );
-
-      // [SIMULATION] Remboursement Mobile Money effectué
+      // Billet flexible (CDC §16) : JEGO rembourse, l'agence garde sa part
+      // et sera versée après le trajet comme pour un passager présent.
+      const remb = await rembourserBillet(billetId,
+        { motif: 'billet_flexible', pourcentage, agencePayee: true }, client);
+      referenceRemb = remb.reference;
+      montantRembourse = remb.montant;
     } else {
       // Billet standard non remboursé :
       // L'argent reste à JEGO. L'escrow bascule : part agence → 0, tout va à JEGO
@@ -106,10 +106,10 @@ async function annulerBillet(req, res) {
     if (montantRembourse > 0) {
       await creerNotification({
         destinataire_type: 'voyageur',
-        destinataire_id: voyageurId,
+        destinataire_id: beneficiaire,
         type: 'remboursement',
         titre: 'Remboursement confirmé',
-        contenu: `Votre remboursement de ${montantRembourse} FCFA (${pourcentage}%) a été traité.`,
+        contenu: `${montantRembourse} FCFA (${pourcentage}%) ont été crédités sur votre solde JEGO, utilisable sur votre prochain billet.`,
         canal: 'push'
       });
     }
@@ -118,7 +118,7 @@ async function annulerBillet(req, res) {
 
     res.json({
       message: pourcentage > 0
-        ? `Billet annulé. Remboursement de ${montantRembourse} FCFA (${pourcentage}%) initié.`
+        ? `Billet annulé. ${montantRembourse} FCFA (${pourcentage}%) crédités sur le solde JEGO.`
         : 'Billet annulé. Aucun remboursement (billet standard). Le siège est de nouveau disponible.',
       annulation: {
         billet_id: billetId,
@@ -126,8 +126,7 @@ async function annulerBillet(req, res) {
         heures_avant_depart: Math.round(heuresAvantDepart * 10) / 10,
         pourcentage_rembourse: pourcentage,
         montant_rembourse: montantRembourse,
-        reference_remboursement: referenceRemb,
-        delai_estime: pourcentage > 0 ? '24 à 72h selon votre opérateur Mobile Money' : null
+        reference_remboursement: referenceRemb
       }
     });
 
@@ -217,9 +216,11 @@ async function annulerBilletGuichet(req, res) {
       [billet.siege_id, billet.trajet_id]
     );
 
-    // L'escrow ne partira jamais à l'agence : la vente est annulée.
+    // La vente est annulée : l'agence rend les espèces, elle n'est plus
+    // créditée de ce billet (son escrow était « versé » dès la vente).
     await client.query(
-      `UPDATE escrow SET statut = 'rembourse' WHERE billet_id = $1 AND statut = 'retenu'`,
+      `UPDATE escrow SET statut = 'rembourse', montant_agence = 0, montant_jego = 0
+        WHERE billet_id = $1`,
       [billetId]
     );
 

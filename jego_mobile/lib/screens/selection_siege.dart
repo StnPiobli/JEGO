@@ -1,3 +1,4 @@
+import '../config/tarifs.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -55,7 +56,7 @@ class _EcranSelectionSiegeState extends State<EcranSelectionSiege> {
   /// Frais de choix de siège. Renseigné par le backend au moment du
   /// paiement ; la valeur affichée ici n'est qu'une estimation, le
   /// montant qui fait foi est celui calculé côté serveur.
-  static const int fraisChoixSiege = 500;
+  static int get fraisChoixSiege => Tarifs.choixSiege;
 
   /// Disposition du bus : « 2+3 » ou « 2+2 ». Elle dit combien de
   /// sièges précèdent le couloir. Sans elle, une rangée pleine était

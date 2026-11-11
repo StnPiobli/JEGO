@@ -5,7 +5,11 @@ const { localiserIp, ipClient } = require('../utils/geoip');
 const { verifierJetonGoogle } = require('../utils/google');
 const { normaliserTelephone } = require('../utils/telephone');
 const crypto = require('crypto');
-const { envoyerEmailDirect } = require('../services/notificationService');
+const fs = require('fs');
+const path = require('path');
+const { lireMultipart } = require('../utils/multipart');
+const { envoyerEmailDirect, creerNotification } = require('../services/notificationService');
+const { soldeDisponible } = require('../services/portefeuilleService');
 
 /// Écritures possibles d'un même numéro. Les comptes anciens ont été
 /// enregistrés tels que tapés — avec ou sans indicatif, avec ou sans
@@ -180,7 +184,9 @@ async function monProfil(req, res) {
               -- une. Un compte cree via Google n'en a pas, et proposer
               -- d'en changer n'aurait aucun sens.
               (mot_de_passe IS NOT NULL) AS a_mot_de_passe,
-              (google_id IS NOT NULL) AS compte_google
+              (google_id IS NOT NULL) AS compte_google,
+              photo_url,
+              dernier_changement_nom
        FROM voyageurs WHERE id = $1`,
       [voyageurId]
     );
@@ -367,6 +373,9 @@ async function historiqueVoyages(req, res) {
           b.id AS billet_id, b.numero, b.statut, b.prix_total_client,
           b.est_cadeau, b.qr_code, b.trajet_id, b.est_flexible,
           b.supplement_bagage, b.prix_agence, b.marge_jego,
+          b.source_vente, b.montant_portefeuille,
+          (SELECT pp.operateur FROM paiements pp
+            WHERE pp.billet_id = b.id AND pp.type = 'paiement' LIMIT 1) AS operateur,
           TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.heure_arrivee_reelle,
           t.heure_arrivee_estimee, t.categorie,
           t.statut AS statut_trajet,
@@ -382,6 +391,7 @@ async function historiqueVoyages(req, res) {
           COALESCE(lpa.heure_arrivee_estimee, t.heure_arrivee_estimee) AS heure_arrivee_troncon,
           a.id AS agence_id, a.nom AS nom_agence,
           bus.climatisation, bus.prises_usb, bus.wifi, bus.toilettes,
+          t.distribution_nourriture,
           s.numero AS siege,
           -- Titulaire du billet : pour un cadeau, c'est le destinataire.
           vp.prenom AS passager_prenom, vp.nom AS passager_nom,
@@ -794,6 +804,7 @@ async function recupererBillet(req, res) {
           COALESCE(lpa.heure_arrivee_estimee, t.heure_arrivee_estimee) AS heure_arrivee_troncon,
           a.id AS agence_id, a.nom AS nom_agence,
           bus.climatisation, bus.prises_usb, bus.wifi, bus.toilettes,
+          t.distribution_nourriture,
           s.numero AS siege,
           vp.prenom AS passager_prenom, vp.nom AS passager_nom,
           vp.telephone AS passager_tel, vp.email AS passager_email,
@@ -841,20 +852,16 @@ async function recupererBillet(req, res) {
 // ═══════════════════════════════════════════════════
 // PORTEFEUILLE
 //
-// Il n'y a pas de table « portefeuille » : le solde d'un voyageur est
-// la somme de ses remboursements traités. C'est volontaire — un
-// portefeuille est un registre, pas un nombre stocké quelque part que
-// deux écritures concurrentes pourraient désynchroniser du réel.
-//
-// Aucun débit n'existe encore : rien, dans le paiement, ne consomme ce
-// solde. Le montant renvoyé est donc le total remboursé, et l'écran
-// mobile le présente comme tel plutôt que comme un crédit dépensable.
+// L'argent remboursé reste dans l'application : il crédite le solde,
+// dépensable sur un prochain billet. Le solde est un registre
+// (remboursements traités moins utilisations), jamais un nombre
+// stocké — voir services/portefeuilleService.js.
 // ═══════════════════════════════════════════════════
 async function monPortefeuille(req, res) {
   try {
     const voyageurId = req.utilisateur.id;
 
-    const resultat = await pool.query(
+    const credits = await pool.query(
       `SELECT r.id, r.montant, r.motif, r.pourcentage, r.reference,
               r.statut, r.traite_le, r.cree_le,
               b.numero AS numero_billet,
@@ -866,21 +873,29 @@ async function monPortefeuille(req, res) {
          LEFT JOIN villes vd ON vd.code = l.ville_depart
          LEFT JOIN villes va ON va.code = l.ville_arrivee
         WHERE r.voyageur_id = $1
-        ORDER BY COALESCE(r.traite_le, r.cree_le) DESC`,
+          AND r.statut = 'traite'
+          AND b.source_vente IS DISTINCT FROM 'physique'`,
       [voyageurId]
     );
 
-    // Seuls les remboursements réellement traités comptent dans le
-    // total : annoncer un montant encore en cours de versement
-    // reviendrait à promettre de l'argent qui n'est pas parti.
-    const solde = resultat.rows
-      .filter((r) => r.statut === 'traite')
-      .reduce((somme, r) => somme + Number(r.montant), 0);
+    const debits = await pool.query(
+      `SELECT u.id, u.montant, u.cree_le,
+              b.numero AS numero_billet,
+              vd.nom_affiche AS depart, va.nom_affiche AS arrivee
+         FROM utilisations_portefeuille u
+         JOIN billets b ON b.id = u.billet_id
+         LEFT JOIN trajets t ON t.id = b.trajet_id
+         LEFT JOIN lignes l ON l.id = t.ligne_id
+         LEFT JOIN villes vd ON vd.code = l.ville_depart
+         LEFT JOIN villes va ON va.code = l.ville_arrivee
+        WHERE u.voyageur_id = $1`,
+      [voyageurId]
+    );
 
-    res.json({
-      solde,
-      mouvements: resultat.rows.map((r) => ({
+    const mouvements = [
+      ...credits.rows.map((r) => ({
         id: r.id,
+        sens: 'credit',
         montant: Number(r.montant),
         motif: r.motif,
         pourcentage: r.pourcentage,
@@ -890,12 +905,134 @@ async function monPortefeuille(req, res) {
         depart: r.depart,
         arrivee: r.arrivee,
         date: r.traite_le || r.cree_le
+      })),
+      ...debits.rows.map((u) => ({
+        id: u.id,
+        sens: 'debit',
+        montant: Number(u.montant),
+        motif: 'achat_billet',
+        statut: 'traite',
+        numero_billet: u.numero_billet,
+        depart: u.depart,
+        arrivee: u.arrivee,
+        date: u.cree_le
       }))
-    });
+    ].sort((x, y) => new Date(y.date) - new Date(x.date));
+
+    res.json({ solde: await soldeDisponible(voyageurId), mouvements });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
-module.exports = { inscription, connexion, connexionGoogle, mesNotifications, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil,
+// ═══════════════════════════════════════════════════
+// NOUS CONTACTER (écran mobile, sans connexion obligatoire)
+// Le message part aux administrateurs JEGO actifs : il est gardé dans
+// leurs notifications et envoyé par email. L'email de l'expéditeur
+// sert à lui répondre.
+// ═══════════════════════════════════════════════════
+async function contacterSupport(req, res) {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const message = String(req.body.message || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Indiquez un email valide pour recevoir la réponse' });
+    }
+    if (message.length < 5) {
+      return res.status(400).json({ error: 'Écrivez votre message' });
+    }
+    if (message.length > 3000) {
+      return res.status(400).json({ error: 'Message trop long (3000 caractères maximum)' });
+    }
+
+    const admins = await pool.query(
+      `SELECT id FROM membres_admin WHERE statut = 'actif' AND niveau = 0`
+    );
+    for (const a of admins.rows) {
+      await creerNotification({
+        destinataire_type: 'admin',
+        destinataire_id: a.id,
+        type: 'contact_voyageur',
+        titre: `Message d'un voyageur (${email})`,
+        contenu: `De : ${email}\n\n${message}`,
+        canal: 'email'
+      });
+    }
+
+    res.status(201).json({ message: 'Message envoyé. JEGO vous répondra par email.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// PHOTO DE PROFIL (voyageur connecté)
+// Le type est reconnu aux premiers octets du fichier, pas à ce que
+// l'appareil annonce : un téléphone envoie souvent
+// « application/octet-stream ».
+// ═══════════════════════════════════════════════════
+const DOSSIER_PHOTOS = path.join(__dirname, '..', 'uploads', 'voyageurs', 'photos');
+const PHOTO_TAILLE_MAX = 3 * 1024 * 1024; // 3 Mo
+
+function extensionImage(octets) {
+  if (octets.length > 3 && octets[0] === 0xff && octets[1] === 0xd8 && octets[2] === 0xff) return '.jpg';
+  if (octets.length > 8 && octets.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return '.png';
+  if (octets.length > 12 && octets.slice(0, 4).toString() === 'RIFF' && octets.slice(8, 12).toString() === 'WEBP') return '.webp';
+  return null;
+}
+
+async function televerserPhoto(req, res) {
+  try {
+    let resultat;
+    try {
+      resultat = await lireMultipart(req, PHOTO_TAILLE_MAX);
+    } catch (err) {
+      if (err.message === 'TAILLE_DEPASSEE') {
+        return res.status(413).json({ error: 'Photo trop lourde (3 Mo maximum)' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    const fichier = resultat.fichier;
+    if (!fichier || !fichier.donnees || fichier.donnees.length === 0) {
+      return res.status(400).json({ error: 'Aucune photo reçue' });
+    }
+    const extension = extensionImage(fichier.donnees);
+    if (!extension) {
+      return res.status(400).json({ error: 'Format non accepté. Envoyez une photo JPEG, PNG ou WebP.' });
+    }
+
+    const nom = crypto.randomBytes(16).toString('hex') + extension;
+    fs.mkdirSync(DOSSIER_PHOTOS, { recursive: true });
+    fs.writeFileSync(path.join(DOSSIER_PHOTOS, nom), fichier.donnees);
+
+    const ancienne = await pool.query('SELECT photo_url FROM voyageurs WHERE id = $1', [req.utilisateur.id]);
+    const photoUrl = `/uploads/voyageurs/photos/${nom}`;
+    await pool.query('UPDATE voyageurs SET photo_url = $1, mis_a_jour_le = NOW() WHERE id = $2',
+      [photoUrl, req.utilisateur.id]);
+    supprimerAnciennePhoto(ancienne.rows[0]?.photo_url);
+
+    res.json({ message: 'Photo mise à jour', photo_url: photoUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function supprimerPhoto(req, res) {
+  try {
+    const ancienne = await pool.query('SELECT photo_url FROM voyageurs WHERE id = $1', [req.utilisateur.id]);
+    await pool.query('UPDATE voyageurs SET photo_url = NULL, mis_a_jour_le = NOW() WHERE id = $1',
+      [req.utilisateur.id]);
+    supprimerAnciennePhoto(ancienne.rows[0]?.photo_url);
+    res.json({ message: 'Photo retirée' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+function supprimerAnciennePhoto(url) {
+  if (!url) return;
+  try { fs.unlinkSync(path.join(DOSSIER_PHOTOS, path.basename(url))); } catch (_) {}
+}
+
+module.exports = { televerserPhoto, supprimerPhoto, contacterSupport, inscription, connexion, connexionGoogle, mesNotifications, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil,
   changerMotDePasse, historiqueVoyages, monPortefeuille, recupererBillet, deconnexion };

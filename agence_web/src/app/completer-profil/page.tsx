@@ -1,13 +1,13 @@
 'use client';
 
-// ⚠️ DEMO — écran obligatoire à la première connexion après validation.
-// Aucune route PUT de mise à jour de profil n'existe côté backend
-// (agenceController.js n'a que inscription/connexion/monProfil), donc la
-// sauvegarde reste locale (marque juste "onboarding terminé").
+// BRANCHÉ SUR LE VRAI BACKEND — écran obligatoire à la première connexion
+// après validation.
+//   PUT  /api/agences/profil     (coordonnées, ville, mode de versement)
+//   POST /api/agences/documents  (document IBAN, si carte bancaire)
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getAgenceLocale, marquerOnboardingComplet, clearSession } from '../lib/api';
+import { getAgenceLocale, marquerOnboardingComplet, clearSession, apiFetch, setSession, getToken, API_BASE } from '../lib/api';
 import TelephoneInput from '../components/TelephoneInput';
 
 export default function CompleterProfilPage() {
@@ -33,8 +33,9 @@ export default function CompleterProfilPage() {
   const [numeroReception, setNumeroReception] = useState('');
   const [fichierIban, setFichierIban] = useState<File | null>(null);
   const [erreur, setErreur] = useState('');
+  const [envoi, setEnvoi] = useState(false);
 
-  function valider(e: React.FormEvent) {
+  async function valider(e: React.FormEvent) {
     e.preventDefault();
     if (!nomAgence.trim() || !telephone.trim() || !adresse.trim() || !ville.trim() || !numeroReception.trim()) {
       setErreur('Tous les champs sont obligatoires.');
@@ -48,8 +49,51 @@ export default function CompleterProfilPage() {
       setErreur('Le nom du récepteur est obligatoire pour Orange Money / MTN MoMo.');
       return;
     }
-    if (agence) marquerOnboardingComplet(agence.id);
-    router.push('/accueil');
+    setEnvoi(true);
+    setErreur('');
+    try {
+      const rep = await apiFetch('/api/agences/profil', {
+        method: 'PUT',
+        body: JSON.stringify({
+          nom: nomAgence.trim(),
+          description: description.trim() || undefined,
+          telephone: `${indicatifTel} ${telephone}`.trim(),
+          adresse: adresse.trim(),
+          ville: ville.trim(),
+          mode_reception: modeReception,
+          numero_reception: numeroReception.trim(),
+          titulaire_reception: nomRecepteur.trim() || undefined,
+        }),
+      });
+
+      if (fichierIban) {
+        // fetch direct : le navigateur pose lui-même le Content-Type
+        // multipart, qu'apiFetch écraserait.
+        const formulaire = new FormData();
+        formulaire.append('type_document', 'Document IBAN (versements)');
+        formulaire.append('fichier', fichierIban);
+        const res = await fetch(`${API_BASE}/api/agences/documents`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getToken() || ''}` },
+          body: formulaire,
+        });
+        if (!res.ok) {
+          const corps = await res.json().catch(() => ({}));
+          throw new Error(corps.error || "Le document IBAN n'a pas pu être envoyé.");
+        }
+      }
+
+      // Le profil gardé dans le navigateur porte désormais la ville et
+      // le téléphone : le portail ne renverra plus sur cet écran.
+      const token = getToken();
+      if (token) setSession(token, { ...agence, ...rep.agence });
+      if (agence) marquerOnboardingComplet(agence.id);
+      router.push('/accueil');
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setEnvoi(false);
+    }
   }
 
   return (
@@ -119,7 +163,7 @@ export default function CompleterProfilPage() {
                   </label>
                 ) : (
                   <div className="flex items-center gap-2 text-[11px] text-ink-soft bg-off-white border border-line rounded-lg px-3 py-2 w-fit">
-                    <span>{fichierIban.name} <span className="text-amber">(démo — non envoyé réellement)</span></span>
+                    <span>{fichierIban.name}</span>
                     <button type="button" onClick={() => setFichierIban(null)} className="text-red font-bold">✕</button>
                   </div>
                 )}
@@ -129,7 +173,7 @@ export default function CompleterProfilPage() {
 
           {erreur && <p className="text-[12px] text-red bg-red-bg rounded-lg px-3 py-2 mt-4">{erreur}</p>}
 
-          <button type="submit" className="w-full rounded-lg bg-green-700 text-white font-semibold text-[13px] py-3 mt-5">Continuer vers mon espace</button>
+          <button type="submit" disabled={envoi} className="w-full rounded-lg bg-green-700 disabled:opacity-50 text-white font-semibold text-[13px] py-3 mt-5">{envoi ? 'Enregistrement…' : 'Continuer vers mon espace'}</button>
         </form>
       </div>
     </div>

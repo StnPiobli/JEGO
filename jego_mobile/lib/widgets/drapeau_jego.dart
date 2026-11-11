@@ -10,7 +10,8 @@ import 'package:flutter/material.dart';
 /// drapeaux a bandes : les dessiner coute moins qu'une dependance et
 /// rend pareil sur tous les appareils.
 class DrapeauJego extends StatelessWidget {
-  /// Code ISO du pays (CM, NG, TD, GA, CI, FR).
+  /// Code ISO du pays. Six sont dessines (CM, NG, TD, GA, CI, FR), les
+  /// autres viennent en image (voir le cas par defaut).
   final String code;
   final double largeur;
 
@@ -103,21 +104,32 @@ class DrapeauJego extends StatelessWidget {
           Color(0xFFED2939),
         ]);
       default:
-        return ColoredBox(
-          color: const Color(0xFFD7DEDA),
-          child: Center(
-            child: Text(
-              code.toUpperCase(),
-              style: TextStyle(
-                fontSize: _hauteur * 0.5,
-                height: 1,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF64746C),
-              ),
-            ),
-          ),
+        // Les autres pays : petite image (≈ 1 Ko) du service public
+        // flagcdn. Sans réseau, le code du pays la remplace.
+        return Image.network(
+          'https://flagcdn.com/w40/${code.toLowerCase()}.png',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _code(),
         );
     }
+  }
+
+  /// Repli sans image : le code du pays sur fond gris.
+  Widget _code() {
+    return ColoredBox(
+      color: const Color(0xFFD7DEDA),
+      child: Center(
+        child: Text(
+          code.toUpperCase(),
+          style: TextStyle(
+            fontSize: _hauteur * 0.5,
+            height: 1,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF64746C),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _bandes(List<Color> couleurs, {bool horizontal = false}) {

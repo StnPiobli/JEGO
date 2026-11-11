@@ -68,6 +68,10 @@ export default function ParametresPage() {
 
   // Unité déduite de la clé, affichée à côté de la valeur pour lever toute ambiguïté.
   function uniteDe(cle: string): string | null {
+    // « points_par_1000_fcfa » finit par _fcfa mais compte des points.
+    if (cle.startsWith("points_par_") || cle.includes("_points_")) return "points";
+    if (cle.endsWith("_pourcent")) return "%";
+    if (cle.endsWith("_pour_mille")) return "‰";
     if (cle.includes("_heures")) return "heures";
     if (cle.includes("_jours")) return "jours";
     if (cle.endsWith("_fcfa")) return "FCFA";

@@ -1,12 +1,11 @@
 /**
- * TEST — BARÈME DE RETARD ET REMBOURSEMENT AUTOMATIQUE
+ * TEST — COMPENSATION DES RETARDS
  *
- * Couvre le chemin qui contenait un bug bloquant : la notification
- * de remboursement était écrite hors de la boucle des passagers et
- * faisait échouer TOUTE déclaration d'arrivée d'un trajet en retard
- * de 2 h ou plus. Ce test verrouille ce comportement.
+ * Règle décidée le 11/11/2026 (réglable dans parametres_systeme) :
+ * en dessous de 4 h de retard, rien ; à partir de 4 h, un nombre fixe
+ * de points JEGO à chaque passager. Jamais de remboursement en argent.
  *
- * Barème : < 1 h toléré · 1-2 h points JEGO · 2-4 h 10 % · > 4 h 20 %
+ * Passe par la vraie déclaration d'arrivée du chauffeur.
  *
  * Lancement : node tests/test_retard.js
  */
@@ -40,7 +39,7 @@ const U = Date.now().toString().slice(-9);
  * d'arrivée promise pour provoquer le retard voulu, puis déclare
  * l'arrivée. Renvoie le résultat et l'état en base.
  */
-async function scenarioRetard(suffixe, heureArriveePromise) {
+async function scenarioRetard(suffixe, retardHeures) {
   const S = `${U}${suffixe}`;
 
   const admin = await pool.query(
@@ -121,11 +120,14 @@ async function scenarioRetard(suffixe, heureArriveePromise) {
   });
   const billetId = paie.donnees?.billet?.id;
 
-  const telCh = `+2379${S}`;
+  // Un vrai numéro camerounais (9 chiffres après +237) : le suffixe
+  // lettre du scénario rendait le numéro invalide et la création du
+  // chauffeur échouait en silence.
+  const telCh = `+2379${U.slice(-7)}${'abc'.indexOf(suffixe) + 1}`;
   const chId = (await appel('POST', '/api/chauffeurs', {
     token: tokenAgence,
     body: {
-      nom: 'Nkeng', prenom: 'Luc', date_naissance: '1980-01-01',
+      nom: 'Nkeng', prenom: 'Luc', date_naissance: '1980-01-01', email: `ch${S}@t.cm`,
       lieu_naissance: 'Douala', telephone: telCh, mot_de_passe: 'Chauffeur123!'
     }
   })).donnees?.chauffeur?.id;
@@ -136,77 +138,70 @@ async function scenarioRetard(suffixe, heureArriveePromise) {
     body: { telephone: telCh, mot_de_passe: 'Chauffeur123!' }
   })).donnees?.token;
 
-  // On ramène le trajet à aujourd'hui et on fixe l'heure d'arrivée
-  // PROMISE : c'est elle qui sert de référence au barème, jamais une
-  // heure révisée en cours de route.
+  // L'arrivée PROMISE est placée `retardHeures` avant maintenant (dans
+  // le futur pour 0) : c'est elle qui sert de référence, jamais une heure
+  // révisée en cours de route. Départ le même jour à minuit.
+  const promis = new Date(Date.now() - retardHeures * 3600 * 1000 + (retardHeures === 0 ? 3 * 3600 * 1000 : 0));
+  const deux = (n) => String(n).padStart(2, '0');
+  const jour = `${promis.getFullYear()}-${deux(promis.getMonth() + 1)}-${deux(promis.getDate())}`;
+  const heure = `${deux(promis.getHours())}:${deux(promis.getMinutes())}`;
   await pool.query(
     `UPDATE trajets
-     SET date_depart = CURRENT_DATE, heure_depart = '00:01',
+     SET date_depart = $3::date, heure_depart = '00:00',
          heure_arrivee_initiale = $2, heure_arrivee_estimee = $2
      WHERE id = $1`,
-    [trajetId, heureArriveePromise]
+    [trajetId, heure, jour]
   );
 
   await appel('PUT', `/api/chauffeurs/trajets/${trajetId}/depart`, { token: tokenCh });
   const arrivee = await appel('PUT', `/api/chauffeurs/trajets/${trajetId}/arrivee`, { token: tokenCh });
 
   const remb = await pool.query(
-    `SELECT montant, pourcentage, statut FROM remboursements
-     WHERE billet_id = $1 AND motif = 'retard_excessif'`,
+    `SELECT montant FROM remboursements WHERE billet_id = $1`, [billetId]
+  );
+  const points = await pool.query(
+    `SELECT COALESCE(SUM(points), 0)::int AS n FROM jego_points
+      WHERE billet_id = $1 AND motif LIKE 'Compensation retard%'`,
     [billetId]
   );
-  const prix = await pool.query(
-    `SELECT prix_total_client FROM billets WHERE id = $1`, [billetId]
-  );
 
-  return { arrivee, remboursements: remb.rows, prixClient: prix.rows[0]?.prix_total_client };
+  return { arrivee, remboursements: remb.rows, points: points.rows[0].n };
 }
 
 async function main() {
   console.log('\n═══ TEST — BARÈME DE RETARD ═══\n');
 
-  // ── Retard important : arrivée promise à 00h30, déclarée maintenant
-  console.log('1. RETARD SUPÉRIEUR À 4 H → 20 % remboursés');
-  const gros = await scenarioRetard('a', '00:30');
+  const reglage = await pool.query(
+    `SELECT valeur FROM parametres_systeme WHERE cle = 'retard_points_compensation'`
+  );
+  const pointsAttendus = parseInt(reglage.rows[0]?.valeur ?? '500', 10);
 
-  ok('Déclaration d\'arrivée aboutie malgré le retard (bug historique)',
-     gros.arrivee.statut === 200, JSON.stringify(gros.arrivee.donnees));
-  ok('Le barème renvoie un retard calculé',
-     (gros.arrivee.donnees?.retard?.retard_minutes ?? 0) > 240,
+  console.log('1. RETARD DE 5 H → points JEGO, pas d\'argent');
+  const gros = await scenarioRetard('a', 5);
+  ok('Déclaration d\'arrivée aboutie', gros.arrivee.statut === 200, JSON.stringify(gros.arrivee.donnees));
+  ok('Retard calculé au-delà de 4 h', (gros.arrivee.donnees?.retard?.retard_minutes ?? 0) >= 240,
      `${gros.arrivee.donnees?.retard?.retard_minutes} min`);
-  ok('Pourcentage appliqué : 20 %',
-     gros.arrivee.donnees?.retard?.pourcentage === 20,
-     `${gros.arrivee.donnees?.retard?.pourcentage}`);
-  ok('Un remboursement est enregistré en base',
-     gros.remboursements.length === 1, JSON.stringify(gros.remboursements));
-  ok('Montant = 20 % du prix payé par le client',
-     gros.remboursements[0] &&
-     gros.remboursements[0].montant === Math.round(gros.prixClient * 20 / 100),
-     `remboursé=${gros.remboursements[0]?.montant} prix=${gros.prixClient}`);
-  ok('Remboursement marqué comme traité',
-     gros.remboursements[0]?.statut === 'traite');
-
+  ok(`${pointsAttendus} points offerts au passager`, gros.points === pointsAttendus, `${gros.points}`);
+  ok('Aucun remboursement en argent', gros.remboursements.length === 0, JSON.stringify(gros.remboursements));
   const notif = await pool.query(
     `SELECT COUNT(*) AS n FROM notifications
-     WHERE type = 'remboursement' AND cree_le > NOW() - INTERVAL '2 minutes'`
+     WHERE type = 'compensation_retard' AND cree_le > NOW() - INTERVAL '2 minutes'`
   );
-  ok('Le passager est notifié de son remboursement',
-     parseInt(notif.rows[0].n) >= 1, `${notif.rows[0].n} notification(s)`);
+  ok('Le passager est notifié', parseInt(notif.rows[0].n) >= 1, `${notif.rows[0].n} notification(s)`);
 
-  // ── Aucun retard : arrivée promise dans le futur
-  console.log('\n2. AUCUN RETARD → aucun remboursement');
-  const futur = new Date(Date.now() + 3 * 3600 * 1000);
-  const heureFuture =
-    `${futur.getHours().toString().padStart(2, '0')}:${futur.getMinutes().toString().padStart(2, '0')}`;
-  const sansRetard = await scenarioRetard('b', heureFuture);
+  console.log('\n2. RETARD DE 3 H → rien');
+  const moyen = await scenarioRetard('b', 3);
+  ok('Déclaration d\'arrivée aboutie', moyen.arrivee.statut === 200, JSON.stringify(moyen.arrivee.donnees));
+  ok('Aucun point', moyen.points === 0, `${moyen.points}`);
+  ok('Aucun remboursement', moyen.remboursements.length === 0);
 
+  console.log('\n3. AUCUN RETARD → rien');
+  const sansRetard = await scenarioRetard('c', 0);
   ok('Déclaration d\'arrivée aboutie', sansRetard.arrivee.statut === 200);
   ok('Retard nul', sansRetard.arrivee.donnees?.retard?.retard_minutes === 0,
      `${sansRetard.arrivee.donnees?.retard?.retard_minutes}`);
-  ok('Aucun pourcentage appliqué',
-     sansRetard.arrivee.donnees?.retard?.pourcentage === 0);
-  ok('Aucun remboursement créé', sansRetard.remboursements.length === 0,
-     JSON.stringify(sansRetard.remboursements));
+  ok('Aucun point', sansRetard.points === 0);
+  ok('Aucun remboursement', sansRetard.remboursements.length === 0);
 
   console.log('\n═══ RÉSULTAT ═══');
   console.log(`✅ Réussis : ${reussis}`);

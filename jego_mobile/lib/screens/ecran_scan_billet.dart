@@ -91,7 +91,7 @@ class _EcranScanBilletState extends State<EcranScanBillet> {
         }
       } catch (_) {
         // Serveur injoignable : on bascule en vérification hors ligne.
-        final horsLigne = ScanHorsLigne.verifierStructure(code);
+        final horsLigne = await ScanHorsLigne.verifier(code);
         if (horsLigne.valide && await ScanHorsLigne.dejaScanneLocalement(code)) {
           // Même sans réseau, un billet déjà scanné sur cet appareil
           // pendant ce trajet doit être signalé.
@@ -105,14 +105,19 @@ class _EcranScanBilletState extends State<EcranScanBillet> {
           couleur = JegoTheme.vert;
           icone = Icons.wifi_off_rounded;
           titre = 'Billet valide (hors ligne)';
-          sousTitre =
-              'Réseau indisponible. Le billet est conforme, laissez monter le passager. '
-              'Le scan sera synchronisé au retour du réseau.';
+          sousTitre = horsLigne.verifie
+              ? [
+                  if ((horsLigne.passager ?? '').isNotEmpty) horsLigne.passager!,
+                  if ((horsLigne.siege ?? '').isNotEmpty) 'Siège ${horsLigne.siege}',
+                  'Vérifié sur la liste du trajet. Synchronisé au retour du réseau.',
+                ].join(' — ')
+              : 'Réseau indisponible et liste du trajet non téléchargée : seul le format '
+                  'du billet a pu être contrôlé. Le scan sera vérifié au retour du réseau.';
         } else {
           couleur = JegoTheme.danger;
           icone = Icons.cancel_rounded;
           titre = 'Billet non reconnu';
-          sousTitre = 'Ce code n\'est pas un billet JEGO. Refusez l\'accès.';
+          sousTitre = '${horsLigne.motif ?? 'Ce code n\'est pas un billet JEGO'}. Refusez l\'accès.';
         }
       }
     }

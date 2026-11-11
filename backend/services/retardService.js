@@ -1,13 +1,15 @@
 const pool = require('../config/database');
 const { creerNotification } = require('./notificationService');
 const { crediterPoints } = require('./pointsService');
-const { genererIdentifiant } = require('../utils/identifiant');
+const { lireParametreEntier } = require('./parametreService');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : CALCUL DU RETARD À L'ARRIVÉE + BARÈME
 // Compare l'arrivée RÉELLE à l'heure PROMISE à la vente
 // (heure_arrivee_initiale — jamais l'heure mise à jour).
-// Barème : <1h → 0% | 1-2h → points JEGO | 2-4h → 10% | >4h → 20%
+// Barème (décision du 11/11/2026, réglable dans parametres_systeme) :
+// en dessous du seuil (4 h), rien ; à partir du seuil, un nombre fixe
+// de points JEGO à chaque passager. Aucun remboursement en argent.
 // Doit être appelé DANS la transaction de déclaration d'arrivée.
 // ═══════════════════════════════════════════════════
 async function appliquerBaremeRetard(client, trajetId) {
@@ -31,74 +33,39 @@ async function appliquerBaremeRetard(client, trajetId) {
   const reel = new Date(t.heure_arrivee_reelle);
   const retardMinutes = Math.max(0, Math.round((reel - promis) / 60000));
 
-  // 4. Déterminer le pourcentage selon le barème
-  let pourcentage = 0;
-  let pointsJego = false;
-  if (retardMinutes < 60) {
-    pourcentage = 0;                    // toléré
-  } else if (retardMinutes < 120) {
-    pourcentage = 0; pointsJego = true; // points JEGO offerts
-  } else if (retardMinutes < 240) {
-    pourcentage = 10;
-  } else {
-    pourcentage = 20;
-  }
+  // 4. Compensation : des points, à partir du seuil
+  const seuilHeures = await lireParametreEntier('retard_seuil_compensation_heures', 4);
+  const points = await lireParametreEntier('retard_points_compensation', 500);
+  const compense = retardMinutes >= seuilHeures * 60 && points > 0;
 
-  // Si retard 1-2h : créditer des points JEGO à tous les passagers concernés
-  if (pointsJego) {
-    const passagersRetard = await client.query(
-      `SELECT voyageur_id FROM billets WHERE trajet_id = $1 AND statut = 'utilise'`,
-      [trajetId]
-    );
-    for (const p of passagersRetard.rows) {
-      await crediterPoints(p.voyageur_id, 100, 'Compensation retard 1-2h', null, client);
-    }
-  }
-
-  // Enregistrer le retard constaté sur le trajet
   await client.query(
     `UPDATE trajets SET retard_minutes = $1 WHERE id = $2`,
     [retardMinutes, trajetId]
   );
 
-  // 5. Si remboursement partiel : l'appliquer à tous les billets utilisés
-  let billetsRembourses = 0;
-  if (pourcentage > 0) {
-    const billets = await client.query(
-      `SELECT id, voyageur_id, prix_total_client FROM billets
-       WHERE trajet_id = $1 AND statut = 'utilise'`,
+  let passagersCompenses = 0;
+  if (compense) {
+    // Le passager qui a subi le retard : le titulaire du billet.
+    const passagers = await client.query(
+      `SELECT id, voyageur_id FROM billets WHERE trajet_id = $1 AND statut = 'utilise'`,
       [trajetId]
     );
-
-    for (const b of billets.rows) {
-      const montant = Math.round(b.prix_total_client * pourcentage / 100);
-      const reference = genererIdentifiant('RMB');
-      await client.query(
-        `INSERT INTO remboursements
-          (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-         VALUES ($1,$2,$3,'retard_excessif',$4,'traite',$5,NOW())`,
-        [b.id, b.voyageur_id, montant, pourcentage, reference]
-      );
-      billetsRembourses++;
-
-      // La notification part pour CHAQUE passager remboursé, avec son
-      // propre montant. Elle était auparavant placée hors de cette
-      // boucle : elle référençait alors des variables inexistantes et
-      // faisait échouer toute déclaration d'arrivée d'un trajet en
-      // retard de 2 h ou plus.
+    const heures = Math.floor(retardMinutes / 60);
+    for (const p of passagers.rows) {
+      await crediterPoints(p.voyageur_id, points, `Compensation retard (${heures} h)`, p.id, client);
+      passagersCompenses++;
       await creerNotification({
         destinataire_type: 'voyageur',
-        destinataire_id: b.voyageur_id,
-        type: 'remboursement',
-        titre: 'Remboursement pour retard',
-        contenu: `Votre trajet a eu ${retardMinutes} min de retard. Vous êtes remboursé à hauteur de ${pourcentage}% (${montant} FCFA).`,
+        destinataire_id: p.voyageur_id,
+        type: 'compensation_retard',
+        titre: 'Compensation pour retard',
+        contenu: `Votre trajet a eu ${heures} h ${retardMinutes % 60} min de retard. JEGO vous offre ${points} points.`,
         canal: 'push'
       });
     }
-
   }
 
-  return { retard_minutes: retardMinutes, pourcentage, points_jego: pointsJego, billets_rembourses: billetsRembourses };
+  return { retard_minutes: retardMinutes, points_offerts: compense ? points : 0, passagers_compenses: passagersCompenses };
 }
 
 module.exports = { appliquerBaremeRetard };

@@ -5,8 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import ThemeToggle from "./ThemeToggle";
 import { apiFetch, getMembre, clearSession, initialesMembre, type Membre } from "@/lib/api";
+import { dateISOLocale } from "@/lib/format";
 
-type CleBadge = "agences" | "litiges" | "moderation" | "messages";
+type CleBadge = "notifications" | "agences" | "litiges" | "denonciations" | "moderation" | "messages";
 
 type NavItem = {
   label: string;
@@ -26,6 +27,7 @@ const groups: NavGroup[] = [
     label: "Vue d'ensemble",
     items: [
       { label: "Tableau de bord", href: "/dashboard" },
+      { label: "Notifications", href: "/notifications", badge: "notifications" },
       { label: "Utilisateurs & activité", href: "/activite" },
       { label: "Rapports & statistiques", href: "/rapports" },
     ],
@@ -38,9 +40,10 @@ const groups: NavGroup[] = [
       { label: "Points JEGO", href: "/points" },
       { label: "Billets & trajets", href: "/billets" },
       { label: "Litiges", href: "/litiges", badge: "litiges" },
+      { label: "Dénonciations", href: "/denonciations", badge: "denonciations" },
       { label: "Finances", href: "/finances" },
       { label: "Configuration des frais", href: "/frais" },
-            { label: "Modération", href: "/moderation", badge: "moderation" },
+      { label: "Modération", href: "/moderation", badge: "moderation" },
       { label: "Messages", href: "/messages", badge: "messages" },
     ],
   },
@@ -71,7 +74,7 @@ const groups: NavGroup[] = [
 
 /** Compteurs réels affichés en pastille. 0 = pas de pastille affichée. */
 type Compteurs = Record<CleBadge, number>;
-const compteursVides: Compteurs = { agences: 0, litiges: 0, moderation: 0, messages: 0 };
+const compteursVides: Compteurs = { notifications: 0, agences: 0, litiges: 0, denonciations: 0, moderation: 0, messages: 0 };
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -89,10 +92,15 @@ export default function Sidebar() {
       try {
         // Agences en attente, litiges ouverts, conversations avec des
         // messages non lus : routes réelles existantes.
-        const [ag, lit, msg] = await Promise.allSettled([
+        const [ag, lit, msg, den, mod, notif] = await Promise.allSettled([
           apiFetch("/api/admin/agences-en-attente"),
           apiFetch("/api/litiges/admin/tous"),
           apiFetch("/api/messages/admin/conversations"),
+          apiFetch("/api/denonciations/admin/tous"),
+          // La file de modération est rangée par jour : le badge compte
+          // celle d'aujourd'hui, la vue qu'ouvre la page par défaut.
+          apiFetch(`/api/admin/moderation?date=${dateISOLocale(new Date())}`),
+          apiFetch("/api/admin/notifications"),
         ]);
         if (annule) return;
         const conversationsNonLues = msg.status === "fulfilled"
@@ -101,8 +109,9 @@ export default function Sidebar() {
         setCompteurs({
           agences: ag.status === "fulfilled" ? (ag.value.agences?.length ?? 0) : 0,
           litiges: lit.status === "fulfilled" ? (lit.value.litiges?.length ?? 0) : 0,
-          // BRANCHEMENT : GET /api/admin/moderation → { commentaires: [...] }
-          moderation: 0,
+          denonciations: den.status === "fulfilled" ? (den.value.denonciations?.length ?? 0) : 0,
+          moderation: mod.status === "fulfilled" ? (mod.value.commentaires?.length ?? 0) : 0,
+          notifications: notif.status === "fulfilled" ? (notif.value.non_lues ?? 0) : 0,
           messages: conversationsNonLues,
         });
       } catch {
@@ -115,10 +124,12 @@ export default function Sidebar() {
     // dans un autre onglet) ne se met à jour qu'en changeant de route.
     const intervalle = window.setInterval(charger, 12000);
     window.addEventListener("jego-messages-lus", charger);
+    window.addEventListener("jego-notifications-lues", charger);
     return () => {
       annule = true;
       window.clearInterval(intervalle);
       window.removeEventListener("jego-messages-lus", charger);
+      window.removeEventListener("jego-notifications-lues", charger);
     };
   }, [pathname]);
 

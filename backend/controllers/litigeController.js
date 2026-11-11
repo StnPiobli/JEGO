@@ -5,6 +5,7 @@ const { lireMultipart } = require('../utils/multipart');
 const { creerNotification } = require('../services/notificationService');
 const { journaliser } = require('../services/logService');
 const { genererIdentifiant } = require('../utils/identifiant');
+const { rembourserBillet } = require('../services/portefeuilleService');
 const { lireParametreEntier } = require('../services/parametreService');
 
 const DOSSIER_PIECES = path.join(__dirname, '..', 'uploads', 'litiges');
@@ -301,16 +302,10 @@ async function trancherLitige(req, res) {
           );
           montantMouvemente += e.montant_agence;
         } else {
-          await client.query(
-            `UPDATE escrow SET statut = 'rembourse' WHERE id = $1`, [e.id]
-          );
-          await client.query(
-            `INSERT INTO remboursements
-              (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-             VALUES ($1, $2, $3, 'litige', 100, 'traite', $4, NOW())`,
-            [e.billet_id, e.voyageur_id, e.montant_total, genererIdentifiant('RMB')]
-          );
-          montantMouvemente += e.montant_total;
+          // Ce que le voyageur a réellement payé, moins ce qui lui a déjà
+          // été rendu : jamais plus de 100 % du billet.
+          const remb = await rembourserBillet(e.billet_id, { motif: 'litige', pourcentage: 100 }, client);
+          montantMouvemente += remb.montant;
         }
       }
     } else if (l.billet_id) {
@@ -330,17 +325,8 @@ async function trancherLitige(req, res) {
           montantMouvemente = e.montant_agence;
 
         } else {
-          await client.query(
-            `UPDATE escrow SET statut = 'rembourse' WHERE id = $1`,
-            [e.id]
-          );
-          await client.query(
-            `INSERT INTO remboursements
-              (billet_id, voyageur_id, montant, motif, pourcentage, statut, reference, traite_le)
-             VALUES ($1, $2, $3, 'litige', 100, 'traite', $4, NOW())`,
-            [l.billet_id, l.voyageur_id, e.montant_total, genererIdentifiant('RMB')]
-          );
-          montantMouvemente = e.montant_total;
+          const remb = await rembourserBillet(l.billet_id, { motif: 'litige', pourcentage: 100 }, client);
+          montantMouvemente = remb.montant;
         }
       }
     }

@@ -1,3 +1,4 @@
+import '../config/format_date.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -482,7 +483,7 @@ class _FormulaireLitigeState extends State<_FormulaireLitige> {
                         .map((b) => DropdownMenuItem(
                               value: '${b['billet_id']}',
                               child: Text(
-                                '${b['depart']} → ${b['arrivee']} · ${b['date_depart']} · ${_heure(b)}',
+                                '${b['depart']} → ${b['arrivee']} · ${FormatDate.courte('${b['date_depart'] ?? ''}')} · ${_heure(b)}',
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                     fontSize: 13, color: JegoTheme.texte),

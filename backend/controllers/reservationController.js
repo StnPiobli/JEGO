@@ -5,6 +5,8 @@ const { genererQR, verifierQR } = require('../utils/qr');
 const { creerNotification, envoyerEmailDirect } = require('../services/notificationService');
 const { genererPdfBillet } = require('../services/pdfBilletService');
 const { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers } = require('../services/pointsService');
+const { soldeDisponible, debiterSolde } = require('../services/portefeuilleService');
+const { lireParametreEntier } = require('../services/parametreService');
 const { normaliserTelephone } = require('../utils/telephone');
 const { genererIdentifiant } = require('../utils/identifiant');
 
@@ -352,16 +354,19 @@ async function payer(req, res) {
     const voyageurId = req.utilisateur.id;
     const {
       trajet_id, siege_id, operateur,
-      est_premium_choisi, supplement_bagage, est_flexible,
+      est_premium_choisi, supplement_bagage, quantite_bagages, est_flexible,
       est_cadeau, destinataire_tel, destinataire_email,
-      utiliser_reduction, utiliser_gratuit,
+      utiliser_reduction, utiliser_gratuit, utiliser_solde,
       point_embarquement_ordre, point_debarquement_ordre
     } = req.body;
 
-    if (!trajet_id || !siege_id || !operateur) {
-      return res.status(400).json({ error: 'Trajet, siège et opérateur sont obligatoires' });
+    // L'opérateur n'est exigé que si une part reste à payer par Mobile
+    // Money : un billet couvert par le solde n'en a pas besoin. Ce
+    // contrôle-là se fait plus bas, une fois le prix connu.
+    if (!trajet_id || !siege_id) {
+      return res.status(400).json({ error: 'Trajet et siège sont obligatoires' });
     }
-    if (!['mtn_momo', 'orange_money'].includes(operateur)) {
+    if (operateur && !['mtn_momo', 'orange_money'].includes(operateur)) {
       return res.status(400).json({ error: 'Opérateur invalide : mtn_momo ou orange_money' });
     }
     if (est_cadeau && (!destinataire_tel || !destinataire_email)) {
@@ -428,6 +433,7 @@ async function payer(req, res) {
 
     const infos = await client.query(
       `SELECT t.prix_base, t.agence_id, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.ligne_id,
+              t.prix_bagage_supplementaire,
               b.supplement_premium,
               s.numero AS siege_numero, s.est_premium
        FROM trajets t
@@ -456,9 +462,19 @@ async function payer(req, res) {
       prixAgence += info.supplement_premium;
     }
 
-    const suppSiege = est_premium_choisi ? 500 : 0;
-    const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
-    const suppFlexible = est_flexible ? Math.round(prixAgence * 0.10) : 0;
+    const prixChoixSiege = await lireParametreEntier('option_choix_siege_fcfa', 500);
+    const pourcentFlexible = await lireParametreEntier('option_flexible_pourcent', 10);
+    const suppSiege = est_premium_choisi ? prixChoixSiege : 0;
+    // Le prix d'un bagage est celui fixé par l'agence sur le trajet, jamais
+    // un montant envoyé par le téléphone. Les anciennes versions de
+    // l'application envoyaient le NOMBRE de bagages dans supplement_bagage.
+    const nbBagages = parseInt(quantite_bagages ?? supplement_bagage ?? 0, 10) || 0;
+    if (nbBagages < 0 || nbBagages > 10) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Nombre de bagages supplémentaires invalide (10 au maximum)' });
+    }
+    const suppBagage = nbBagages * (info.prix_bagage_supplementaire ?? 1000);
+    const suppFlexible = est_flexible ? Math.round(prixAgence * pourcentFlexible / 100) : 0;
 
     const grille = await client.query(
       `SELECT pourcentage FROM configuration_frais
@@ -502,10 +518,30 @@ async function payer(req, res) {
       prixTotalClient -= reductionAppliquee;
     }
 
-    const fraisMomo = prixTotalClient > 0 ? Math.round(prixTotalClient * 0.015) : 0;
-    const referenceMomo = prixTotalClient > 0 ? `SIM-${operateur.toUpperCase()}-${Date.now()}` : 'GRATUIT-POINTS';
+    // Solde JEGO : il couvre tout ou partie du prix, Mobile Money paie
+    // le reste. prixTotalClient reste le prix complet, de sorte qu'un
+    // remboursement futur recrédite tout le billet.
+    let montantSolde = 0;
+    if (utiliser_solde && prixTotalClient > 0) {
+      const solde = await soldeDisponible(voyageurId, client, { verrouiller: true });
+      montantSolde = Math.max(0, Math.min(solde, prixTotalClient));
+    }
+    const montantMomo = prixTotalClient - montantSolde;
+
+    if (!operateur && (montantMomo > 0 || montantSolde === 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Choisissez un opérateur pour payer le reste : mtn_momo ou orange_money' });
+    }
+
+    // Les frais de l'opérateur ne portent que sur ce qui passe par lui.
+    const fraisPourMille = await lireParametreEntier('frais_momo_pour_mille', 15);
+    const fraisMomo = montantMomo > 0 ? Math.round(montantMomo * fraisPourMille / 1000) : 0;
+    const operateurPaiement = montantMomo === 0 && montantSolde > 0 ? 'portefeuille' : operateur;
 
     const numeroBillet = genererIdentifiant('BIL');
+    const referenceMomo = montantMomo > 0
+      ? `SIM-${operateur.toUpperCase()}-${Date.now()}`
+      : montantSolde > 0 ? `SOLDE-${numeroBillet}` : 'GRATUIT-POINTS';
     const qrCode = genererQR(numeroBillet, trajet_id, siege_id);
 
     let voyageurProprietaire = voyageurId;
@@ -527,22 +563,26 @@ async function payer(req, res) {
          supplement_bagage, supplement_siege,
          prix_total_client, prix_agence, marge_jego, frais_momo,
          qr_code, source_vente, est_cadeau, destinataire_tel, destinataire_email,
-         point_embarquement_ordre, point_debarquement_ordre)
-       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne',$16,$17,$18,$19,$20)
+         point_embarquement_ordre, point_debarquement_ordre, montant_portefeuille, quantite_bagages)
+       VALUES ($1,$2,$3,$4,$5,$6,'confirme',$7,$8,$9,$10,$11,$12,$13,$14,$15,'en_ligne',$16,$17,$18,$19,$20,$21,$22)
        RETURNING id, numero, qr_code, prix_total_client`,
       [numeroBillet, trajet_id, voyageurProprietaire, siege_id, info.agence_id,
        est_cadeau ? 'cadeau' : (est_flexible ? 'flexible' : 'standard'), est_flexible || false, suppFlexible,
        suppBagage, suppSiege, prixTotalClient, prixAgenceFinal, margeJego, fraisMomo,
        qrCode, est_cadeau || false, destinataire_tel || null, destinataire_email || null,
-       a, b]
+       a, b, montantSolde, nbBagages]
     );
     const billetId = billet.rows[0].id;
+
+    if (montantSolde > 0) {
+      await debiterSolde(voyageurId, billetId, montantSolde, client);
+    }
 
     await client.query(
       `INSERT INTO paiements
         (billet_id, voyageur_id, montant, operateur, reference_momo, statut, type, confirme_le)
        VALUES ($1,$2,$3,$4,$5,'confirme','paiement',NOW())`,
-      [billetId, voyageurId, prixTotalClient, operateur, referenceMomo]
+      [billetId, voyageurId, montantMomo, operateurPaiement, referenceMomo]
     );
 
     const montantJegoNet = margeJego - fraisMomo - reductionAppliquee;
@@ -565,7 +605,9 @@ async function payer(req, res) {
       await debiterPoints(voyageurId, pointsUtilises, utiliser_gratuit ? 'Billet gratuit (points)' : 'Réduction (points)', billetId, client);
     }
 
-    const pointsGagnes = calculerPointsGagnes(prixTotalClient);
+    // Points sur la seule part payée par Mobile Money : de l'argent
+    // remboursé puis redépensé ne rapporte pas des points une 2e fois.
+    const pointsGagnes = await calculerPointsGagnes(montantMomo);
     if (pointsGagnes > 0) {
       await crediterPoints(voyageurId, pointsGagnes, est_cadeau ? 'Achat de billet cadeau' : 'Achat de billet', billetId, client);
     }
@@ -578,6 +620,8 @@ async function payer(req, res) {
         qr_code: billet.rows[0].qr_code,
         siege: info.siege_numero,
         prix_paye: prixTotalClient,
+        paye_avec_solde: montantSolde,
+        paye_mobile_money: montantMomo,
         points_utilises: pointsUtilises,
         reduction_appliquee: reductionAppliquee,
         proprietaire_a_un_compte: voyageurProprietaire !== voyageurId
@@ -587,7 +631,9 @@ async function payer(req, res) {
         commission_jego: commission,
         supplements: suppSiege + suppBagage + suppFlexible,
         frais_momo: fraisMomo,
-        total_client: prixTotalClient
+        total_client: prixTotalClient,
+        solde_utilise: montantSolde,
+        mobile_money: montantMomo
       }
     };
 
@@ -665,6 +711,7 @@ async function venteGuichet(req, res) {
 
    const trajetCheck = await client.query(
       `SELECT t.id, t.agence_id, t.prix_base, TO_CHAR(t.date_depart, 'YYYY-MM-DD') AS date_depart, t.heure_depart, t.statut, t.ligne_id,
+              t.prix_bagage_supplementaire,
               b.supplement_premium
        FROM trajets t JOIN bus b ON b.id = t.bus_id
        WHERE t.id = $1`,
@@ -728,8 +775,14 @@ async function venteGuichet(req, res) {
     if (troncon.rows.length > 0) prixAgence = troncon.rows[0].prix;
     if (siege.est_premium) prixAgence += trajet.supplement_premium;
 
-    const suppSiege = est_premium_choisi ? 500 : 0;
-    const suppBagage = supplement_bagage ? parseInt(supplement_bagage) : 0;
+    const suppSiege = est_premium_choisi ? await lireParametreEntier('option_choix_siege_fcfa', 500) : 0;
+    // Nombre de bagages × prix fixé sur le trajet, comme en ligne.
+    const nbBagages = parseInt(quantite_bagages ?? 0, 10) || 0;
+    if (nbBagages < 0 || nbBagages > 10) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Nombre de bagages supplémentaires invalide (10 au maximum)' });
+    }
+    const suppBagage = nbBagages * (trajet.prix_bagage_supplementaire ?? 1000);
     const prixAgenceFinal = prixAgence + suppBagage + suppSiege;
 
     // Vente au guichet = encaissement cash direct par l'agence : aucune
@@ -804,7 +857,7 @@ async function venteGuichet(req, res) {
        VALUES ($1,$2,$3,$4,$5,'standard','confirme',$6,$7,$8,$9,$10,$11,0,$12,'physique',$13,$14)
        RETURNING id, numero, qr_code`,
       [numeroBillet, trajetId, voyageurId, siege_id, agenceId,
-       suppBagage, quantite_bagages ? parseInt(quantite_bagages) : 0, suppSiege, prixTotalClient, prixAgenceFinal, margeJego,
+       suppBagage, nbBagages, suppSiege, prixTotalClient, prixAgenceFinal, margeJego,
        qrCode, a, b]
     );
     const billetId = billet.rows[0].id;
@@ -870,7 +923,7 @@ async function venteGuichet(req, res) {
           heureDepart: heureFr,
           siegeNumero: siege.numero,
           siegePremium: siege.est_premium === true,
-          bagageQuantite: quantite_bagages ? parseInt(quantite_bagages) : 0,
+          bagageQuantite: nbBagages,
           prixTotal: prixTotalClient
         });
         pieceJointe = { nom: `billet-${billet.rows[0].numero}.pdf`, contenu: pdfBuffer };

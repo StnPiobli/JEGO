@@ -10,11 +10,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import { useLangue } from '../lib/langue';
-import { apiFetch, getToken } from '../lib/api';
+import { API_BASE, apiFetch, getToken } from '../lib/api';
 import TelephoneInput, { decomposerTelephone } from '../components/TelephoneInput';
 import PasswordStrength, { evaluerMotDePasse } from '../components/PasswordStrength';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function ProfilPage() {
   const langue = useLangue();

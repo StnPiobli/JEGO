@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {
+const { mesNotificationsAdmin, marquerNotificationsLuesAdmin,
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
   listerVoyageurs, modifierStatutVoyageur, activiteStats, activiteEvenements, activiteDetail, agenceTrajets,
@@ -85,6 +85,8 @@ router.get('/points/voyageurs', authentifier, adminSeul, pointsParVoyageur);
 router.get('/points/usages', authentifier, adminSeul, usagesPoints);
 
 // Modération
+router.get('/notifications', authentifier, adminSeul, mesNotificationsAdmin);
+router.put('/notifications/lues', authentifier, adminSeul, marquerNotificationsLuesAdmin);
 router.get('/moderation', authentifier, adminSeul, moderationListe);
 router.put('/moderation/:id', authentifier, adminSeul, moderationTraiter);
 

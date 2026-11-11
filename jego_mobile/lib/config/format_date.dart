@@ -13,10 +13,24 @@ class FormatDate {
     }
   }
 
+  /// '2026-11-25' (ou un horodatage complet) -> '25/11/2026', pour les
+  /// endroits serrés. Une valeur illisible est rendue telle quelle.
+  static String courte(String iso) {
+    if (iso.isEmpty) return '';
+    try {
+      final d = iso.contains('T') ? DateTime.parse(iso).toLocal() : DateTime.parse(iso);
+      return DateFormat('dd/MM/yyyy').format(d);
+    } catch (_) {
+      return iso;
+    }
+  }
+
   static String lisible(String iso) {
     if (iso.isEmpty) return '';
     try {
-      final d = DateTime.parse(iso);
+      // Heure locale : un instant serveur en UTC (« …T23:30:00Z ») tombe
+      // sinon la veille au Cameroun.
+      final d = DateTime.parse(iso).toLocal();
       final langue = langueCourante.value == 'en' ? 'en' : 'fr';
       return DateFormat('d MMMM yyyy', langue).format(d);
     } catch (_) {

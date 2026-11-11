@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { inscription, connexion, connexionGoogle, mesNotifications,
+const { televerserPhoto, supprimerPhoto, contacterSupport, inscription, connexion, connexionGoogle, mesNotifications,
   monPortefeuille,
   recupererBillet,
   deconnexion, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil, changerMotDePasse, historiqueVoyages } = require('../controllers/voyageurController');
@@ -8,6 +8,13 @@ const { authentifier } = require('../middleware/auth');
 
 router.post('/inscription', inscription);
 router.post('/connexion', connexion);
+
+// Écran « Nous contacter » : connexion non obligatoire
+router.post('/contact', contacterSupport);
+
+// Photo de profil, gardée par le serveur
+router.post('/photo', authentifier, televerserPhoto);
+router.delete('/photo', authentifier, supprimerPhoto);
 // Connexion par compte Google. Le corps porte le jeton d'identité, et
 // le téléphone au second appel lorsque le compte reste à créer.
 router.post('/connexion-google', connexionGoogle);

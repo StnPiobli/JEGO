@@ -1,7 +1,9 @@
+import 'tarifs.dart';
+
 /// Remboursement en cas d'annulation par le client.
 ///
-/// Bareme du cahier des charges §16, identique a celui applique par le
-/// serveur dans annulationController.js :
+/// Bareme du cahier des charges §16, lu sur le serveur (Tarifs) : ce
+/// sont les reglages que l'admin peut changer. Par defaut :
 ///
 ///   Billet flexible, annule plus de 24 h avant le depart : 80 %
 ///   Billet flexible, annule moins de 24 h avant          : 50 %
@@ -24,6 +26,8 @@ int calculerRemboursement({
   if (delta.isNegative) return 0; // depart deja passe
   if (!flexible) return 0;
 
-  final pourcentage = delta >= const Duration(hours: 24) ? 80 : 50;
+  final pourcentage = delta >= Duration(hours: Tarifs.flexibleDelaiHeures)
+      ? Tarifs.flexibleAvantDelaiPourcent
+      : Tarifs.flexibleApresDelaiPourcent;
   return (prix * pourcentage) ~/ 100;
 }

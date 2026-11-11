@@ -10,10 +10,10 @@
 //     son token (30 jours)
 // D'où la double confirmation par mot tapé sur ce bouton.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Panel, BtnMini, Badge, Toast } from "@/components/ui";
 import TypeToConfirm from "@/components/TypeToConfirm";
-import { apiFetch, getToken } from "@/lib/api";
+import { API_BASE, apiFetch, getToken } from "@/lib/api";
 import { formatTelephone } from "@/lib/format";
 import Calendrier from "@/components/Calendrier";
 
@@ -143,6 +143,30 @@ export default function AgencesPage() {
   // Les documents suivent l'agence consultée (dossier en attente ou fiche
   // ouverte depuis les listes validées/refusées).
   const agenceConsultee = detailEtat?.id ?? selection?.id ?? null;
+
+  // Pièces déjà demandées à l'agence consultée, ouvertes ou closes.
+  const [demandesPieces, setDemandesPieces] = useState<{ id: string; pieces: string; statut: string; cree_le: string; close_le: string | null }[]>([]);
+  const chargerDemandesPieces = useCallback(async () => {
+    if (!agenceConsultee) { setDemandesPieces([]); return; }
+    try {
+      const res = await apiFetch(`/api/admin/agences/${agenceConsultee}/demandes-pieces`);
+      setDemandesPieces(res.demandes || []);
+    } catch {
+      setDemandesPieces([]);
+    }
+  }, [agenceConsultee]);
+  useEffect(() => { chargerDemandesPieces(); }, [chargerDemandesPieces]);
+
+  async function cloreDemande(demandeId: string) {
+    try {
+      await apiFetch(`/api/admin/agences/${agenceConsultee}/demandes-pieces/${demandeId}/clore`, { method: "PUT" });
+      notifier("Demande close");
+      await chargerDemandesPieces();
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
   useEffect(() => {
     if (!agenceConsultee) { setDocuments([]); return; }
     let annule = false;
@@ -212,6 +236,7 @@ export default function AgencesPage() {
       notifier("Demande envoyée à l'agence (email + espace agence)");
       setPiecesDemandees("");
       setAfficherDemandePieces(false);
+      await chargerDemandesPieces();
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Erreur lors de l'envoi");
     }
@@ -391,6 +416,25 @@ export default function AgencesPage() {
                     <label className="block text-[11px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Quelles pièces ?</label>
                     <textarea value={piecesDemandees} onChange={(e) => setPiecesDemandees(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-line bg-transparent text-sm mb-2" rows={2} placeholder="Ex : assurance flotte à jour, autorisation de transport…" />
                     <BtnMini variant="primary" onClick={demanderPieces}>Envoyer la demande</BtnMini>
+                  </div>
+                )}
+
+                {demandesPieces.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-dashed border-line">
+                    <p className="text-[11px] font-semibold text-ink-soft uppercase tracking-wide mb-1.5">Pièces déjà demandées</p>
+                    <div className="space-y-1.5">
+                      {demandesPieces.map((d) => (
+                        <div key={d.id} className="flex items-start justify-between gap-3 text-[12.5px]">
+                          <div>
+                            <span>{d.pieces}</span>
+                            <span className="text-ink-soft"> · {new Date(d.cree_le).toLocaleDateString("fr-FR")}</span>
+                          </div>
+                          {d.statut === "ouverte"
+                            ? <BtnMini onClick={() => cloreDemande(d.id)}>Clore (reçues)</BtnMini>
+                            : <Badge color="grey">Close{d.close_le ? ` le ${new Date(d.close_le).toLocaleDateString("fr-FR")}` : ""}</Badge>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -623,7 +667,7 @@ export default function AgencesPage() {
         if (!doc) return null;
         // Le fichier est servi par une route protégée : le token voyage en
         // paramètre car un <iframe> ne peut pas porter d'en-tête Authorization.
-        const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}/api/admin/agences/${agenceConsultee}/documents/${doc.id}/fichier?token=${encodeURIComponent(getToken() || "")}`;
+        const url = `${API_BASE}/api/admin/agences/${agenceConsultee}/documents/${doc.id}/fichier?token=${encodeURIComponent(getToken() || "")}`;
         return (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setDocumentOuvert(null)}>
             <div className="bg-paper rounded-2xl shadow-card p-6 w-[720px] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>

@@ -39,11 +39,64 @@ class ResultatHorsLigne {
   final bool valide;
   final String? numeroBillet;
   final String? motif;
-  const ResultatHorsLigne(this.valide, {this.numeroBillet, this.motif});
+
+  /// Vrai quand le billet a été trouvé dans la liste téléchargée avant
+  /// le départ. Faux : seule la structure a pu être contrôlée.
+  final bool verifie;
+  final String? siege;
+  final String? passager;
+  const ResultatHorsLigne(this.valide,
+      {this.numeroBillet, this.motif, this.verifie = false, this.siege, this.passager});
 }
 
 class ScanHorsLigne {
   static const String _cleFile = 'jego_scans_en_attente';
+  static String _cleListe(String trajetId) => 'jego_billets_valides_$trajetId';
+
+  /// Télécharge, tant que le réseau est là, la liste des billets valides
+  /// de chaque trajet à venir ou en cours. Une erreur sur un trajet
+  /// laisse la liste précédente en place.
+  static Future<void> telechargerListes(Iterable<String> trajetIds) async {
+    final token = SessionChauffeur.token;
+    if (token == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    for (final id in trajetIds) {
+      try {
+        final billets = await ApiService.billetsTrajetChauffeur(id, token);
+        final parNumero = <String, dynamic>{
+          for (final b in billets) '${b['numero']}': b,
+        };
+        await prefs.setString(_cleListe(id), jsonEncode(parNumero));
+      } catch (_) {
+        // pas de réseau ou trajet retiré : on garde ce qu'on avait
+      }
+    }
+  }
+
+  /// Contrôle sans réseau. Si la liste du trajet a été téléchargée, le
+  /// billet doit y figurer avec sa signature exacte : un faux QR bien
+  /// formé est refusé. Sans liste, seule la structure est contrôlée.
+  static Future<ResultatHorsLigne> verifier(String code) async {
+    final structure = verifierStructure(code);
+    if (!structure.valide) return structure;
+    final parties = code.split('|');
+    final prefs = await SharedPreferences.getInstance();
+    final brut = prefs.getString(_cleListe(parties[2]));
+    if (brut == null) return structure;
+
+    final liste = jsonDecode(brut) as Map<String, dynamic>;
+    final billet = liste[parties[1]];
+    if (billet == null || '${billet['signature']}' != parties[4]) {
+      return ResultatHorsLigne(false,
+          numeroBillet: parties[1],
+          motif: 'Ce billet ne fait pas partie des billets vendus pour ce trajet');
+    }
+    return ResultatHorsLigne(true,
+        numeroBillet: parties[1],
+        verifie: true,
+        siege: '${billet['siege'] ?? ''}',
+        passager: '${billet['passager'] ?? ''}');
+  }
 
   /// Vérifie ce qui est vérifiable sans le secret serveur : le
   /// préfixe JEGO, le nombre de segments et une signature non vide

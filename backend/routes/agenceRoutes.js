@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {
+const { marquerNotificationsLuesAgence,
   inscription, connexion, monProfil,
   televerserDocument, mesDocuments, supprimerMonDocument,
   mesNotifications
@@ -24,6 +24,7 @@ router.get('/versements', authentifier, versementsAgence);
 router.delete('/documents/:id', authentifier, supprimerMonDocument);
 
 router.get('/notifications', authentifier, mesNotifications);
+router.put('/notifications/lues', authentifier, marquerNotificationsLuesAgence);
 
 const { tableauDeBord, modifierProfil, changerMotDePasseAgence, televerserLogo, envoyerCodeAcces, verifierCodeAcces } = require('../controllers/agenceController');
 router.get('/tableau-de-bord', authentifier, tableauDeBord);

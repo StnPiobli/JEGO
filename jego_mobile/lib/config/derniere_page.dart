@@ -20,7 +20,6 @@ class DernierePage {
     '/cgu',
     '/politique-confidentialite',
     '/theme',
-    '/verif-maj',
   };
 
   static Future<void> memoriser(String? nom) async {

@@ -122,7 +122,7 @@ export default function AvisPage() {
                   <div className="p-5">
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-ink text-[13px]">{a.voyageur_prenom}</span>
+                        <span className="font-semibold text-ink text-[13px]">{a.voyageur_prenom || 'Voyageur anonyme'}</span>
                         <Badge color={noteAffichee >= 4 ? 'green' : noteAffichee >= 3 ? 'amber' : 'red'}>
                           {filtreCategorie !== 'globale' ? `${f_label(filtreCategorie)} : ` : '⭐ '}{noteAffichee}/5
                         </Badge>

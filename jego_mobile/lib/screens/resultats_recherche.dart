@@ -85,8 +85,8 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
     final noteMin = double.tryParse(widget.params['note_min'] ?? '');
     if (noteMin != null) {
       liste = liste
-          .where((o) =>
-              ((o['note_moyenne'] as num?)?.toDouble() ?? 0) >= noteMin)
+          .where(
+              (o) => ((o['note_moyenne'] as num?)?.toDouble() ?? 0) >= noteMin)
           .toList();
     }
 
@@ -188,15 +188,14 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
         pageBuilder: (_, anim, __) => SlideTransition(
           position: Tween<Offset>(
                   begin: const Offset(0.05, 0), end: Offset.zero)
-              .animate(CurvedAnimation(
-                  parent: anim, curve: Curves.easeOutCubic)),
+              .animate(
+                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: FadeTransition(
             opacity: anim,
             child: EcranDetailTrajet(
               offre: offre,
               mode: mode,
-              passagers:
-                  int.tryParse(widget.params['passagers'] ?? '1') ?? 1,
+              passagers: int.tryParse(widget.params['passagers'] ?? '1') ?? 1,
               villeDepart: _phaseRetour
                   ? widget.params['arrivee_affiche'] ?? ''
                   : widget.params['depart_affiche'] ?? '',
@@ -223,6 +222,12 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
     }
   }
 
+  /// « 2026-11-25 » se lit « 25/11/2026 ».
+  String _dateLisible(String iso) {
+    final p = iso.split('T').first.split('-');
+    return p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : iso;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Noms affichés, pas les codes serveur : l'en-tête doit lire
@@ -242,204 +247,164 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
             child: FondDegrade(hauteur: 260),
           ),
           SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
-              child: Row(
-                children: [
-                  BoutonTactile(
-                    onTap: () {
-                      // En phase retour, revenir = revenir au choix aller
-                      if (_phaseRetour) {
-                        setState(() {
-                          _phaseRetour = false;
-                          _offreAllerChoisie = null;
-                        });
-                      } else {
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: JegoTheme.fondCarte,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: JegoTheme.bordCarte, width: 1),
-                        boxShadow: JegoTheme.ombreDouce,
-                      ),
-                      child: Icon(Icons.arrow_back_rounded,
-                          size: 20, color: JegoTheme.texte),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _phaseRetour ? '$vers → $de' : '$de → $vers',
-                          style: TextStyle(
-                            color: JegoTheme.texte,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+                  child: EnteteJego(
+                    titre: _phaseRetour ? '$vers → $de' : '$de → $vers',
+                    sousTitre: !_estAllerRetour
+                        ? null
+                        : _phaseRetour
+                            ? Strings.t('phase_retour')
+                            : Strings.t('phase_aller'),
+                    retour: true,
+                    // En phase retour, revenir = revenir au choix aller
+                    onRetour: _phaseRetour
+                        ? () => setState(() {
+                              _phaseRetour = false;
+                              _offreAllerChoisie = null;
+                            })
+                        : null,
+                    actionTitre: BoutonTactile(
+                      onTap: _changerDate,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: JegoTheme.vert.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(JegoTheme.rGrand),
                         ),
-                        if (_estAllerRetour)
-                          Text(
-                            _phaseRetour
-                                ? Strings.t('phase_retour')
-                                : Strings.t('phase_aller'),
-                            style: TextStyle(
-                              color: JegoTheme.vert,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w800,
+                        child: Row(
+                          children: [
+                            Icon(Icons.calendar_month_rounded,
+                                size: 14, color: JegoTheme.vert),
+                            const SizedBox(width: 5),
+                            Text(
+                              _dateLisible(_phaseRetour
+                                  ? widget.params['date_retour'] ?? ''
+                                  : widget.params['date'] ?? ''),
+                              style: TextStyle(
+                                color: JegoTheme.vert,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          ),
-                      ],
+                            const SizedBox(width: 3),
+                            Icon(Icons.edit_rounded,
+                                size: 11, color: JegoTheme.vert),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  BoutonTactile(
-                    onTap: _changerDate,
+                ),
+                // Phase retour : rappel de la date et l'heure du voyage ALLER
+                if (_phaseRetour && _offreAllerChoisie != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 7),
+                          horizontal: 12, vertical: 10),
                       decoration: BoxDecoration(
-                        color: JegoTheme.vert.withOpacity(0.1),
-                        borderRadius:
-                            BorderRadius.circular(JegoTheme.rGrand),
+                        color: JegoTheme.vert.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                        border: Border.all(
+                            color: JegoTheme.vert.withOpacity(0.3), width: 0.8),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.calendar_month_rounded,
-                              size: 14, color: JegoTheme.vert),
-                          const SizedBox(width: 5),
-                          Text(
-                            _phaseRetour
-                                ? widget.params['date_retour'] ?? ''
-                                : widget.params['date'] ?? '',
-                            style: TextStyle(
-                              color: JegoTheme.vert,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w800,
+                          Icon(Icons.check_circle_rounded,
+                              size: 16, color: JegoTheme.vert),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${Strings.t('voyage_aller_label')} ${_dateLisible(widget.params['date'] ?? '')} · ${_offreAllerChoisie!['heure_depart']}',
+                              style: TextStyle(
+                                color: JegoTheme.texte,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 3),
-                          Icon(Icons.edit_rounded,
-                              size: 11, color: JegoTheme.vert),
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            // Phase retour : rappel de la date et l'heure du voyage ALLER
-            if (_phaseRetour && _offreAllerChoisie != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: JegoTheme.vert.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-                    border: Border.all(
-                        color: JegoTheme.vert.withOpacity(0.3),
-                        width: 0.8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle_rounded,
-                          size: 16, color: JegoTheme.vert),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${Strings.t('voyage_aller_label')} ${widget.params['date']} · ${_offreAllerChoisie!['heure_depart']}',
-                          style: TextStyle(
-                            color: JegoTheme.texte,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ).animate().fadeIn(duration: 350.ms),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _chargement
-                  ? _squelettes()
-                  : _erreur != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 32),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.wifi_off_rounded,
-                                    size: 38, color: JegoTheme.texteSecondaire),
-                                const SizedBox(height: 12),
-                                Text(
-                                  _erreur!,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: JegoTheme.texteSecondaire,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                TextButton.icon(
-                                  onPressed: _charger,
-                                  icon: Icon(Icons.refresh_rounded,
-                                      size: 18, color: JegoTheme.vert),
-                                  label: Text(
-                                    Strings.t('act_reessayer'),
-                                    style: TextStyle(
-                                      color: JegoTheme.vert,
-                                      fontWeight: FontWeight.w700,
+                  ).animate().fadeIn(duration: 350.ms),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _chargement
+                      ? _squelettes()
+                      : _erreur != null
+                          ? Center(
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 32),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.wifi_off_rounded,
+                                        size: 38,
+                                        color: JegoTheme.texteSecondaire),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _erreur!,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: JegoTheme.texteSecondaire,
+                                        fontSize: 13,
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(height: 16),
+                                    TextButton.icon(
+                                      onPressed: _charger,
+                                      icon: Icon(Icons.refresh_rounded,
+                                          size: 18, color: JegoTheme.vert),
+                                      label: Text(
+                                        Strings.t('act_reessayer'),
+                                        style: TextStyle(
+                                          color: JegoTheme.vert,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : offres.isEmpty
-                      ? Center(
-                          child: Text(
-                            Strings.t('resultats_aucun'),
-                            style: TextStyle(
-                                color: JegoTheme.texteSecondaire),
-                          ),
-                        )
-                      : ListView.separated(
-                          key: ValueKey(_phaseRetour),
-                          padding:
-                              const EdgeInsets.fromLTRB(18, 6, 18, 30),
-                          itemCount: offres.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, i) {
-                            return _CarteOffre(
-                              offre: offres[i],
-                              villeDepart: _phaseRetour ? vers : de,
-                              villeArrivee: _phaseRetour ? de : vers,
-                              onTap: () => _ouvrirDetail(offres[i]),
+                              ),
                             )
-                                .animate(delay: (i * 90).ms)
-                                .fadeIn(duration: 450.ms)
-                                .slideY(
-                                    begin: 0.18,
-                                    curve: Curves.easeOutCubic);
-                          },
-                        ),
+                          : offres.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    Strings.t('resultats_aucun'),
+                                    style: TextStyle(
+                                        color: JegoTheme.texteSecondaire),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  key: ValueKey(_phaseRetour),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(18, 6, 18, 30),
+                                  itemCount: offres.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 12),
+                                  itemBuilder: (context, i) {
+                                    return _CarteOffre(
+                                      offre: offres[i],
+                                      villeDepart: _phaseRetour ? vers : de,
+                                      villeArrivee: _phaseRetour ? de : vers,
+                                      onTap: () => _ouvrirDetail(offres[i]),
+                                    )
+                                        .animate(delay: (i * 90).ms)
+                                        .fadeIn(duration: 450.ms)
+                                        .slideY(
+                                            begin: 0.18,
+                                            curve: Curves.easeOutCubic);
+                                  },
+                                ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
         ],
       ),
     );
@@ -457,8 +422,9 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
             color: const Color(0xFFEFF3F0),
             borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
           ),
-        ).animate(onPlay: (c) => c.repeat()).shimmer(
-            duration: 1200.ms, color: Colors.white.withOpacity(0.7));
+        )
+            .animate(onPlay: (c) => c.repeat())
+            .shimmer(duration: 1200.ms, color: Colors.white.withOpacity(0.7));
       },
     );
   }
@@ -471,8 +437,7 @@ Future<DateTime?> choisirDateJegoImportContournement(
   return await _importCalendrier(context, initiale);
 }
 
-Future<DateTime?> _importCalendrier(
-    BuildContext context, DateTime initiale) {
+Future<DateTime?> _importCalendrier(BuildContext context, DateTime initiale) {
   return choisirDateJegoDepuisWidgets(context, initiale);
 }
 
@@ -482,8 +447,8 @@ Future<DateTime?> choisirDateJegoDepuisWidgets(
     context,
     initiale: initiale,
     premiere: DateTime.now(),
-    derniere: DateTime(DateTime.now().year + 5, DateTime.now().month,
-        DateTime.now().day),
+    derniere: DateTime(
+        DateTime.now().year + 5, DateTime.now().month, DateTime.now().day),
   );
 }
 
@@ -634,12 +599,11 @@ class _CarteOffre extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 5),
-                Icon(Icons.star_rounded,
-                    size: 14, color: JegoTheme.etoile),
+                Icon(Icons.star_rounded, size: 14, color: JegoTheme.etoile),
                 Text(
                   '${offre['note_moyenne']}',
-                  style: TextStyle(
-                      color: JegoTheme.texteSecondaire, fontSize: 12),
+                  style:
+                      TextStyle(color: JegoTheme.texteSecondaire, fontSize: 12),
                 ),
                 const Spacer(),
                 Text.rich(

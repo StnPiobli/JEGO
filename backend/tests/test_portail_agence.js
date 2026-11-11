@@ -193,7 +193,11 @@ async function main() {
      `${resume?.nombre_billets}`);
   ok('Montant en attente non nul (arrivée pas encore déclarée)',
      parseInt(resume?.en_attente) > 0, `${resume?.en_attente}`);
-  ok('Rien encore versé', parseInt(resume?.deja_verse) === 0, `${resume?.deja_verse}`);
+  // Seule la vente au guichet compte comme versée : l'agence a encaissé
+  // les espèces. Le billet en ligne attend l'arrivée.
+  ok('Seul le guichet est déjà versé (espèces encaissées)',
+     parseInt(resume?.deja_verse) === parseInt(guichet.donnees?.billet?.prix_total ?? guichet.donnees?.prix_total ?? 5000),
+     `${resume?.deja_verse}`);
   ok('Commission JEGO calculée', parseInt(resume?.commission_jego) > 0,
      `${resume?.commission_jego}`);
 

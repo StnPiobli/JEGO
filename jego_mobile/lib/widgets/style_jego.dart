@@ -117,6 +117,10 @@ class EnteteJego extends StatelessWidget {
   final String? sousTitre;
   final VoidCallback? onOuvrirMenu;
   final bool retour;
+
+  /// Remplace le simple « revenir a l'ecran precedent » quand la page a
+  /// ses propres etapes (resultats aller puis retour).
+  final VoidCallback? onRetour;
   final List<Widget> actions;
 
   /// Action posee a droite du grand titre. Une pastille de plus dans la
@@ -129,6 +133,7 @@ class EnteteJego extends StatelessWidget {
     this.sousTitre,
     this.onOuvrirMenu,
     this.retour = false,
+    this.onRetour,
     this.actions = const [],
     this.actionTitre,
   });
@@ -144,7 +149,7 @@ class EnteteJego extends StatelessWidget {
               PastilleJego(
                 Icons.arrow_back_rounded,
                 etiquette: 'Retour',
-                onTap: () => Navigator.of(context).maybePop(),
+                onTap: onRetour ?? () => Navigator.of(context).maybePop(),
               )
             else if (onOuvrirMenu != null)
               PastilleJego(

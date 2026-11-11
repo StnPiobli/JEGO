@@ -327,8 +327,49 @@ async function mesNotifications(req, res) {
       });
     }
 
+    // Les notifications stockées pour l'agence (dénonciation, message ou
+    // demande de pièces de JEGO, décisions, versements...). Elles ne
+    // partaient que par email : sans email, l'agence ne les voyait jamais.
+    const LIENS = {
+      denonciation_ouverte: '/denonciations', denonciation_decision: '/denonciations',
+      litige_ouvert: '/litiges', litige_decision: '/litiges', litige_hors_delai: '/litiges',
+      message_admin: '/discussion', demande_pieces: '/documents',
+      versement_escrow: '/paiements', alerte_signalement: '/signalements',
+      alerte_programmation: '/trajets', rappel_programmation: '/trajets'
+    };
+    const stockees = await pool.query(
+      `SELECT id, type, titre, contenu, lu, cree_le FROM notifications
+        WHERE destinataire_type = 'agence' AND destinataire_id = $1
+        ORDER BY cree_le DESC LIMIT 30`,
+      [agenceId]
+    );
+    stockees.rows.forEach((n) => {
+      notifications.push({
+        id: n.id,
+        titre: n.titre || 'Notification',
+        texte: n.contenu,
+        heure: formatRelatif(n.cree_le),
+        lien: LIENS[n.type],
+        lu: n.lu === true,
+      });
+    });
+
     res.json({ notifications });
 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// Marque comme lues toutes les notifications stockées de l'agence.
+async function marquerNotificationsLuesAgence(req, res) {
+  try {
+    await pool.query(
+      `UPDATE notifications SET lu = true
+        WHERE destinataire_type = 'agence' AND destinataire_id = $1 AND lu = false`,
+      [req.utilisateur.id]
+    );
+    res.json({ message: 'Notifications lues' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -395,7 +436,7 @@ async function modifierProfil(req, res) {
   try {
     const agenceId = req.utilisateur.id;
     const {
-      nom, email, telephone, adresse, description,
+      nom, email, telephone, adresse, ville, description,
       contact_directeur, telephone_secondaire,
       mode_reception, numero_reception, titulaire_reception, instructions_reception
     } = req.body;
@@ -413,14 +454,15 @@ async function modifierProfil(req, res) {
         numero_reception = COALESCE($9, numero_reception),
         titulaire_reception = COALESCE($10, titulaire_reception),
         instructions_reception = COALESCE($11, instructions_reception),
+        ville = COALESCE($13, ville),
         mis_a_jour_le = NOW()
        WHERE id = $12
-       RETURNING id, nom, email, telephone, adresse, description,
+       RETURNING id, nom, email, telephone, adresse, ville, statut, description,
                  contact_directeur, telephone_secondaire, mode_reception,
                  numero_reception, titulaire_reception, instructions_reception`,
       [nom, email, telephone, adresse, description, contact_directeur,
        telephone_secondaire, mode_reception, numero_reception,
-       titulaire_reception, instructions_reception, agenceId]
+       titulaire_reception, instructions_reception, agenceId, ville || null]
     );
 
     res.json({ message: 'Profil mis à jour', agence: resultat.rows[0] });
@@ -600,4 +642,4 @@ async function televerserLogo(req, res) {
   }
 }
 
-module.exports = { inscription, connexion, monProfil, televerserDocument, mesDocuments, supprimerMonDocument, mesNotifications, tableauDeBord, modifierProfil, changerMotDePasseAgence, televerserLogo, envoyerCodeAcces, verifierCodeAcces };
+module.exports = { marquerNotificationsLuesAgence, inscription, connexion, monProfil, televerserDocument, mesDocuments, supprimerMonDocument, mesNotifications, tableauDeBord, modifierProfil, changerMotDePasseAgence, televerserLogo, envoyerCodeAcces, verifierCodeAcces };

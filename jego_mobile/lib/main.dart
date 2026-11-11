@@ -1,3 +1,4 @@
+import 'config/tarifs.dart';
 import 'package:flutter/material.dart';
 import 'config/billets_store.dart';
 import 'config/session.dart';
@@ -17,7 +18,6 @@ import 'screens/ecran_securite.dart';
 import 'screens/ecran_confidentialite.dart';
 import 'screens/conditions_utilisation.dart';
 import 'screens/ecran_politique_confidentialite.dart';
-import 'screens/ecran_verif_maj.dart';
 import 'widgets/bascule_theme.dart';
 
 Future<void> main() async {
@@ -36,6 +36,9 @@ Future<void> main() async {
   await SessionChauffeur.restaurer();
   await PreferencesVoyage.restaurer();
   await PhotoProfil.restaurer();
+  // Tarifs du serveur (options, règles du flexible, points), sans
+  // bloquer l'ouverture : les valeurs par défaut servent en attendant.
+  Tarifs.charger();
   // Surveillance des arrivees, active partout dans l'app.
   await SurveillanceArrivee.demarrer();
   runApp(JegoApp());
@@ -102,7 +105,6 @@ class _JegoAppState extends State<JegoApp> with WidgetsBindingObserver {
               '/politique-confidentialite': (_) =>
                   EcranPolitiqueConfidentialite(),
               '/theme': (_) => EcranTheme(),
-              '/verif-maj': (_) => EcranVerifMaj(),
             },
             theme: JegoTheme.theme(),
             // La clé porte le thème et la langue : en changer recrée

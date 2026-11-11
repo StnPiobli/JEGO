@@ -94,11 +94,19 @@ body {
 }
 
 h1, h2, h3 { letter-spacing: -0.02em; }
-input, textarea, select, button { font: inherit; }
 
-input, select, textarea {
-  color: rgb(var(--c-ink));
-  background-color: transparent;
+/* Réglages par défaut des éléments, rangés dans la couche « base » de
+   Tailwind v4. Écrits hors couche, ils passaient DEVANT les classes :
+   `font: inherit` écrasait text-[11.5px] sur chaque <button> (boutons
+   en grosse police à côté de liens en petite), et le fond transparent
+   écrasait bg-off-white sur les champs. */
+@layer base {
+  input, textarea, select, button { font: inherit; }
+
+  input, select, textarea {
+    color: rgb(var(--c-ink));
+    background-color: transparent;
+  }
 }
 input::placeholder, textarea::placeholder {
   color: rgb(var(--c-ink-soft));
@@ -131,9 +139,13 @@ input::placeholder, textarea::placeholder {
 }
 .kv:first-child { border-top: none; }
 
-/* États cliqués/focus visibles partout — actuellement absents */
-button, a, [role="button"] {
-  transition: transform .08s ease, opacity .08s ease, background-color .12s ease;
+/* États cliqués/focus visibles partout — actuellement absents.
+   La transition par défaut est en couche « base » : une classe
+   transition-* posée sur un élément doit pouvoir la remplacer. */
+@layer base {
+  button, a, [role="button"] {
+    transition: transform .08s ease, opacity .08s ease, background-color .12s ease;
+  }
 }
 button:active, [role="button"]:active {
   transform: scale(0.97);

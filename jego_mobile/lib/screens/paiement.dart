@@ -5,6 +5,7 @@ import '../config/api.dart';
 import '../config/billets_store.dart'; // SoftLock (verrou de siège)
 import '../config/reservation.dart';
 import '../config/theme_jego.dart';
+import '../config/wallet_store.dart';
 import '../l10n/strings.dart';
 import '../widgets/champ_telephone.dart';
 import '../widgets/timer_softlock.dart';
@@ -51,6 +52,22 @@ class _EcranPaiementState extends State<EcranPaiement> {
   /// ou un retry ne débitera jamais deux fois le voyageur.
   String? _cleIdempotence;
 
+  /// Solde JEGO utilise en priorite, Mobile Money paie le reste. Le
+  /// serveur fait le calcul exact ; l'ecran n'en montre qu'une estimation.
+  bool _utiliserSolde = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WalletStore.charger();
+  }
+
+  int get _soldeUtilise => _utiliserSolde
+      ? WalletStore.solde.value.clamp(0, widget.reservation.total).toInt()
+      : 0;
+
+  int get _resteMomo => widget.reservation.total - _soldeUtilise;
+
   @override
   void dispose() {
     _cTel.dispose();
@@ -62,7 +79,11 @@ class _EcranPaiementState extends State<EcranPaiement> {
   /// on paie. Le montant est calculé par le serveur, pas par
   /// l'application.
   Future<void> _payer() async {
-    if (_operateur == null || !PaysTelephone.valide(_pays, _cTel.text)) {
+    // Operateur et numero ne servent que s'il reste a payer par
+    // Mobile Money : un billet couvert par le solde s'en passe.
+    final momoRequis = _resteMomo > 0;
+    if (momoRequis &&
+        (_operateur == null || !PaysTelephone.valide(_pays, _cTel.text))) {
       setState(() => _erreur = true);
       return;
     }
@@ -116,11 +137,12 @@ class _EcranPaiementState extends State<EcranPaiement> {
         final emis = await ApiService.payer(
           trajetId: trajetId,
           siegeId: siegeId,
-          operateur: _operateur!.code,
+          operateur: momoRequis ? _operateur!.code : _operateur?.code,
+          utiliserSolde: _utiliserSolde,
           cleIdempotence: '${_cleIdempotence!}-$i',
           ordreDepart: ordreDepart,
           ordreArrivee: ordreArrivee,
-          supplementBagage: i < r.bagagesAller.length ? r.bagagesAller[i] : 0,
+          quantiteBagages: i < r.bagagesAller.length ? r.bagagesAller[i] : 0,
           billetFlexible:
               i < r.flexibleAller.length ? r.flexibleAller[i] : false,
           estCadeau: i < r.cadeauAller.length ? r.cadeauAller[i] : false,
@@ -140,6 +162,8 @@ class _EcranPaiementState extends State<EcranPaiement> {
         }
       }
 
+      // Le solde a pu etre debite : on le relit pour le Portefeuille.
+      WalletStore.charger();
       if (!mounted) return;
       _succes();
     } on ErreurApi catch (e) {
@@ -171,7 +195,84 @@ class _EcranPaiementState extends State<EcranPaiement> {
   }
 
   Widget _vueChoix() {
+    // Reconstruit l'ecran quand le solde arrive du serveur.
+    return ValueListenableBuilder<int>(
+      valueListenable: WalletStore.solde,
+      builder: (context, _, __) => _vueChoixContenu(),
+    );
+  }
+
+  Widget _carteSolde() {
+    final solde = WalletStore.solde.value;
+    return BoutonTactile(
+      onTap: () => setState(() {
+        _utiliserSolde = !_utiliserSolde;
+        _erreur = false;
+      }),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: JegoTheme.fondCarte,
+          borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+          border: Border.all(
+            color: _utiliserSolde ? JegoTheme.vert : JegoTheme.bordCarte,
+            width: _utiliserSolde ? 1.5 : 1,
+          ),
+          boxShadow: JegoTheme.ombreDouce,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: JegoTheme.vert.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+              ),
+              child: Icon(Icons.account_balance_wallet_rounded,
+                  color: JegoTheme.vert, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    Strings.t('paiement_utiliser_solde'),
+                    style: TextStyle(
+                        color: JegoTheme.texte,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${Strings.t('paiement_solde_dispo')} : $solde FCFA',
+                    style: TextStyle(
+                        color: JegoTheme.texteSecondaire,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: _utiliserSolde,
+              activeColor: JegoTheme.vert,
+              onChanged: (v) => setState(() {
+                _utiliserSolde = v;
+                _erreur = false;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vueChoixContenu() {
     final r = widget.reservation;
+    final soldeUtilise = _soldeUtilise;
+    final reste = _resteMomo;
     return Scaffold(
       backgroundColor: JegoTheme.fond,
       body: SafeArea(
@@ -239,9 +340,26 @@ class _EcranPaiementState extends State<EcranPaiement> {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
+                        if (soldeUtilise > 0) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '${Strings.t('paiement_solde_moins')} $soldeUtilise FCFA'
+                            ' · ${Strings.t('paiement_reste_momo')} $reste FCFA',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ],
                       ],
                     ),
                   ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
+                  if (WalletStore.solde.value > 0) ...[
+                    const SizedBox(height: 14),
+                    _carteSolde(),
+                  ],
+                  if (reste > 0) ...[
                   const SizedBox(height: 18),
                   Text(
                     Strings.t('paiement_choisir_op'),
@@ -348,6 +466,7 @@ class _EcranPaiementState extends State<EcranPaiement> {
                         ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
@@ -364,7 +483,9 @@ class _EcranPaiementState extends State<EcranPaiement> {
                     boxShadow: JegoTheme.ombreVerte,
                   ),
                   child: Text(
-                    '${Strings.t('paiement_payer')} ${r.total} FCFA',
+                    reste > 0
+                        ? '${Strings.t('paiement_payer')} $reste FCFA'
+                        : Strings.t('paiement_payer_solde'),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 15.5,

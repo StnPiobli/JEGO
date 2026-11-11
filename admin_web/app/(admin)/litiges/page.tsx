@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini } from "@/components/ui";
-import { apiFetch } from "@/lib/api";
+import { API_BASE, apiFetch } from "@/lib/api";
 import TypeToConfirm from "@/components/TypeToConfirm";
 
 type Litige = {
@@ -45,7 +45,6 @@ type Piece = {
   ajoute_le?: string;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
 
 export default function LitigesPage() {

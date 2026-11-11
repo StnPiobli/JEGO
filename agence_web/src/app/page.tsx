@@ -5,8 +5,7 @@
 // réels collectés (nom, email, telephone, adresse, ville, registre_commerce,
 // mot_de_passe).
 // ✅ Redirection après connexion basée sur le VRAI statut renvoyé par le
-// backend (en_attente / refuse / actif) — seul le contenu des pages de
-// destination (pièces justificatives, complétion de profil...) est démo.
+// backend (en_attente / refuse / actif).
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

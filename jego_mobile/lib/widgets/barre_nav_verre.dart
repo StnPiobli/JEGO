@@ -21,81 +21,89 @@ class BarreNavVerre extends StatelessWidget {
     final n = icones.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(96, 0, 96, 12),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(27),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: Container(
-            height: 54,
-            decoration: BoxDecoration(
-              color: JegoTheme.fondCarte.withOpacity(0.72),
-              borderRadius: BorderRadius.circular(27),
-              border: Border.all(
-                  color: JegoTheme.fondCarte.withOpacity(0.9), width: 0.8),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF14201A).withOpacity(0.10),
-                  blurRadius: 22,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+      // L'ombre est posée HORS du découpage arrondi : à l'intérieur, le
+      // ClipRRect la rognait et la barre n'avait plus aucun relief.
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(27),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF14201A).withOpacity(0.18),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
-            child: LayoutBuilder(
-              builder: (context, contraintes) {
-                final largeurCase = contraintes.maxWidth / n;
-                // Cylindre = 1/3 de la largeur, pleine hauteur
-                final largeurCylindre = contraintes.maxWidth / 3;
-                final gauche = largeurCase * index +
-                    (largeurCase - largeurCylindre) / 2;
-                return Stack(
-                  children: [
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 340),
-                      curve: Curves.easeOutBack,
-                      left: gauche,
-                      top: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: largeurCylindre,
-                        decoration: BoxDecoration(
-                          color: JegoTheme.vert.withOpacity(0.16),
-                          borderRadius: BorderRadius.circular(27),
-                          border: Border.all(
-                            color: JegoTheme.vert.withOpacity(0.32),
-                            width: 0.8,
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(27),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: 54,
+              decoration: BoxDecoration(
+                color: JegoTheme.fondCarte.withOpacity(0.86),
+                borderRadius: BorderRadius.circular(27),
+                // Contour dans la couleur du texte, pas du fond : la barre
+                // se détache sur un écran clair comme en mode sombre.
+                border: Border.all(
+                    color: JegoTheme.texte.withOpacity(0.16), width: 1.2),
+              ),
+              child: LayoutBuilder(
+                builder: (context, contraintes) {
+                  final largeurCase = contraintes.maxWidth / n;
+                  // Cylindre = 1/3 de la largeur, pleine hauteur
+                  final largeurCylindre = contraintes.maxWidth / 3;
+                  final gauche =
+                      largeurCase * index + (largeurCase - largeurCylindre) / 2;
+                  return Stack(
+                    children: [
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 340),
+                        curve: Curves.easeOutBack,
+                        left: gauche,
+                        top: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: largeurCylindre,
+                          decoration: BoxDecoration(
+                            color: JegoTheme.vert.withOpacity(0.16),
+                            borderRadius: BorderRadius.circular(27),
+                            border: Border.all(
+                              color: JegoTheme.vert.withOpacity(0.32),
+                              width: 0.8,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    Row(
-                      children: List.generate(n, (i) {
-                        final actif = i == index;
-                        return Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => onChange(i),
-                            child: Center(
-                              child: AnimatedScale(
-                                scale: actif ? 1.12 : 1.0,
-                                duration:
-                                    const Duration(milliseconds: 240),
-                                curve: Curves.easeOutBack,
-                                child: Icon(
-                                  icones[i],
-                                  size: 22,
-                                  color: actif
-                                      ? JegoTheme.vert
-                                      : JegoTheme.texteTernaire,
+                      Row(
+                        children: List.generate(n, (i) {
+                          final actif = i == index;
+                          return Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => onChange(i),
+                              child: Center(
+                                child: AnimatedScale(
+                                  scale: actif ? 1.12 : 1.0,
+                                  duration: const Duration(milliseconds: 240),
+                                  curve: Curves.easeOutBack,
+                                  child: Icon(
+                                    icones[i],
+                                    size: 22,
+                                    color: actif
+                                        ? JegoTheme.vert
+                                        : JegoTheme.texteTernaire,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      }),
-                    ),
-                  ],
-                );
-              },
+                          );
+                        }),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),

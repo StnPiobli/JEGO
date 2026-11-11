@@ -25,7 +25,6 @@ class _EcranWalletState extends State<EcranWallet> {
     WalletStore.charger();
   }
 
-
   String _fmt(int montant) {
     final s = montant.toString();
     final buf = StringBuffer();
@@ -38,10 +37,20 @@ class _EcranWalletState extends State<EcranWallet> {
 
   String _dateLisible(String iso) {
     try {
-      final d = DateTime.parse(iso);
+      final d = DateTime.parse(iso).toLocal();
       const mois = [
-        'jan', 'fev', 'mar', 'avr', 'mai', 'juin',
-        'juil', 'aout', 'sep', 'oct', 'nov', 'dec'
+        'jan',
+        'fev',
+        'mar',
+        'avr',
+        'mai',
+        'juin',
+        'juil',
+        'aout',
+        'sep',
+        'oct',
+        'nov',
+        'dec'
       ];
       return '${d.day} ${mois[d.month - 1]} ${d.year}';
     } catch (_) {
@@ -54,6 +63,8 @@ class _EcranWalletState extends State<EcranWallet> {
   /// plutot que d'exposer l'etiquette technique.
   String _libelleMotif(String code) {
     switch (code) {
+      case 'achat_billet':
+        return Strings.t('motif_achat_billet');
       case 'billet_flexible':
         return Strings.t('motif_billet_flexible');
       case 'retard_excessif':
@@ -94,141 +105,151 @@ class _EcranWalletState extends State<EcranWallet> {
             child: FondDegrade(hauteur: 260),
           ),
           CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(child: _enTeteCarte()),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _banniereSecurite(),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    Icon(Icons.receipt_long_rounded,
-                        size: 16, color: JegoTheme.vert),
-                    const SizedBox(width: 6),
-                    Text(
-                      'HISTORIQUE',
-                      style: TextStyle(
-                          color: JegoTheme.vert,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.6),
+            slivers: [
+              SliverToBoxAdapter(child: _enTeteCarte()),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _banniereSecurite(),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Icon(Icons.receipt_long_rounded,
+                            size: 16, color: JegoTheme.vert),
+                        const SizedBox(width: 6),
+                        Text(
+                          'HISTORIQUE',
+                          style: TextStyle(
+                              color: JegoTheme.vert,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.6),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ValueListenableBuilder<List<Map<String, dynamic>>>(
-                  valueListenable: WalletStore.historique,
-                  builder: (context, mouvements, _) {
-                    if (mouvements.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(vertical: 40),
-                        decoration: BoxDecoration(
-                          color: JegoTheme.fondCarte,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rMoyen),
-                          border: Border.all(color: JegoTheme.bordCarte),
-                        ),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.inbox_rounded,
-                                  size: 34, color: JegoTheme.texteTernaire),
-                              const SizedBox(height: 10),
-                              Text(
-                                Strings.t('wallet_aucun_mouvement'),
-                                style: TextStyle(
-                                    color: JegoTheme.texteSecondaire),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                    return Column(
-                      children: List.generate(mouvements.length, (i) {
-                        final m = mouvements[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.fondCarte,
-                            borderRadius:
-                                BorderRadius.circular(JegoTheme.rMoyen),
-                            border: Border.all(color: JegoTheme.bordCarte),
-                            boxShadow: JegoTheme.ombreDouce,
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: JegoTheme.vert.withOpacity(0.1),
-                                  borderRadius:
-                                      BorderRadius.circular(JegoTheme.rPetit),
-                                ),
-                                child: Icon(Icons.arrow_downward_rounded,
-                                    color: JegoTheme.vert, size: 20),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _libelleMotif('${m['motif']}'),
-                                      style: TextStyle(
-                                          color: JegoTheme.texte,
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.w800),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _trajetEtReference(m),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          color: JegoTheme.texteSecondaire,
-                                          fontSize: 12),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                    const SizedBox(height: 12),
+                    ValueListenableBuilder<List<Map<String, dynamic>>>(
+                      valueListenable: WalletStore.historique,
+                      builder: (context, mouvements, _) {
+                        if (mouvements.isEmpty) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 40),
+                            decoration: BoxDecoration(
+                              color: JegoTheme.fondCarte,
+                              borderRadius:
+                                  BorderRadius.circular(JegoTheme.rMoyen),
+                              border: Border.all(color: JegoTheme.bordCarte),
+                            ),
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  Icon(Icons.inbox_rounded,
+                                      size: 34, color: JegoTheme.texteTernaire),
+                                  const SizedBox(height: 10),
                                   Text(
-                                    '+${_fmt(int.tryParse('${m['montant']}') ?? 0)} FCFA',
+                                    Strings.t('wallet_aucun_mouvement'),
                                     style: TextStyle(
-                                        color: JegoTheme.vert,
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.w800),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _dateLisible('${m['date']}'),
-                                    style: TextStyle(
-                                        color: JegoTheme.texteTernaire,
-                                        fontSize: 10.5),
+                                        color: JegoTheme.texteSecondaire),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        ).animate(delay: (i * 60).ms).fadeIn(duration: 300.ms);
-                      }),
-                    );
-                  },
+                            ),
+                          );
+                        }
+                        return Column(
+                          children: List.generate(mouvements.length, (i) {
+                            final m = mouvements[i];
+                            // Un debit est un billet paye avec le solde.
+                            final debit = m['sens'] == 'debit';
+                            final couleur =
+                                debit ? JegoTheme.texte : JegoTheme.vert;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: JegoTheme.fondCarte,
+                                borderRadius:
+                                    BorderRadius.circular(JegoTheme.rMoyen),
+                                border: Border.all(color: JegoTheme.bordCarte),
+                                boxShadow: JegoTheme.ombreDouce,
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: couleur.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(
+                                          JegoTheme.rPetit),
+                                    ),
+                                    child: Icon(
+                                        debit
+                                            ? Icons.confirmation_number_rounded
+                                            : Icons.arrow_downward_rounded,
+                                        color: couleur,
+                                        size: 20),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _libelleMotif('${m['motif']}'),
+                                          style: TextStyle(
+                                              color: JegoTheme.texte,
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w800),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _trajetEtReference(m),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              color: JegoTheme.texteSecondaire,
+                                              fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '${debit ? '−' : '+'}${_fmt(int.tryParse('${m['montant']}') ?? 0)} FCFA',
+                                        style: TextStyle(
+                                            color: couleur,
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w800),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _dateLisible('${m['date']}'),
+                                        style: TextStyle(
+                                            color: JegoTheme.texteTernaire,
+                                            fontSize: 10.5),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            )
+                                .animate(delay: (i * 60).ms)
+                                .fadeIn(duration: 300.ms);
+                          }),
+                        );
+                      },
+                    ),
+                  ]),
                 ),
-              ]),
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
         ],
       ),
     );
@@ -251,8 +272,8 @@ class _EcranWalletState extends State<EcranWallet> {
               color: JegoTheme.vert,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.shield_rounded,
-                color: Colors.white, size: 18),
+            child:
+                const Icon(Icons.shield_rounded, color: Colors.white, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -270,148 +291,63 @@ class _EcranWalletState extends State<EcranWallet> {
     ).animate(delay: 100.ms).fadeIn(duration: 300.ms);
   }
 
+  /// En-tete commun, puis le solde dans une carte : le meme vert que
+  /// partout, sans le bandeau en vague qui faisait de cette page une
+  /// exception.
   Widget _enTeteCarte() {
-    return ClipPath(
-      clipper: _VagueClipperWallet(),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [JegoTheme.texte, JegoTheme.vert, JegoTheme.vertVif],
-          ),
-        ),
-        child: Stack(
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Positioned(
-              top: -40,
-              right: -40,
-              child: Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: JegoTheme.fondCarte.withOpacity(0.06),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 10,
-              left: -30,
-              child: Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: JegoTheme.vertVif.withOpacity(0.25),
-                ),
-              ),
-            ),
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Builder(
-                      builder: (context) => GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.fondCarte.withOpacity(0.16),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.arrow_back_rounded,
-                              color: Colors.white, size: 20),
+            EnteteJego(titre: Strings.t('wallet_titre'), retour: true),
+            const SizedBox(height: 18),
+            CarteJego(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(9),
+                        decoration: BoxDecoration(
+                          color: JegoTheme.vert.withOpacity(0.1),
+                          shape: BoxShape.circle,
                         ),
+                        child: Icon(Icons.account_balance_wallet_rounded,
+                            color: JegoTheme.vert, size: 18),
                       ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(9),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.fondCarte.withOpacity(0.16),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                              Icons.account_balance_wallet_rounded,
-                              color: Colors.white,
-                              size: 18),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          Strings.t('wallet_total_rembourse'),
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    ValueListenableBuilder<int>(
-                      valueListenable: WalletStore.solde,
-                      builder: (context, solde, _) => Text(
-                        '${_fmt(solde)} FCFA',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5),
+                      const SizedBox(width: 10),
+                      Text(
+                        Strings.t('wallet_total_rembourse'),
+                        style: TextStyle(
+                            color: JegoTheme.texteSecondaire,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ValueListenableBuilder<int>(
+                    valueListenable: WalletStore.solde,
+                    builder: (context, solde, _) => Text(
+                      '${_fmt(solde)} FCFA',
+                      style: TextStyle(
+                          color: JegoTheme.texte,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5),
                     ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: JegoTheme.fondCarte.withOpacity(0.16),
-                        borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.account_balance_wallet_rounded,
-                              size: 13, color: Colors.white),
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Portefeuille JEGO',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ),
+            ).animate(delay: 120.ms).fadeIn(duration: 350.ms),
           ],
         ),
       ),
-    ).animate().fadeIn(duration: 350.ms);
+    );
   }
-}
-
-class _VagueClipperWallet extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final chemin = Path();
-    chemin.lineTo(0, size.height - 30);
-    chemin.quadraticBezierTo(
-        size.width / 2, size.height, size.width, size.height - 30);
-    chemin.lineTo(size.width, 0);
-    chemin.close();
-    return chemin;
-  }
-
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }

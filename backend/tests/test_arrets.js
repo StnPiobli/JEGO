@@ -147,12 +147,12 @@ async function main() {
   // ─────────────────────────────────────────────────────
   console.log('\n1. FEUILLE DE ROUTE DU CHAUFFEUR');
   // ─────────────────────────────────────────────────────
-  const telCh = `+2379${U}`;
+  const telCh = `+2379${U.slice(-8)}`;
   const chId = (await appel('POST', '/api/chauffeurs', {
     token: tokenAgence,
     body: {
       nom: 'Nkeng', prenom: 'Luc', date_naissance: '1980-01-01',
-      lieu_naissance: 'Douala', telephone: telCh, mot_de_passe: 'Chauffeur123!'
+      lieu_naissance: 'Douala', telephone: telCh, email: `ch${U}@t.cm`, mot_de_passe: 'Chauffeur123!'
     }
   })).donnees?.chauffeur?.id;
   await appel('PUT', `/api/trajets/${trajetId}/chauffeur`, {
@@ -267,7 +267,7 @@ async function main() {
     token: tokenAgence,
     body: {
       nom: 'Autre', prenom: 'Chauffeur', date_naissance: '1990-01-01',
-      lieu_naissance: 'Douala', telephone: autreCh, mot_de_passe: 'Autre1234!'
+      lieu_naissance: 'Douala', telephone: autreCh, email: `ach${U}@t.cm`, mot_de_passe: 'Autre1234!'
     }
   })).donnees?.chauffeur?.id;
   const tokenAutre = (await appel('POST', '/api/chauffeurs/connexion', {

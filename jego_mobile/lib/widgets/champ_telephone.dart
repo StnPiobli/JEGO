@@ -5,6 +5,8 @@ import '../l10n/strings.dart';
 import 'drapeau_jego.dart';
 import 'style_jego.dart';
 
+part 'pays_liste.dart';
+
 class Pays {
   final String nom;
   final String indicatif;
@@ -12,20 +14,36 @@ class Pays {
   /// Code ISO, utilise pour dessiner le drapeau. Les emoji drapeaux ne
   /// se composent pas partout : voir [DrapeauJego].
   final String code;
+
+  /// Longueur maximale du numéro national (sert aussi à espacer la saisie).
   final int longueur;
-  const Pays(this.nom, this.indicatif, this.code, this.longueur);
+
+  /// Longueur minimale : certains pays mélangent plusieurs formats.
+  final int longueurMin;
+
+  const Pays(this.nom, this.indicatif, this.code, this.longueur, [int? min])
+      : longueurMin = min ?? longueur;
 }
 
 class PaysTelephone {
-  static const cameroun = Pays('Cameroun', '+237', 'CM', 9);
-  static const liste = [
-    cameroun,
-    Pays('Nigeria', '+234', 'NG', 10),
-    Pays('Tchad', '+235', 'TD', 8),
-    Pays('Gabon', '+241', 'GA', 9),
-    Pays('Côte d\'Ivoire', '+225', 'CI', 10),
-    Pays('France', '+33', 'FR', 9),
-  ];
+  /// Tous les pays, par ordre alphabétique (accents ignorés : « Égypte »
+  /// se range avec les E, pas après Z).
+  static final List<Pays> liste = [..._tousLesPays]
+    ..sort((a, b) => sansAccent(a.nom).compareTo(sansAccent(b.nom)));
+
+  static final Pays cameroun = liste.firstWhere((p) => p.code == 'CM');
+
+  /// Minuscules sans accents, pour trier et pour chercher.
+  static String sansAccent(String s) {
+    const avec = 'àâäáãåçéèêëíìîïñóòôöõúùûüýÿœæ';
+    const sans = 'aaaaaaceeeeiiiinooooouuuuyyoa';
+    final b = StringBuffer();
+    for (final c in s.toLowerCase().split('')) {
+      final i = avec.indexOf(c);
+      b.write(i >= 0 ? sans[i] : c);
+    }
+    return b.toString();
+  }
 
   /// Retire l'indicatif d'un numero saisi ou stocke, et rend le pays
   /// correspondant.
@@ -39,8 +57,26 @@ class PaysTelephone {
     var n = valeur.replaceAll(RegExp(r'[^0-9+]'), '');
     if (n.startsWith('00')) n = '+${n.substring(2)}';
 
+    // Sans « + », un numéro qui tient dans la longueur du pays retenu
+    // est un numéro de CE pays : on ne devine rien. Sinon « 678 787 878 »
+    // (mobile camerounais) se lisait Vanuatu (+678) et la saisie était
+    // coupée à « 78 78 78 ». Seul un numéro plus long (indicatif collé)
+    // ou commençant par « + » / « 00 » fait chercher le pays.
+    final parDefaut = defaut ?? cameroun;
+    if (!n.startsWith('+') && n.length <= parDefaut.longueur) {
+      return (parDefaut, n);
+    }
+
+    // Indicatifs les plus longs d'abord ; à indicatif égal (+1, +7), le
+    // pays principal d'abord.
     final tries = [...liste]
-      ..sort((a, b) => b.indicatif.length.compareTo(a.indicatif.length));
+      ..sort((a, b) {
+        final l = b.indicatif.length.compareTo(a.indicatif.length);
+        if (l != 0) return l;
+        final pa = _paysPrincipal[a.indicatif] == a.code ? 0 : 1;
+        final pb = _paysPrincipal[b.indicatif] == b.code ? 0 : 1;
+        return pa.compareTo(pb);
+      });
     for (final p in tries) {
       final chiffres = p.indicatif.substring(1); // sans le +
       for (final prefixe in ['+$chiffres', chiffres]) {
@@ -48,7 +84,8 @@ class PaysTelephone {
         final reste = n.substring(prefixe.length);
         // « 237… » sans + est ambigu : ce peut etre un vrai debut de
         // numero. On ne coupe que si la longueur restante colle.
-        if (prefixe.startsWith('+') || reste.length == p.longueur) {
+        if (prefixe.startsWith('+') ||
+            (reste.length >= p.longueurMin && reste.length <= p.longueur)) {
           return (p, reste);
         }
       }
@@ -98,7 +135,7 @@ class PaysTelephone {
   /// Format valide selon le pays. Cameroun : 9 chiffres commencant par 6 ou 2.
   static bool valide(Pays pays, String numero) {
     final n = numero.replaceAll(RegExp(r'\D'), '');
-    if (n.length != pays.longueur) return false;
+    if (n.length < pays.longueurMin || n.length > pays.longueur) return false;
     if (pays.indicatif == '+237' &&
         !(n.startsWith('6') || n.startsWith('2'))) {
       return false;
@@ -165,93 +202,22 @@ class ChampTelephone extends StatelessWidget {
     this.onChange,
   });
 
-  /// Choix de l'indicatif en feuille basse, comme le calendrier.
+  /// Choix de l'indicatif en feuille basse.
   ///
-  /// L'ancien `showMenu` etait peint en `Colors.white` en dur : en mode
-  /// sombre, le menu restait blanc sous un texte presque blanc, illisible.
-  /// Il n'affichait par ailleurs que le drapeau et l'indicatif, sans le
-  /// nom du pays, et ses lignes de 44 px etaient serrees pour le pouce.
+  /// Une seule carte, des lignes séparées par un filet : les six pays
+  /// tiennent sur un téléphone. L'ancienne version empilait une boîte par
+  /// pays dans la hauteur par défaut d'une feuille basse, et la liste
+  /// débordait par le bas de l'écran. La hauteur est désormais bornée et
+  /// la liste défile si l'on ajoute des pays.
   void _ouvrirListe(BuildContext context) {
     showModalBottomSheet<Pays>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => FeuilleJego(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              Strings.t('choisir_indicatif'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: JegoTheme.texte,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...PaysTelephone.liste.map((p) {
-              final actif = p.indicatif == pays.indicatif;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: BoutonTactile(
-                  onTap: () => Navigator.of(ctx).pop(p),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 13),
-                    decoration: BoxDecoration(
-                      color: actif
-                          ? JegoTheme.vert.withOpacity(0.10)
-                          : JegoTheme.champ,
-                      borderRadius:
-                          BorderRadius.circular(JegoTheme.rPetit),
-                      border: Border.all(
-                        color: actif
-                            ? JegoTheme.vert.withOpacity(0.45)
-                            : Colors.transparent,
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        DrapeauJego(p.code, largeur: 26),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            p.nom,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: JegoTheme.texte,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          p.indicatif,
-                          style: TextStyle(
-                            color: actif
-                                ? JegoTheme.vert
-                                : JegoTheme.texteSecondaire,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        if (actif) ...[
-                          const SizedBox(width: 8),
-                          Icon(Icons.check_rounded,
-                              size: 17, color: JegoTheme.vert),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
       ),
+      builder: (ctx) => _FeuillePays(actuel: pays),
     ).then((choisi) {
       if (choisi != null) onPays(choisi);
     });
@@ -326,6 +292,145 @@ class ChampTelephone extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Liste des pays avec recherche (nom ou indicatif). Le pays en cours
+/// est remonté en tête pour qu'on le retrouve sans chercher.
+class _FeuillePays extends StatefulWidget {
+  final Pays actuel;
+  const _FeuillePays({required this.actuel});
+
+  @override
+  State<_FeuillePays> createState() => _FeuillePaysState();
+}
+
+class _FeuillePaysState extends State<_FeuillePays> {
+  String _recherche = '';
+
+  List<Pays> get _affiches {
+    final q = PaysTelephone.sansAccent(_recherche.trim());
+    final chiffres = q.replaceAll(RegExp(r'[^0-9]'), '');
+    if (q.isEmpty) return PaysTelephone.liste;
+    return PaysTelephone.liste.where((p) {
+      if (PaysTelephone.sansAccent(p.nom).contains(q)) return true;
+      return chiffres.isNotEmpty && p.indicatif.substring(1).startsWith(chiffres);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final liste = _affiches;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: FeuilleJego(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              Strings.t('choisir_indicatif'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: JegoTheme.texte,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (v) => setState(() => _recherche = v),
+              style: TextStyle(color: JegoTheme.texte, fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Rechercher un pays ou un indicatif',
+                hintStyle: TextStyle(color: JegoTheme.texteTernaire, fontSize: 13),
+                prefixIcon: Icon(Icons.search_rounded, color: JegoTheme.texteTernaire),
+                filled: true,
+                fillColor: JegoTheme.champ,
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Flexible(
+              child: liste.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text('Aucun pays ne correspond.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: JegoTheme.texteSecondaire)),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: JegoTheme.champ,
+                        borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.zero,
+                        itemCount: liste.length,
+                        separatorBuilder: (_, __) => Divider(
+                          height: 1,
+                          thickness: 1,
+                          indent: 52,
+                          color: JegoTheme.bordCarte,
+                        ),
+                        itemBuilder: (_, i) => _ligne(liste[i]),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ligne(Pays p) {
+    // Le code ISO, pas l'indicatif : +1 est partagé par les États-Unis
+    // et le Canada.
+    final actif = p.code == widget.actuel.code;
+    return InkWell(
+      onTap: () => Navigator.of(context).pop(p),
+      child: Container(
+        color: actif ? JegoTheme.vert.withOpacity(0.08) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          children: [
+            DrapeauJego(p.code, largeur: 24),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                p.nom,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: JegoTheme.texte,
+                  fontSize: 14,
+                  fontWeight: actif ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              p.indicatif,
+              style: TextStyle(
+                color: actif ? JegoTheme.vert : JegoTheme.texteSecondaire,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(
+              width: 26,
+              child: actif
+                  ? Icon(Icons.check_rounded, size: 18, color: JegoTheme.vert)
+                  : null,
+            ),
+          ],
+        ),
       ),
     );
   }

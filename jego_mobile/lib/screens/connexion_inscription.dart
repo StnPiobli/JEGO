@@ -535,7 +535,7 @@ class _VueConnexionState extends State<_VueConnexion> {
                     BoutonTactile(
                       onTap: () {
                         final v = ctrl.text.replaceAll(RegExp(r'\D'), '');
-                        if (v.length < pays.longueur) {
+                        if (v.length < pays.longueurMin) {
                           maj(() => erreurLocale =
                               'Entrez un numéro de téléphone valide.');
                           return;

@@ -3,20 +3,21 @@
 import 'dart:html' as html;
 import 'dart:typed_data';
 
-import 'pdf_download_web.dart';
-
-/// Ouvre la feuille de partage du systeme avec le PDF en piece jointe.
+/// Ouvre la feuille de partage du systeme avec le PDF en piece jointe
+/// (API Web Share : iMessage, WhatsApp, Mail sur Safari iOS et Chrome
+/// Android).
 ///
-/// `Printing.sharePdf` ne sait pas partager sur le web : il retombe sur
-/// un telechargement, ce qui donnait deux boutons faisant exactement la
-/// meme chose. L'API Web Share, elle, ouvre la vraie feuille -- iMessage,
-/// WhatsApp, Mail -- sur Safari iOS et Chrome Android.
-///
-/// Renvoie false uniquement si le navigateur ne sait pas partager de
-/// fichier : le PDF est alors telecharge, faute de mieux. Un partage que
-/// la personne annule elle-meme renvoie true, sans rien telecharger --
-/// annuler, c'est avoir choisi.
+/// Renvoie false quand le navigateur refuse de partager, SANS rien
+/// telecharger : l'ancien repli telechargeait le PDF en silence, et le
+/// bouton « Partager » faisait alors la meme chose que « Telecharger ».
+/// Les deux cas de refus :
+///   - page hors connexion securisee (http://192.168…) : les navigateurs
+///     n'exposent le partage qu'en https ;
+///   - partage demande trop longtemps apres l'appui (geste perdu).
+/// Un partage que la personne annule elle-meme renvoie true -- annuler,
+/// c'est avoir choisi.
 Future<bool> partagerPdfImpl(Uint8List bytes, String nomFichier) async {
+  if (html.window.isSecureContext != true) return false;
   final fichier = html.File([bytes], nomFichier, {'type': 'application/pdf'});
   try {
     await html.window.navigator.share({
@@ -25,10 +26,7 @@ Future<bool> partagerPdfImpl(Uint8List bytes, String nomFichier) async {
     });
     return true;
   } catch (e) {
-    // AbortError : la feuille s'est bien ouverte, la personne a ferme.
-    // Rien a corriger, et surtout pas de telechargement surprise.
     if (e.toString().contains('AbortError')) return true;
-    await telechargerPdfImpl(bytes, nomFichier);
     return false;
   }
 }

@@ -60,8 +60,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: JegoTheme.champ,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
+                          borderRadius: BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(
                           Strings.t('annuler'),
@@ -85,14 +84,12 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: JegoTheme.danger,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
+                          borderRadius: BorderRadius.circular(JegoTheme.rPetit),
                         ),
                         child: Text(
                           Strings.t('supprimer'),
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800),
+                              color: Colors.white, fontWeight: FontWeight.w800),
                         ),
                       ),
                     ),
@@ -122,8 +119,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
       orElse: () => billets.first,
     );
     Navigator.of(context).push(
-      MaterialPageRoute(
-          builder: (_) => EcranApresVoyage(billet: billetActuel)),
+      MaterialPageRoute(builder: (_) => EcranApresVoyage(billet: billetActuel)),
     );
   }
 
@@ -140,130 +136,104 @@ class _EcranNotificationsState extends State<EcranNotifications> {
             child: FondDegrade(hauteur: 240),
           ),
           SafeArea(
-        child: ValueListenableBuilder<List<Map<String, dynamic>>>(
-          valueListenable: NotifsStore.liste,
-          builder: (context, notifs, _) {
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-                  child: Row(
-                    children: [
-                      BoutonTactile(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.fondCarte,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: JegoTheme.bordCarte, width: 1),
-                            boxShadow: JegoTheme.ombreDouce,
-                          ),
-                          child: Icon(Icons.close_rounded,
-                              size: 20, color: JegoTheme.texte),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Text(
-                        Strings.t('nav_notifications'),
-                        style: TextStyle(
-                          color: JegoTheme.texte,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (notifs.isNotEmpty)
-                        BoutonTactile(
-                          onTap: _confirmerToutSupprimer,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: JegoTheme.danger.withOpacity(0.08),
-                              borderRadius:
-                                  BorderRadius.circular(JegoTheme.rGrand),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.delete_sweep_rounded,
-                                    size: 15, color: JegoTheme.danger),
-                                const SizedBox(width: 4),
-                                Text(
-                                  Strings.t('tout_effacer'),
-                                  style: TextStyle(
-                                    color: JegoTheme.danger,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
+            child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: NotifsStore.liste,
+              builder: (context, notifs, _) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
+                      child: EnteteJego(
+                        titre: Strings.t('nav_notifications'),
+                        retour: true,
+                        actionTitre: notifs.isEmpty
+                            ? null
+                            : BoutonTactile(
+                                onTap: _confirmerToutSupprimer,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: JegoTheme.danger.withOpacity(0.08),
+                                    borderRadius:
+                                        BorderRadius.circular(JegoTheme.rGrand),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_sweep_rounded,
+                                          size: 15, color: JegoTheme.danger),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        Strings.t('tout_effacer'),
+                                        style: TextStyle(
+                                          color: JegoTheme.danger,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: notifs.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.notifications_off_rounded,
-                                  size: 44,
-                                  color: JegoTheme.texteTernaire),
-                              const SizedBox(height: 10),
-                              Text(
-                                Strings.t('notif_vide'),
-                                style: TextStyle(
-                                    color: JegoTheme.texteSecondaire),
                               ),
-                            ],
-                          ),
-                        )
-                      : ListView.separated(
-                          padding:
-                              const EdgeInsets.fromLTRB(18, 6, 18, 100),
-                          itemCount: notifs.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, i) {
-                            final n = notifs[i];
-                            return Dismissible(
-                              key: ValueKey(n['id']),
-                              direction: DismissDirection.endToStart,
-                              onDismissed: (_) =>
-                                  NotifsStore.supprimer('${n['id']}'),
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding:
-                                    const EdgeInsets.only(right: 20),
-                                decoration: BoxDecoration(
-                                  color: JegoTheme.danger,
-                                  borderRadius: BorderRadius.circular(
-                                      JegoTheme.rMoyen),
-                                ),
-                                child: const Icon(Icons.delete_rounded,
-                                    color: Colors.white),
+                      ),
+                    ),
+                    Expanded(
+                      child: notifs.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.notifications_off_rounded,
+                                      size: 44, color: JegoTheme.texteTernaire),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    Strings.t('notif_vide'),
+                                    style: TextStyle(
+                                        color: JegoTheme.texteSecondaire),
+                                  ),
+                                ],
                               ),
-                              child: _carteNotif(n),
                             )
-                                .animate(delay: (i * 320).ms)
-                                .fadeIn(duration: 550.ms)
-                                .slideY(
-                                    begin: 0.4,
-                                    duration: 550.ms,
-                                    curve: Curves.easeOutCubic);
-                          },
-                        ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+                          : ListView.separated(
+                              padding:
+                                  const EdgeInsets.fromLTRB(18, 6, 18, 100),
+                              itemCount: notifs.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, i) {
+                                final n = notifs[i];
+                                return Dismissible(
+                                  key: ValueKey(n['id']),
+                                  direction: DismissDirection.endToStart,
+                                  onDismissed: (_) =>
+                                      NotifsStore.supprimer('${n['id']}'),
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    decoration: BoxDecoration(
+                                      color: JegoTheme.danger,
+                                      borderRadius: BorderRadius.circular(
+                                          JegoTheme.rMoyen),
+                                    ),
+                                    child: const Icon(Icons.delete_rounded,
+                                        color: Colors.white),
+                                  ),
+                                  child: _carteNotif(n),
+                                )
+                                    .animate(delay: (i * 320).ms)
+                                    .fadeIn(duration: 550.ms)
+                                    .slideY(
+                                        begin: 0.4,
+                                        duration: 550.ms,
+                                        curve: Curves.easeOutCubic);
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ],
       ),
     );

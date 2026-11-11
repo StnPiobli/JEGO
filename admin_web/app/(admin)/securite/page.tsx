@@ -1,5 +1,5 @@
 "use client";
-// PRÊT À BRANCHER — journal des actions sensibles.
+// BRANCHÉ SUR LE VRAI BACKEND — journal des actions sensibles.
 // Route attendue : GET /api/admin/logs?date=YYYY-MM-DD
 // Réponse attendue : { logs: [{ horodatage, action, auteur, ip }] }
 

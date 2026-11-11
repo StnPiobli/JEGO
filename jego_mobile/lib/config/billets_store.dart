@@ -128,6 +128,7 @@ class BilletsStore {
 
     final equipements = <String>[];
     if (b['climatisation'] == true) equipements.add('clim');
+    if (b['distribution_nourriture'] == true) equipements.add('repas');
     if (b['prises_usb'] == true) equipements.add('usb');
     if (b['wifi'] == true) equipements.add('wifi');
     if (b['toilettes'] == true) equipements.add('toilettes');
@@ -191,6 +192,7 @@ class BilletsStore {
       'deja_note': b['deja_note'] == true,
       'frais': frais,
       'total': total,
+      'methode_paiement': _methodePaiement(b),
     };
   }
 
@@ -243,6 +245,20 @@ class BilletsStore {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Le vrai moyen de paiement du billet, tel que le serveur l'a enregistré.
+  static String _methodePaiement(Map<String, dynamic> b) {
+    if (b['source_vente'] == 'physique') return 'Especes (guichet)';
+    final solde = int.tryParse('${b['montant_portefeuille'] ?? 0}') ?? 0;
+    final operateur = switch ('${b['operateur'] ?? ''}') {
+      'mtn_momo' => 'MTN MoMo',
+      'orange_money' => 'Orange Money',
+      _ => '',
+    };
+    if (solde > 0 && operateur.isNotEmpty) return 'Solde JEGO + $operateur';
+    if (solde > 0) return 'Solde JEGO';
+    return operateur.isEmpty ? 'Mobile Money' : operateur;
   }
 }
 

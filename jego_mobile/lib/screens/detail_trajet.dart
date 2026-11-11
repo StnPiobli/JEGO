@@ -1,3 +1,4 @@
+import '../config/format_date.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../config/session.dart';
@@ -97,6 +98,8 @@ class EcranDetailTrajet extends StatelessWidget {
         return Icons.wifi_rounded;
       case 'inclinables':
         return Icons.airline_seat_recline_extra_rounded;
+      case 'repas':
+        return Icons.restaurant_rounded;
       default:
         return Icons.check_rounded;
     }
@@ -114,6 +117,8 @@ class EcranDetailTrajet extends StatelessWidget {
         return Strings.t('eq_wifi');
       case 'inclinables':
         return Strings.t('eq_inclinables');
+      case 'repas':
+        return Strings.t('eq_repas');
       default:
         return eq;
     }
@@ -138,339 +143,320 @@ class EcranDetailTrajet extends StatelessWidget {
             child: FondDegrade(hauteur: 260),
           ),
           SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-              child: Row(
-                children: [
-                  BoutonTactile(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: JegoTheme.fondCarte,
-                        shape: BoxShape.circle,
-                        border:
-                            Border.all(color: JegoTheme.bordCarte, width: 1),
-                        boxShadow: JegoTheme.ombreDouce,
-                      ),
-                      child: Icon(Icons.arrow_back_rounded,
-                          size: 20, color: JegoTheme.texte),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Text(
-                    Strings.t('detail_titre'),
-                    style: TextStyle(
-                      color: JegoTheme.texte,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (mode != 'simple')
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: JegoTheme.vert.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-                      ),
-                      child: Text(
-                        mode == 'aller'
-                            ? Strings.t('resultats_aller')
-                            : Strings.t('resultats_retour'),
-                        style: TextStyle(
-                          color: JegoTheme.vert,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
-                children: [
-                  if (mode == 'retour' && offreAller != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: JegoTheme.vert.withOpacity(0.08),
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
-                          border: Border.all(
-                              color: JegoTheme.vert.withOpacity(0.3),
-                              width: 0.8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.check_circle_rounded,
-                                size: 16, color: JegoTheme.vert),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '${Strings.t('voyage_aller_label')} $dateAller · ${offreAller!['heure_depart']}',
-                                style: TextStyle(
-                                  color: JegoTheme.texte,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ).animate().fadeIn(duration: 350.ms),
-                  _carte(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _villePoint(villeDepart,
-                                  '${offre['point_depart']}',
-                                  CrossAxisAlignment.start),
-                            ),
-                            Column(
-                              children: [
-                                Icon(Icons.arrow_forward_rounded,
-                                    color: JegoTheme.vert, size: 20),
-                                const SizedBox(height: 2),
-                                Text(
-                                  nbArrets == 0
-                                      ? Strings.t('trajet_direct')
-                                      : '$nbArrets ${Strings.t('arrets')}',
-                                  style: TextStyle(
-                                      color: JegoTheme.texteTernaire,
-                                      fontSize: 10.5),
-                                ),
-                              ],
-                            ),
-                            Expanded(
-                              child: _villePoint(villeArrivee,
-                                  '${offre['point_arrivee']}',
-                                  CrossAxisAlignment.end),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: JegoTheme.champ,
-                            borderRadius:
-                                BorderRadius.circular(JegoTheme.rPetit),
-                          ),
-                          child: Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                            children: [
-                              _infoMini(Icons.calendar_month_rounded, date),
-                              _infoMini(Icons.schedule_rounded,
-                                  '${offre['heure_depart']} → ${offre['heure_arrivee']}'),
-                              _infoMini(Icons.style_rounded,
-                                  NatureTrajet.etiquettes(offre).join(' · ')),
-                            ],
-                          ),
-                        ),
-                        if (arrets.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(Icons.alt_route_rounded,
-                                  size: 15,
-                                  color: JegoTheme.texteSecondaire),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  '${Strings.t('arrets_label')} ${arrets.join(', ')}',
-                                  style: TextStyle(
-                                    color: JegoTheme.texteSecondaire,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
-                  const SizedBox(height: 12),
-                  _carte(
-                    child: BoutonTactile(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => EcranFicheAgence(
-                                agenceId: '${offre['agence_id']}'),
-                          ),
-                        );
-                      },
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
+                  child: EnteteJego(
+                    titre: Strings.t('detail_titre'),
+                    retour: true,
+                    actionTitre: mode == 'simple'
+                        ? null
+                        : Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
                               color: JegoTheme.vert.withOpacity(0.1),
                               borderRadius:
-                                  BorderRadius.circular(JegoTheme.rPetit),
+                                  BorderRadius.circular(JegoTheme.rGrand),
                             ),
-                            child: Icon(Icons.directions_bus_rounded,
-                                color: JegoTheme.vert, size: 22),
+                            child: Text(
+                              mode == 'aller'
+                                  ? Strings.t('resultats_aller')
+                                  : Strings.t('resultats_retour'),
+                              style: TextStyle(
+                                color: JegoTheme.vert,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
+                    children: [
+                      if (mode == 'retour' && offreAller != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: JegoTheme.vert.withOpacity(0.08),
+                              borderRadius:
+                                  BorderRadius.circular(JegoTheme.rPetit),
+                              border: Border.all(
+                                  color: JegoTheme.vert.withOpacity(0.3),
+                                  width: 0.8),
+                            ),
+                            child: Row(
                               children: [
-                                Text(
-                                  '${offre['nom_agence']}',
-                                  style: TextStyle(
-                                    color: JegoTheme.texte,
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    Icon(Icons.star_rounded,
-                                        size: 15, color: JegoTheme.etoile),
-                                    Text(
-                                      ' ${offre['note_moyenne']} · ${Strings.t('voir_avis')}',
-                                      style: TextStyle(
-                                          color: JegoTheme.texteSecondaire,
-                                          fontSize: 12),
+                                Icon(Icons.check_circle_rounded,
+                                    size: 16, color: JegoTheme.vert),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${Strings.t('voyage_aller_label')} ${FormatDate.courte(dateAller)} · ${offreAller!['heure_depart']}',
+                                    style: TextStyle(
+                                      color: JegoTheme.texte,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded,
-                              color: JegoTheme.texteTernaire),
-                        ],
-                      ),
-                    ),
-                  )
-                      .animate(delay: 120.ms)
-                      .fadeIn(duration: 400.ms)
-                      .slideY(begin: 0.1),
-                  const SizedBox(height: 12),
-                  if (equipements.isNotEmpty)
-                    _carte(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _titreBloc(Strings.t('equipements')),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: equipements.map<Widget>((e) {
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: JegoTheme.champ,
-                                  borderRadius: BorderRadius.circular(
-                                      JegoTheme.rGrand),
+                        ).animate().fadeIn(duration: 350.ms),
+                      _carte(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _villePoint(
+                                      villeDepart,
+                                      '${offre['point_depart']}',
+                                      CrossAxisAlignment.start),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                Column(
                                   children: [
-                                    Icon(_iconeEquipement('$e'),
-                                        size: 15, color: JegoTheme.vert),
-                                    const SizedBox(width: 6),
+                                    Icon(Icons.arrow_forward_rounded,
+                                        color: JegoTheme.vert, size: 20),
+                                    const SizedBox(height: 2),
                                     Text(
-                                      _libelleEquipement('$e'),
+                                      nbArrets == 0
+                                          ? Strings.t('trajet_direct')
+                                          : '$nbArrets ${Strings.t('arrets')}',
+                                      style: TextStyle(
+                                          color: JegoTheme.texteTernaire,
+                                          fontSize: 10.5),
+                                    ),
+                                  ],
+                                ),
+                                Expanded(
+                                  child: _villePoint(
+                                      villeArrivee,
+                                      '${offre['point_arrivee']}',
+                                      CrossAxisAlignment.end),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: JegoTheme.champ,
+                                borderRadius:
+                                    BorderRadius.circular(JegoTheme.rPetit),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  _infoMini(Icons.calendar_month_rounded, FormatDate.courte(date)),
+                                  _infoMini(Icons.schedule_rounded,
+                                      '${offre['heure_depart']} → ${offre['heure_arrivee']}'),
+                                  _infoMini(
+                                      Icons.style_rounded,
+                                      NatureTrajet.etiquettes(offre)
+                                          .join(' · ')),
+                                ],
+                              ),
+                            ),
+                            if (arrets.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.alt_route_rounded,
+                                      size: 15,
+                                      color: JegoTheme.texteSecondaire),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      '${Strings.t('arrets_label')} ${arrets.join(', ')}',
                                       style: TextStyle(
                                         color: JegoTheme.texteSecondaire,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
+                      const SizedBox(height: 12),
+                      _carte(
+                        child: BoutonTactile(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EcranFicheAgence(
+                                    agenceId: '${offre['agence_id']}'),
+                              ),
+                            );
+                          },
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: JegoTheme.vert.withOpacity(0.1),
+                                  borderRadius:
+                                      BorderRadius.circular(JegoTheme.rPetit),
+                                ),
+                                child: Icon(Icons.directions_bus_rounded,
+                                    color: JegoTheme.vert, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${offre['nom_agence']}',
+                                      style: TextStyle(
+                                        color: JegoTheme.texte,
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.star_rounded,
+                                            size: 15, color: JegoTheme.etoile),
+                                        Text(
+                                          ' ${offre['note_moyenne']} · ${Strings.t('voir_avis')}',
+                                          style: TextStyle(
+                                              color: JegoTheme.texteSecondaire,
+                                              fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
                                   ],
                                 ),
-                              );
-                            }).toList(),
+                              ),
+                              Icon(Icons.chevron_right_rounded,
+                                  color: JegoTheme.texteTernaire),
+                            ],
                           ),
-                        ],
-                      ),
-                    )
-                        .animate(delay: 180.ms)
-                        .fadeIn(duration: 400.ms)
-                        .slideY(begin: 0.1),
-                  const SizedBox(height: 12),
-                  _carte(
-                    child: Column(
-                      children: [
-                        _lignePrix(
-                            '${Strings.t('prix_billet')} × $passagers',
-                            '${prix * passagers} FCFA',
-                            gras: false),
-                        Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Divider(
-                              height: 1, color: JegoTheme.bordCarte),
                         ),
-                        _lignePrix(Strings.t('total'), '$total FCFA',
-                            gras: true),
-                      ],
-                    ),
-                  )
-                      .animate(delay: 300.ms)
-                      .fadeIn(duration: 400.ms)
-                      .slideY(begin: 0.1),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 16),
-              child: BoutonTactile(
-                onTap: () => _action(context),
-                child: Container(
-                  height: 56,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: JegoTheme.vert,
-                    borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-                    boxShadow: JegoTheme.ombreVerte,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _libelleBouton,
-                        style: TextStyle(
-                          color: JegoTheme.surVert,
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w800,
+                      )
+                          .animate(delay: 120.ms)
+                          .fadeIn(duration: 400.ms)
+                          .slideY(begin: 0.1),
+                      const SizedBox(height: 12),
+                      if (equipements.isNotEmpty)
+                        _carte(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _titreBloc(Strings.t('equipements')),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: equipements.map<Widget>((e) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: JegoTheme.champ,
+                                      borderRadius: BorderRadius.circular(
+                                          JegoTheme.rGrand),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(_iconeEquipement('$e'),
+                                            size: 15, color: JegoTheme.vert),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _libelleEquipement('$e'),
+                                          style: TextStyle(
+                                            color: JegoTheme.texteSecondaire,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        )
+                            .animate(delay: 180.ms)
+                            .fadeIn(duration: 400.ms)
+                            .slideY(begin: 0.1),
+                      const SizedBox(height: 12),
+                      _carte(
+                        child: Column(
+                          children: [
+                            _lignePrix(
+                                '${Strings.t('prix_billet')} × $passagers',
+                                '${prix * passagers} FCFA',
+                                gras: false),
+                            Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Divider(
+                                  height: 1, color: JegoTheme.bordCarte),
+                            ),
+                            _lignePrix(Strings.t('total'), '$total FCFA',
+                                gras: true),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(Icons.arrow_forward_rounded,
-                          color: JegoTheme.surVert, size: 20),
+                      )
+                          .animate(delay: 300.ms)
+                          .fadeIn(duration: 400.ms)
+                          .slideY(begin: 0.1),
                     ],
                   ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 16),
+                  child: BoutonTactile(
+                    onTap: () => _action(context),
+                    child: Container(
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: JegoTheme.vert,
+                        borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+                        boxShadow: JegoTheme.ombreVerte,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _libelleBouton,
+                            style: TextStyle(
+                              color: JegoTheme.surVert,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(Icons.arrow_forward_rounded,
+                              color: JegoTheme.surVert, size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
         ],
       ),
     );
@@ -517,8 +503,7 @@ class EcranDetailTrajet extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.location_on_rounded,
-                size: 12, color: JegoTheme.vert),
+            Icon(Icons.location_on_rounded, size: 12, color: JegoTheme.vert),
             const SizedBox(width: 2),
             Text(
               point,

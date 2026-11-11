@@ -18,6 +18,12 @@ import { addDaysToInput, todayInputDate } from '../lib/date';
 import { apiFetch } from '../lib/api';
 import { formatTelephone } from '../lib/format';
 
+// Mot de confirmation tapé par l'agence. « ARRÊTER » avec accent est
+// ce qu'on tape naturellement : il doit valoir « ARRETER ».
+function motConfirme(texte: string, mot: string) {
+  return texte.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === mot;
+}
+
 type Trajet = {
   id: string;
   numero: string;
@@ -364,13 +370,15 @@ export default function ProgrammationTrajets() {
   }
 
   async function arreterTrajet() {
-    if (!dialogueArret || texteConfirmation.trim().toUpperCase() !== 'ARRETER') return;
+    if (!dialogueArret || !motConfirme(texteConfirmation, 'ARRETER')) return;
     try {
-      await apiFetch(`/api/trajets/${dialogueArret.id}/annuler`, {
+      // Le message du serveur dit qui est remboursé, et combien de
+      // clients du guichet l'agence doit rembourser en espèces.
+      const rep = await apiFetch(`/api/trajets/${dialogueArret.id}/annuler`, {
         method: 'PUT',
       });
       await charger();
-      notifier('Trajet annulé');
+      notifier(rep?.message || 'Trajet annulé');
     } catch (err) {
       setErreur(err instanceof Error ? err.message : 'Erreur');
     } finally {
@@ -397,11 +405,11 @@ export default function ProgrammationTrajets() {
   }
 
   async function supprimerTrajet() {
-    if (!dialogueSuppression || texteSuppression.trim().toUpperCase() !== 'SUPPRIMER') return;
+    if (!dialogueSuppression || !motConfirme(texteSuppression, 'SUPPRIMER')) return;
     try {
-      await apiFetch(`/api/trajets/${dialogueSuppression.id}`, { method: 'DELETE' });
+      const rep = await apiFetch(`/api/trajets/${dialogueSuppression.id}`, { method: 'DELETE' });
       await charger();
-      notifier('Trajet supprimé');
+      notifier(rep?.message || 'Trajet supprimé');
     } catch (err) {
       setErreur(err instanceof Error ? err.message : 'Erreur lors de la suppression');
     } finally {
@@ -540,8 +548,11 @@ export default function ProgrammationTrajets() {
                       </div>
                   <p className={`mt-1 font-mono text-[10px] text-ink-soft ${['annule', 'supprime'].includes(t.statut) || statutAffiche(t) === 'termine' ? 'opacity-60' : ''}`}>{identifiantAffichage(t)}</p>
 
-                  <p className="mt-1.5 text-[11px] text-ink-soft">
-                    <span className="font-semibold text-ink">Chauffeur :</span>{' '}
+                  {/* Chaque information reste d'un seul tenant : sur une carte
+                      étroite, « bus : » ne se retrouve plus seul en fin de
+                      ligne, séparé de son nom. */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
+                    <span className="whitespace-nowrap"><span className="font-semibold text-ink">Chauffeur :</span>{' '}
                     {t.chauffeur && t.chauffeur_id
                       ? (
                         <button
@@ -551,8 +562,8 @@ export default function ProgrammationTrajets() {
                           👤 {t.chauffeur}
                         </button>
                       )
-                      : (t.chauffeur ?? 'non assigné')}
-                    {' / '}<span className="font-semibold text-ink">bus :</span>{' '}
+                      : (t.chauffeur ?? 'non assigné')}</span>
+                    <span className="whitespace-nowrap"><span className="font-semibold text-ink">Bus :</span>{' '}
                     {t.bus_id
                       ? (
                         <button
@@ -562,16 +573,16 @@ export default function ProgrammationTrajets() {
                           🚌 {t.nom_bus}
                         </button>
                       )
-                      : t.nom_bus}
-                    {' / '}<span className="font-semibold text-ink">Prix :</span> {t.prix_base} FCFA
+                      : t.nom_bus}</span>
+                    <span className="whitespace-nowrap"><span className="font-semibold text-ink">Prix :</span> {t.prix_base} FCFA</span>
                     {t.categorie === 'mixte' && t.supplement_premium != null && t.supplement_premium > 0 && (
-                      <>{' / '}<span className="font-semibold text-ink">Premium :</span> +{t.supplement_premium} FCFA</>
+                      <span className="whitespace-nowrap"><span className="font-semibold text-ink">Premium :</span> +{t.supplement_premium} FCFA</span>
                     )}
                     {t.prix_bagage_supplementaire != null && (
-                      <>{' / '}<span className="font-semibold text-ink">Bagage :</span> {t.prix_bagage_supplementaire} FCFA</>
+                      <span className="whitespace-nowrap"><span className="font-semibold text-ink">Bagage :</span> {t.prix_bagage_supplementaire} FCFA</span>
                     )}
-                    {' / '}<span className="font-semibold text-ink">Repas :</span> {t.distribution_nourriture ? 'inclus' : 'non inclus'}
-                  </p>
+                    <span className="whitespace-nowrap"><span className="font-semibold text-ink">Repas :</span> {t.distribution_nourriture ? 'inclus' : 'non inclus'}</span>
+                  </div>
 
                   {t.prix_sections && t.prix_sections.length > 1 && (
                     <p className={`mt-1 text-[11px] text-ink-soft ${['annule', 'supprime'].includes(t.statut) || statutAffiche(t) === 'termine' ? 'opacity-60' : ''}`}>
@@ -633,8 +644,8 @@ export default function ProgrammationTrajets() {
                   )}
                     </div>
 
-                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <div className="flex items-center gap-1.5 justify-end">
+                    <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-[40%]">
+                      <div className="flex flex-wrap items-center gap-1.5 justify-end">
                         <Badge color="grey">{libellesCategorie[t.categorie]}</Badge>
                         {estDeNuit(t.heure_depart) && <Badge color="grey">Nuit</Badge>}
                         {estExpress(t) && <Badge color="grey">Express</Badge>}
@@ -718,11 +729,11 @@ export default function ProgrammationTrajets() {
         <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setDialogueArret(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
             <p className="text-[16px] font-display font-semibold text-ink mb-2">Arrêter le trajet</p>
-            <p className="text-[11px] text-ink-soft mb-2">Pour confirmer, écris <strong>ARRETER</strong> ci-dessous.</p>
+            <p className="text-[11px] text-ink-soft mb-2">Le trajet est annulé. Chaque voyageur est remboursé à 100 % sur son solde JEGO et notifié, le chauffeur aussi. Les billets vendus au guichet se remboursent en espèces. Pour confirmer, écris <strong>ARRETER</strong> ci-dessous.</p>
             <input value={texteConfirmation} onChange={(e) => setTexteConfirmation(e.target.value)} className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => setDialogueArret(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Annuler</button>
-              <button onClick={arreterTrajet} disabled={texteConfirmation.trim().toUpperCase() !== 'ARRETER'} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Confirmer</button>
+              <button onClick={() => setDialogueArret(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Retour</button>
+              <button onClick={arreterTrajet} disabled={!motConfirme(texteConfirmation, 'ARRETER')} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Arrêter le trajet</button>
             </div>
           </div>
         </div>
@@ -749,11 +760,11 @@ export default function ProgrammationTrajets() {
         <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setDialogueSuppression(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
             <p className="text-[16px] font-display font-semibold text-ink mb-2">Supprimer ce trajet ?</p>
-            <p className="text-[11px] text-ink-soft mb-3">Si des billets ont déjà été vendus, chaque voyageur sera remboursé à 100% et notifié automatiquement. Uniquement possible pour un trajet pas encore débuté. Pour confirmer, écris <strong>SUPPRIMER</strong> ci-dessous.</p>
+            <p className="text-[11px] text-ink-soft mb-3">Si des billets ont déjà été vendus, chaque voyageur est remboursé à 100 % sur son solde JEGO et notifié, le chauffeur aussi. Les billets vendus au guichet se remboursent en espèces. Uniquement possible pour un trajet pas encore débuté. Pour confirmer, écris <strong>SUPPRIMER</strong> ci-dessous.</p>
             <input value={texteSuppression} onChange={(e) => setTexteSuppression(e.target.value)} placeholder="SUPPRIMER" className="w-full rounded-lg border border-line bg-off-white px-4 py-2.5 text-[13px] mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => setDialogueSuppression(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Annuler</button>
-              <button onClick={supprimerTrajet} disabled={texteSuppression.trim().toUpperCase() !== 'SUPPRIMER'} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Confirmer</button>
+              <button onClick={() => setDialogueSuppression(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Retour</button>
+              <button onClick={supprimerTrajet} disabled={!motConfirme(texteSuppression, 'SUPPRIMER')} className="flex-1 rounded-lg bg-red disabled:opacity-40 text-white font-semibold text-[11px] py-2.5">Supprimer le trajet</button>
             </div>
           </div>
         </div>

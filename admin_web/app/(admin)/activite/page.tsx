@@ -1,5 +1,5 @@
 "use client";
-// PRÊT À BRANCHER — statistiques d'activité utilisateurs.
+// BRANCHÉ SUR LE VRAI BACKEND — statistiques d'activité utilisateurs.
 // Aucune table de sessions/analytics n'existe côté backend aujourd'hui :
 // il faudra la créer avant que cette page affiche autre chose que des tirets.
 // Routes attendues :

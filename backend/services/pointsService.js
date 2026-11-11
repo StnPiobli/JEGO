@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { lireParametreEntier } = require('./parametreService');
 
 // ═══════════════════════════════════════════════════
 // SERVICE : GESTION DES JEGO POINTS
@@ -61,9 +62,36 @@ async function debiterPoints(voyageurId, points, motif, billetId = null, client 
   );
 }
 
-// Calculer les points gagnés sur un montant payé (10 points / 1000 FCFA)
-function calculerPointsGagnes(montant) {
-  return Math.floor(montant / 1000) * 10;
+// Rendre les points dépensés en réduction sur un billet, quand c'est
+// l'agence qui annule : le voyageur n'y est pour rien. Sans effet si
+// rien n'a été dépensé, ou si les points ont déjà été rendus.
+const MOTIF_POINTS_RENDUS = "Points rendus : trajet annulé par l'agence";
+
+async function rendrePointsDepenses(billetId, client = null) {
+  const executeur = client || pool;
+  const r = await executeur.query(
+    `SELECT voyageur_id, -SUM(points)::int AS depenses
+       FROM jego_points
+      WHERE billet_id = $1 AND type = 'depense'
+      GROUP BY voyageur_id`,
+    [billetId]
+  );
+  for (const { voyageur_id, depenses } of r.rows) {
+    const deja = await executeur.query(
+      `SELECT 1 FROM jego_points WHERE billet_id = $1 AND voyageur_id = $2 AND motif = $3`,
+      [billetId, voyageur_id, MOTIF_POINTS_RENDUS]
+    );
+    if (depenses > 0 && deja.rows.length === 0) {
+      await crediterPoints(voyageur_id, depenses, MOTIF_POINTS_RENDUS, billetId, executeur);
+    }
+  }
 }
 
-module.exports = { crediterPoints, debiterPoints, calculerPointsGagnes, recupererPaliers };
+// Points gagnés sur un montant payé par Mobile Money (10 par 1 000 FCFA
+// par défaut, réglable par l'admin)
+async function calculerPointsGagnes(montant) {
+  const parMille = await lireParametreEntier('points_par_1000_fcfa', 10);
+  return Math.floor(montant / 1000) * parMille;
+}
+
+module.exports = { crediterPoints, debiterPoints, rendrePointsDepenses, calculerPointsGagnes, recupererPaliers };

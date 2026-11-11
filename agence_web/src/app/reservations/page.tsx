@@ -17,6 +17,8 @@ import { formatTelephone } from '../lib/format';
 
 type Passager = {
   id: string;
+  billetId: string;
+  guichet: boolean; // vendu au guichet : seule l'agence peut l'annuler
   nom: string;
   telephone: string;
   email: string;
@@ -63,6 +65,8 @@ export default function Reservations() {
   const [tousLesTrajets, setTousLesTrajets] = useState<TrajetAvecPassagers[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [annulationGuichet, setAnnulationGuichet] = useState<Passager | null>(null);
+  const [messageAnnulation, setMessageAnnulation] = useState<string | null>(null);
 
   // Charge les trajets de l'agence, puis la liste des passagers de
   // chacun. La recherche globale portant sur toutes les dates, on
@@ -91,6 +95,8 @@ export default function Reservations() {
               const segment = `${p.ville_embarquement ?? ''} → ${p.ville_debarquement ?? ''}`;
               return {
                 id: String(p.numero ?? p.id),
+                billetId: String(p.id),
+                guichet: p.source_vente === 'physique',
                 nom: `${p.prenom ?? ''} ${p.nom ?? ''}`.trim(),
                 telephone: String(p.telephone ?? ''),
                 email: String(p.email ?? ''),
@@ -138,6 +144,24 @@ export default function Reservations() {
   }, []);
 
   useEffect(() => { charger(); }, [charger]);
+
+  // Le client du guichet renonce avant le départ : l'agence lui rend
+  // ses espèces, le siège est remis en vente.
+  async function annulerBilletGuichet() {
+    if (!annulationGuichet) return;
+    try {
+      const rep = await apiFetch(`/api/annulations/billets/${annulationGuichet.billetId}/annuler-guichet`, {
+        method: 'PUT',
+        body: JSON.stringify({}),
+      });
+      setMessageAnnulation(rep.message || 'Billet annulé');
+      await charger();
+    } catch (e) {
+      setMessageAnnulation(e instanceof Error ? e.message : 'Erreur');
+    } finally {
+      setAnnulationGuichet(null);
+    }
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -383,12 +407,37 @@ export default function Reservations() {
                         <p className="text-[11px] text-ink-soft mt-1">Options : <strong className="text-ink">{p.optionsSupp && p.optionsSupp.length ? p.optionsSupp.join(', ') : 'Aucune'}</strong></p>
                         <p className="text-[10.5px] text-purple font-semibold mt-0.5">Trajet associé : {p.trajetAssocie}</p>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold shrink-0 ${stylesStatut[p.statut]}`}>{libellesStatut[p.statut]}</span>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${stylesStatut[p.statut]}`}>{libellesStatut[p.statut]}</span>
+                        {p.guichet && p.statut === 'confirme' && !trajetVu.demarre && (
+                          <button onClick={() => setAnnulationGuichet(p)} className="text-[10px] font-semibold text-red underline">Annuler (guichet)</button>
+                        )}
+                      </div>
                       <p className="w-20 text-right text-[12px] font-bold text-ink shrink-0">{p.montantAgence.toLocaleString('fr-FR')} F</p>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {messageAnnulation && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-ink text-white text-[12px] rounded-xl px-4 py-2.5 z-[80] shadow-lg" onClick={() => setMessageAnnulation(null)}>
+          {messageAnnulation}
+        </div>
+      )}
+
+      {annulationGuichet && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-[70]" onClick={() => setAnnulationGuichet(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper rounded-2xl p-7 max-w-md w-full border border-line">
+            <p className="text-[16px] font-display font-semibold text-ink mb-2">Annuler ce billet du guichet</p>
+            <p className="text-[12px] text-ink-soft mb-4">
+              {annulationGuichet.nom} · siège {annulationGuichet.siege} · #{annulationGuichet.id}. Le siège est remis en vente et le client est remboursé en espèces au guichet, par vous.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setAnnulationGuichet(null)} className="flex-1 rounded-lg bg-off-white border border-line text-ink font-semibold text-[11px] py-2.5">Retour</button>
+              <button onClick={annulerBilletGuichet} className="flex-1 rounded-lg bg-red text-white font-semibold text-[11px] py-2.5">Annuler le billet</button>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import 'detail_trajet.dart';
 import '../widgets/selecteur_date.dart';
 import '../config/nature_trajet.dart';
+import '../widgets/style_jego.dart';
 
 class EcranResultatsRecherche extends StatefulWidget {
   final Map<String, String> params;
@@ -232,7 +233,15 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
 
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: SafeArea(
+      body: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 260),
+          ),
+          SafeArea(
         child: Column(
           children: [
             Padding(
@@ -258,6 +267,7 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
                         shape: BoxShape.circle,
                         border: Border.all(
                             color: JegoTheme.bordCarte, width: 1),
+                        boxShadow: JegoTheme.ombreDouce,
                       ),
                       child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
@@ -430,6 +440,8 @@ class _EcranResultatsRechercheState extends State<EcranResultatsRecherche> {
           ],
         ),
       ),
+        ],
+      ),
     );
   }
 
@@ -470,7 +482,8 @@ Future<DateTime?> choisirDateJegoDepuisWidgets(
     context,
     initiale: initiale,
     premiere: DateTime.now(),
-    derniere: DateTime.now().add(const Duration(days: 365)),
+    derniere: DateTime(DateTime.now().year + 5, DateTime.now().month,
+        DateTime.now().day),
   );
 }
 

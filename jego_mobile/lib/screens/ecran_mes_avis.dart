@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// Etat vide honnete : il n'existe aujourd'hui aucun stockage reel des
 /// avis soumis dans "Apres le voyage" (seul un flag "note_envoyee" est
@@ -12,16 +13,9 @@ class EcranMesAvis extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('mes_avis_titre'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: Center(
+    return EcranJego(
+             titre: Strings.t('mes_avis_titre'),
+             corps: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
@@ -51,6 +45,6 @@ class EcranMesAvis extends StatelessWidget {
           ),
         ),
       ),
-    );
+           );
   }
 }

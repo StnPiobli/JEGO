@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// DEMO : le message n'est envoye nulle part reellement -- juste une
 /// confirmation visuelle. Au branchement, appel a une vraie API support
@@ -26,16 +27,9 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('contact_titre'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: _envoye
+    return EcranJego(
+             titre: Strings.t('contact_titre'),
+             corps: _envoye
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
@@ -97,7 +91,7 @@ class _EcranNousContacterState extends State<EcranNousContacter> {
                 ),
               ],
             ),
-    );
+           );
   }
 
   Widget _champ(String label, TextEditingController ctrl, TextInputType type, {int lignes = 1}) {

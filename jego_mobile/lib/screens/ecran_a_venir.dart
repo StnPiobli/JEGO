@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
+import '../widgets/style_jego.dart';
 
 /// Ecran generique "bientot disponible", utilise pour les liens du profil
 /// qui n'ont pas encore d'ecran reel derriere (Favoris, Avis, Aide, Moyens
@@ -11,19 +12,9 @@ class EcranAVenir extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(
-          titre,
-          style: TextStyle(
-              color: JegoTheme.texte, fontWeight: FontWeight.w800),
-        ),
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-      ),
-      body: Center(
+    return EcranJego(
+             titre: titre,
+             corps: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -48,6 +39,6 @@ class EcranAVenir extends StatelessWidget {
           ],
         ),
       ),
-    );
+           );
   }
 }

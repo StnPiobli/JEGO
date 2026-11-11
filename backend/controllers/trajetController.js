@@ -45,15 +45,29 @@ async function creerTrajet(req, res) {
     const categorieValide = busCheck.rows[0].type_bus;
     const bagageSupp = prix_bagage_supplementaire !== undefined ? Number(prix_bagage_supplementaire) : 1000;
 
-    const resultat = await pool.query(
+    // Le numéro public du trajet EST l'identifiant de voyage lisible
+    // « TRA-AAMMJJ-HHMM-XXXX » (date + heure de départ + 4 car. de l'UUID),
+    // stocké une bonne fois (source de vérité unique). On insère (le DEFAULT
+    // pose un TRJ- transitoire), puis on le remplace par le vrai numéro.
+    const insere = await pool.query(
       `INSERT INTO trajets
         (agence_id, ligne_id, bus_id, date_depart, heure_depart,
          heure_arrivee_estimee, heure_arrivee_initiale, prix_base, categorie,
          prix_bagage_supplementaire, distribution_nourriture, statut)
        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, 'programme')
-       RETURNING id, date_depart, heure_depart, heure_arrivee_estimee, prix_base, categorie, prix_bagage_supplementaire, distribution_nourriture, statut`,
+       RETURNING id`,
       [agenceId, ligne_id, bus_id, date_depart, heure_depart,
        heure_arrivee_estimee || null, prix_base, categorieValide, bagageSupp, distribution_nourriture === true]
+    );
+
+    const resultat = await pool.query(
+      `UPDATE trajets
+          SET numero = 'TRA-' || to_char(date_depart, 'YYMMDD') || '-' ||
+                       to_char(heure_depart, 'HH24MI') || '-' ||
+                       UPPER(SUBSTRING(id::text, 1, 4))
+        WHERE id = $1
+       RETURNING id, numero, date_depart, heure_depart, heure_arrivee_estimee, prix_base, categorie, prix_bagage_supplementaire, distribution_nourriture, statut`,
+      [insere.rows[0].id]
     );
 
     res.status(201).json({
@@ -96,7 +110,15 @@ async function listerTrajets(req, res) {
               -- Signalements des voyageurs sur ce trajet : qui, quoi,
               -- quand, et si le seuil collectif est atteint. C'est ce
               -- que l'agence voit dans « informations du trajet ».
-              COALESCE(sig.liste, '[]'::json) AS signalements
+              COALESCE(sig.liste, '[]'::json) AS signalements,
+              -- Litiges ouverts sur ce trajet : une fausse arrivee au
+              -- seuil en ouvre un automatiquement.
+              COALESCE(lit.nombre, 0) AS nb_litiges,
+              -- Note du trajet et nombre d'avis : l'agence voit d'un
+              -- coup d'oeil comment le voyage a ete juge.
+              COALESCE(avisTrajet.nombre, 0) AS nb_avis,
+              COALESCE(avisTrajet.commentaires, 0) AS nb_commentaires,
+              avisTrajet.moyenne AS note_moyenne
        FROM trajets t
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
@@ -128,6 +150,16 @@ async function listerTrajets(req, res) {
          JOIN villes va2 ON va2.code = lpa.ville
          WHERE ltp.ligne_id = t.ligne_id
        ) AS prixSections ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS nombre FROM litiges lt WHERE lt.trajet_id = t.id
+       ) AS lit ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS nombre,
+                ROUND(AVG(av.note_globale)::numeric, 1) AS moyenne,
+                COUNT(*) FILTER (WHERE av.commentaire IS NOT NULL AND av.commentaire <> '')::int AS commentaires
+           FROM avis av
+          WHERE av.trajet_id = t.id AND av.statut <> 'supprime'
+       ) AS avisTrajet ON true
        LEFT JOIN LATERAL (
          SELECT JSON_AGG(JSON_BUILD_OBJECT(
                   'passager', v4.prenom || ' ' || v4.nom,
@@ -353,11 +385,11 @@ async function annulerTrajet(req, res) {
   try {
     const agenceId = req.utilisateur.id;
     const trajetId = req.params.id;
-    const { motif } = req.body;
+    // Le motif d'annulation etait exige puis simplement renvoye dans la
+    // reponse : il n'etait ni stocke, ni transmis a personne. Champ
+    // retire cote agence, exigence retiree ici.
 
-    if (!motif || motif.trim().length === 0) {
-      return res.status(400).json({ error: 'Le motif d\'annulation est obligatoire' });
-    }
+
 
     await client.query('BEGIN');
 
@@ -397,7 +429,6 @@ async function annulerTrajet(req, res) {
 
     res.json({
       message: 'Trajet annulé. Tous les voyageurs seront remboursés à 100%.',
-      motif: motif,
       billets_rembourses: nombre,
       total_rembourse: total
     });
@@ -488,7 +519,7 @@ async function passagersTrajet(req, res) {
 
     const trajet = await pool.query(
       `SELECT t.id, t.date_depart, t.heure_depart, t.statut,
-              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' || to_char(t.heure_depart, 'HH24MI') || '-' || UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero,
+              t.numero,
               vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
               b.nom AS nom_bus,
               (SELECT COUNT(*) FROM sieges s WHERE s.bus_id = b.id AND s.statut = 'disponible') AS capacite

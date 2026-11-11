@@ -3,7 +3,7 @@ const router = express.Router();
 const { inscription, connexion, connexionGoogle, mesNotifications,
   monPortefeuille,
   recupererBillet,
-  deconnexion, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil, historiqueVoyages } = require('../controllers/voyageurController');
+  deconnexion, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil, changerMotDePasse, historiqueVoyages } = require('../controllers/voyageurController');
 const { authentifier } = require('../middleware/auth');
 
 router.post('/inscription', inscription);
@@ -16,6 +16,9 @@ router.post('/mot-de-passe/demande', demanderReinitialisation);
 router.post('/mot-de-passe/reinitialiser', reinitialiserMotDePasse);
 router.get('/profil', authentifier, monProfil);
 router.put('/profil', authentifier, modifierProfil);
+// Changement de mot de passe par une personne deja connectee :
+// l'ancien mot de passe est verifie cote serveur.
+router.put('/mot-de-passe', authentifier, changerMotDePasse);
 router.get('/historique', authentifier, historiqueVoyages);
 
 // Notifications du voyageur : lecture, marquage comme lues, suppression.

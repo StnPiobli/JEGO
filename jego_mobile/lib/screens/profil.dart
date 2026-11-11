@@ -5,7 +5,10 @@ import '../config/format_date.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
+import '../config/api_service.dart';
 import '../widgets/champ_telephone.dart';
+import '../widgets/drapeau_jego.dart';
 import '../config/wallet_store.dart';
 import 'connexion_inscription.dart';
 import 'ecran_a_venir.dart';
@@ -63,21 +66,15 @@ class EcranProfil extends StatelessWidget {
 // NON CONNECTE
 // ---------------------------------------------------------------------------
 class _ProfilNonConnecte extends StatelessWidget {
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 100),
       child: Column(
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              Strings.t('profil_titre'),
-              style: TextStyle(
-                  color: JegoTheme.texte,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800),
-            ),
+          EnteteJego(
+            titre: Strings.t('profil_titre'),
           ),
           const Spacer(),
           Container(
@@ -987,9 +984,19 @@ class _VagueClipperProfil extends CustomClipper<Path> {
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 // ---------------------------------------------------------------------------
-// FEUILLE D'EDITION : champs pre-remplis, chacun avec son stylo,
-// telephone avec indicatif, mot de passe (nouveau + confirmation robuste),
-// aucun champ obligatoire, confirmation a la fin.
+// FEUILLE D'EDITION DU PROFIL
+//
+// Tout est modifiable d'emblee : l'ancienne version ouvrait un champ a
+// la fois derriere un stylo, et cocher ce stylo ressemblait a « valider
+// ce champ » alors que rien n'etait enregistre.
+//
+// L'enregistrement passe par le serveur (PUT /api/voyageurs/profil).
+// Auparavant la feuille ecrivait dans `Session` et se refermait : la
+// modification ne partait pas, et ne survivait meme pas au redemarrage.
+//
+// Le mot de passe a sa propre route, qui verifie l'ancien mot de passe
+// cote serveur. Le controle se faisait ici, contre un champ jamais
+// renseigne a la connexion — il ne s'executait donc jamais.
 // ---------------------------------------------------------------------------
 class _FeuilleEditInfos extends StatefulWidget {
   const _FeuilleEditInfos();
@@ -1006,143 +1013,218 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
   late final TextEditingController _email =
       TextEditingController(text: Session.email ?? '');
 
+  // Le pays vient du numero stocke : un numero francais ouvrait la
+  // fiche avec le drapeau camerounais et le mauvais indicatif.
+  Pays _pays = PaysTelephone.separer(Session.telephone ?? '').$1;
+  late final TextEditingController _tel = TextEditingController(
+      text: PaysTelephone.grouper(
+          PaysTelephone.separer(Session.telephone ?? '').$2));
+
   final TextEditingController _ancienMdp = TextEditingController();
   final TextEditingController _mdp = TextEditingController();
   final TextEditingController _mdpConfirme = TextEditingController();
 
-  Pays _pays = PaysTelephone.cameroun;
-  late final TextEditingController _tel =
-      TextEditingController(text: Session.telephone ?? '');
+  bool _sectionMdp = false;
+  bool _envoi = false;
 
-  String? _champActif;
-  String? _erreurMdp;
+  /// `null` tant que le serveur n'a pas repondu. On n'affiche alors ni
+  /// le bouton ni la note : mieux vaut ne rien montrer une fraction de
+  /// seconde que proposer un changement impossible, ou l'inverse.
+  bool? _aMotDePasse;
+
+  /// Erreurs posees sous le champ concerne. Le serveur sait des choses
+  /// que l'application ignore (email deja pris, nom change il y a moins
+  /// de six mois) : ses refus doivent atterrir au bon endroit, pas dans
+  /// un message general que personne ne relie a son champ.
+  final Map<String, String> _erreurs = {};
+  String? _erreurGenerale;
+
+  @override
+  void initState() {
+    super.initState();
+    // Le bouton d'enregistrement s'active des qu'une valeur bouge.
+    for (final c in [_prenom, _nom, _email, _tel, _ancienMdp, _mdp,
+        _mdpConfirme]) {
+      c.addListener(_surSaisie);
+    }
+    _lireProfil();
+  }
+
+  /// Demande au serveur si ce compte possede un mot de passe. En cas
+  /// d'echec on suppose que oui : le serveur refusera proprement, ce qui
+  /// vaut mieux que priver quelqu'un de la fonction sur un incident
+  /// reseau.
+  Future<void> _lireProfil() async {
+    try {
+      final v = await ApiService.monProfil();
+      if (!mounted) return;
+      setState(() => _aMotDePasse = v['a_mot_de_passe'] != false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _aMotDePasse = true);
+    }
+  }
+
+  void _surSaisie() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
-    _prenom.dispose();
-    _nom.dispose();
-    _email.dispose();
-    _ancienMdp.dispose();
-    _mdp.dispose();
-    _mdpConfirme.dispose();
-    _tel.dispose();
+    for (final c in [_prenom, _nom, _email, _tel, _ancienMdp, _mdp,
+        _mdpConfirme]) {
+      c.removeListener(_surSaisie);
+      c.dispose();
+    }
     super.dispose();
   }
 
-  bool _mdpRobuste(String m) {
-    if (m.length < 8) return false;
-    final aLettre = RegExp(r'[A-Za-z]').hasMatch(m);
-    final aChiffre = RegExp(r'\d').hasMatch(m);
-    return aLettre && aChiffre;
-  }
+  // ── Etat de la saisie ────────────────────────────────────────────
 
-  void _confirmerEtEnregistrer() {
-    final veutChangerMdp = _ancienMdp.text.isNotEmpty ||
-        _mdp.text.isNotEmpty ||
-        _mdpConfirme.text.isNotEmpty;
-    if (veutChangerMdp) {
+  String get _telCanonique => PaysTelephone.composer(_pays, _tel.text);
+
+  bool get _infosModifiees =>
+      _prenom.text.trim() != (Session.prenom ?? '') ||
+      _nom.text.trim() != (Session.nom ?? '') ||
+      _email.text.trim() != (Session.email ?? '') ||
+      _telCanonique != (Session.telephone ?? '');
+
+  bool get _mdpRempli =>
+      _ancienMdp.text.isNotEmpty ||
+      _mdp.text.isNotEmpty ||
+      _mdpConfirme.text.isNotEmpty;
+
+  bool get _peutEnregistrer =>
+      !_envoi && (_infosModifiees || _mdpRempli);
+
+  // ── Verifications faites sur l'appareil ──────────────────────────
+  //
+  // Elles evitent un aller-retour reseau pour des fautes evidentes.
+  // Elles ne remplacent pas le serveur : unicite, anciennete du dernier
+  // changement de nom et mot de passe actuel restent de son ressort.
+
+  bool _verifier() {
+    _erreurs.clear();
+    _erreurGenerale = null;
+
+    if (_prenom.text.trim().isEmpty) {
+      _erreurs['prenom'] = Strings.t('profil_champ_vide');
+    }
+    if (_nom.text.trim().isEmpty) {
+      _erreurs['nom'] = Strings.t('profil_champ_vide');
+    }
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      _erreurs['email'] = Strings.t('profil_champ_vide');
+    } else if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      _erreurs['email'] = Strings.t('profil_email_invalide');
+    }
+    if (!PaysTelephone.valide(_pays, _tel.text)) {
+      _erreurs['tel'] = Strings.t('profil_tel_invalide');
+    }
+
+    if (_mdpRempli) {
       if (_ancienMdp.text.isEmpty) {
-        setState(() => _erreurMdp = Strings.t('mdp_ancien_requis'));
-        return;
-      }
-      if (Session.motDePasse.isNotEmpty &&
-          _ancienMdp.text != Session.motDePasse) {
-        setState(() => _erreurMdp = Strings.t('mdp_ancien_faux'));
-        return;
+        _erreurs['ancien_mdp'] = Strings.t('mdp_ancien_requis');
       }
       if (!_mdpRobuste(_mdp.text)) {
-        setState(() => _erreurMdp = Strings.t('mdp_faible'));
-        return;
+        _erreurs['mdp'] = Strings.t('mdp_faible');
       }
       if (_mdp.text != _mdpConfirme.text) {
-        setState(() => _erreurMdp = Strings.t('mdp_non_identique'));
-        return;
+        _erreurs['mdp_confirme'] = Strings.t('mdp_non_identique');
       }
     }
 
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(JegoTheme.rMoyen)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.help_outline_rounded,
-                  color: JegoTheme.vert, size: 30),
-              const SizedBox(height: 10),
-              Text(Strings.t('profil_confirmer_titre'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 15.5, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: BoutonTactile(
-                      onTap: () => Navigator.of(ctx).pop(),
-                      child: Container(
-                        height: 46,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: JegoTheme.champ,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
-                        ),
-                        child: Text(Strings.t('annuler'),
-                            style: TextStyle(
-                                color: JegoTheme.texte,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: BoutonTactile(
-                      onTap: () {
-                        if (_prenom.text.trim().isNotEmpty) {
-                          Session.prenom = _prenom.text.trim();
-                        }
-                        if (_nom.text.trim().isNotEmpty) {
-                          Session.nom = _nom.text.trim();
-                        }
-                        if (_tel.text.trim().isNotEmpty) {
-                          Session.telephone = _tel.text.trim();
-                        }
-                        if (_email.text.trim().isNotEmpty) {
-                          Session.email = _email.text.trim();
-                        }
-                        if (_mdp.text.isNotEmpty) {
-                          Session.motDePasse = _mdp.text;
-                        }
-                        Navigator.of(ctx).pop();
-                        Navigator.of(context).pop(true);
-                      },
-                      child: Container(
-                        height: 46,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: JegoTheme.vert,
-                          borderRadius:
-                              BorderRadius.circular(JegoTheme.rPetit),
-                        ),
-                        child: Text(Strings.t('appliquer'),
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    setState(() {});
+    return _erreurs.isEmpty;
   }
+
+  bool _mdpRobuste(String m) =>
+      m.length >= 8 &&
+      RegExp(r'[A-Za-z]').hasMatch(m) &&
+      RegExp(r'\d').hasMatch(m);
+
+  /// Range un refus du serveur sous le champ qu'il concerne.
+  void _placerErreurServeur(String message) {
+    final m = message.toLowerCase();
+    if (m.contains('email')) {
+      _erreurs['email'] = message;
+    } else if (m.contains('numéro') || m.contains('numero')) {
+      _erreurs['tel'] = message;
+    } else if (m.contains('nom')) {
+      _erreurs['nom'] = message;
+    } else {
+      _erreurGenerale = message;
+    }
+  }
+
+  // ── Enregistrement ───────────────────────────────────────────────
+
+  Future<void> _enregistrer() async {
+    if (!_verifier()) return;
+    setState(() => _envoi = true);
+
+    try {
+      if (_infosModifiees) {
+        // On n'envoie que ce qui a change : le serveur limite le
+        // changement de nom a une fois par semestre, reexpedier un nom
+        // identique n'a pas a declencher ce refus.
+        final champs = <String, dynamic>{};
+        if (_prenom.text.trim() != (Session.prenom ?? '')) {
+          champs['prenom'] = _prenom.text.trim();
+        }
+        if (_nom.text.trim() != (Session.nom ?? '')) {
+          champs['nom'] = _nom.text.trim();
+        }
+        if (_email.text.trim() != (Session.email ?? '')) {
+          champs['email'] = _email.text.trim();
+        }
+        if (_telCanonique != (Session.telephone ?? '')) {
+          champs['telephone'] = _telCanonique;
+        }
+
+        final v = await ApiService.modifierProfil(champs);
+        // Le serveur renvoie le profil retenu : c'est lui qui fait foi,
+        // pas ce que l'on croit avoir envoye.
+        Session.majProfil(
+          pNom: '${v['nom'] ?? Session.nom ?? ''}',
+          pPrenom: '${v['prenom'] ?? Session.prenom ?? ''}',
+          pEmail: '${v['email'] ?? Session.email ?? ''}',
+          pTelephone: '${v['telephone'] ?? Session.telephone ?? ''}',
+        );
+      }
+
+      if (_mdpRempli) {
+        await ApiService.changerMotDePasse(
+          ancien: _ancienMdp.text,
+          nouveau: _mdp.text,
+        );
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ErreurApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _envoi = false;
+        // Un refus sur le mot de passe ne doit pas se ranger sous le
+        // champ « nom » au pretexte que le message contient ce mot.
+        if (_mdpRempli && e.message.toLowerCase().contains('mot de passe')) {
+          _erreurs['ancien_mdp'] = e.message;
+        } else {
+          _placerErreurServeur(e.message);
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _envoi = false;
+        _erreurGenerale = Strings.t('erreur_reseau');
+      });
+    }
+  }
+
+  // ── Rendu ────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -1155,84 +1237,79 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: JegoTheme.bordCarte,
-                    borderRadius: BorderRadius.circular(2),
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: JegoTheme.bordCarte,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   Strings.t('profil_modifier_titre'),
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                       color: JegoTheme.texte,
                       fontSize: 16,
                       fontWeight: FontWeight.w800),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  Strings.t('profil_sous_titre'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: JegoTheme.texteSecondaire,
+                      fontSize: 12,
+                      height: 1.35),
+                ),
                 const SizedBox(height: 16),
-                _champEditable(
+
+                if (_erreurGenerale != null) ...[
+                  _bandeauErreur(_erreurGenerale!),
+                  const SizedBox(height: 12),
+                ],
+
+                _champ(
                   cle: 'prenom',
                   ctrl: _prenom,
                   libelle: Strings.t('champ_prenom'),
                   icone: Icons.badge_rounded,
+                  capitalisation: TextCapitalization.words,
                 ),
                 const SizedBox(height: 10),
-                _champEditable(
+                _champ(
                   cle: 'nom',
                   ctrl: _nom,
                   libelle: Strings.t('champ_nom'),
                   icone: Icons.person_rounded,
+                  capitalisation: TextCapitalization.words,
                 ),
+                // La regle des six mois est annoncee ici, pas
+                // decouverte au refus du serveur : la personne peut
+                // encore renoncer avant d'y toucher.
+                const SizedBox(height: 8),
+                _note(Strings.t('profil_regle_nom')),
                 const SizedBox(height: 10),
                 _champTelephone(),
                 const SizedBox(height: 10),
-                _champEditable(
+                _champ(
                   cle: 'email',
                   ctrl: _email,
                   libelle: Strings.t('champ_email'),
                   icone: Icons.mail_rounded,
                   clavier: TextInputType.emailAddress,
                 ),
-                const SizedBox(height: 10),
-                _champMotDePasse(),
-                if (_erreurMdp != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _erreurMdp!,
-                        style: TextStyle(
-                            color: JegoTheme.danger,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
+
                 const SizedBox(height: 18),
-                BoutonTactile(
-                  onTap: _confirmerEtEnregistrer,
-                  child: Container(
-                    width: double.infinity,
-                    height: 52,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: JegoTheme.vert,
-                      borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
-                      boxShadow: JegoTheme.ombreVerte,
-                    ),
-                    child: Text(
-                      Strings.t('profil_appliquer'),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ),
+                _sectionMotDePasse(),
+
+                const SizedBox(height: 20),
+                _boutonEnregistrer(),
               ],
             ),
           ),
@@ -1241,241 +1318,358 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
     );
   }
 
-  Widget _champEditable({
+  Widget _bandeauErreur(String texte) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: JegoTheme.danger.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+        border: Border.all(color: JegoTheme.danger.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline_rounded,
+              size: 17, color: JegoTheme.danger),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              texte,
+              style: TextStyle(
+                  color: JegoTheme.danger,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Note explicative sous un groupe de champs.
+  Widget _note(String texte) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline_rounded,
+            size: 14, color: JegoTheme.texteTernaire),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            texte,
+            style: TextStyle(
+                color: JegoTheme.texteTernaire,
+                fontSize: 11.5,
+                height: 1.35,
+                fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sousErreur(String? texte) {
+    if (texte == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 5, left: 6),
+      child: Text(
+        texte,
+        style: TextStyle(
+            color: JegoTheme.danger,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  /// Cadre commun a tous les champs. Le filet devient rouge quand le
+  /// champ porte une erreur : la couleur dit lequel avant meme de lire.
+  BoxDecoration _cadre(String cle) {
+    final enErreur = _erreurs[cle] != null;
+    return BoxDecoration(
+      color: JegoTheme.champ,
+      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+      border: Border.all(
+        color: enErreur
+            ? JegoTheme.danger.withOpacity(0.55)
+            : JegoTheme.bordCarte,
+        width: 1,
+      ),
+    );
+  }
+
+  Widget _champ({
     required String cle,
     required TextEditingController ctrl,
     required String libelle,
     required IconData icone,
     TextInputType clavier = TextInputType.text,
+    TextCapitalization capitalisation = TextCapitalization.none,
   }) {
-    final actif = _champActif == cle;
-    return Container(
-      decoration: BoxDecoration(
-        color: JegoTheme.champ,
-        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-        border: actif
-            ? Border.all(color: JegoTheme.vert.withOpacity(0.5), width: 1)
-            : null,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Icon(icone, size: 18, color: JegoTheme.vert),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: ctrl,
-              enabled: actif,
-              keyboardType: clavier,
-              style: TextStyle(
-                color: actif ? JegoTheme.texte : JegoTheme.texteSecondaire,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: _cadre(cle),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(icone, size: 18, color: JegoTheme.vert),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: ctrl,
+                  keyboardType: clavier,
+                  textCapitalization: capitalisation,
+                  enabled: !_envoi,
+                  style: TextStyle(
+                      color: JegoTheme.texte,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
+                  cursorColor: JegoTheme.vert,
+                  decoration: InputDecoration(
+                    labelText: libelle,
+                    labelStyle: TextStyle(
+                        color: JegoTheme.texteTernaire, fontSize: 12.5),
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
               ),
-              cursorColor: JegoTheme.vert,
-              decoration: InputDecoration(
-                labelText: libelle,
-                labelStyle: TextStyle(
-                    color: JegoTheme.texteTernaire, fontSize: 12.5),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-            ),
+            ],
           ),
-          BoutonTactile(
-            onTap: () {
-              setState(() {
-                _champActif = actif ? null : cle;
-                _erreurMdp = null;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                actif ? Icons.check_rounded : Icons.edit_rounded,
-                size: 17,
-                color: JegoTheme.vert,
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+        _sousErreur(_erreurs[cle]),
+      ],
     );
   }
 
   Widget _champTelephone() {
-    final actif = _champActif == 'tel';
-    return Container(
-      decoration: BoxDecoration(
-        color: JegoTheme.champ,
-        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-        border: actif
-            ? Border.all(color: JegoTheme.vert.withOpacity(0.5), width: 1)
-            : null,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Icon(Icons.phone_rounded, size: 18, color: JegoTheme.vert),
-          const SizedBox(width: 10),
-          BoutonTactile(
-            onTap: actif ? _choisirIndicatif : null,
-            child: Row(
-              children: [
-                Text(_pays.drapeau, style: const TextStyle(fontSize: 16)),
-                const SizedBox(width: 4),
-                Text(
-                  _pays.indicatif,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: _cadre('tel'),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(Icons.phone_rounded, size: 18, color: JegoTheme.vert),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _tel,
+                  keyboardType: TextInputType.phone,
+                  enabled: !_envoi,
+                  inputFormatters: [FormateurTelephone(_pays.longueur)],
                   style: TextStyle(
-                    color: actif
-                        ? JegoTheme.texte
-                        : JegoTheme.texteSecondaire,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                      color: JegoTheme.texte,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
+                  cursorColor: JegoTheme.vert,
+                  decoration: InputDecoration(
+                    labelText: Strings.t('champ_telephone'),
+                    labelStyle: TextStyle(
+                        color: JegoTheme.texteTernaire, fontSize: 12.5),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    // Le libelle reste en haut, sinon le prefixe ne
+                    // s'affiche qu'une fois le champ actif.
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    // Drapeau et indicatif en `prefix` : Material les pose
+                    // sur la ligne de texte. Places a cote du champ, ils
+                    // se centraient sur toute sa hauteur, libelle compris,
+                    // et surmontaient le numero d'un demi-cran.
+                    prefix: BoutonTactile(
+                      onTap: _envoi ? null : _choisirIndicatif,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            DrapeauJego(_pays.code, largeur: 22),
+                            const SizedBox(width: 6),
+                            Text(
+                              _pays.indicatif,
+                              style: TextStyle(
+                                  color: JegoTheme.texte,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: _tel,
-              enabled: actif,
-              keyboardType: TextInputType.phone,
-              style: TextStyle(
-                color: actif ? JegoTheme.texte : JegoTheme.texteSecondaire,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
               ),
-              cursorColor: JegoTheme.vert,
-              decoration: InputDecoration(
-                labelText: Strings.t('champ_telephone'),
-                labelStyle: TextStyle(
-                    color: JegoTheme.texteTernaire, fontSize: 12.5),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-            ),
-          ),
-          BoutonTactile(
-            onTap: () {
-              setState(() {
-                _champActif = actif ? null : 'tel';
-                _erreurMdp = null;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                actif ? Icons.check_rounded : Icons.edit_rounded,
-                size: 17,
-                color: JegoTheme.vert,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _choisirIndicatif() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: JegoTheme.fondCarte,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: PaysTelephone.liste.map((p) {
-                final actif = p.indicatif == _pays.indicatif;
-                return BoutonTactile(
-                  onTap: () {
-                    setState(() => _pays = p);
-                    Navigator.of(ctx).pop();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: actif
-                          ? JegoTheme.vert.withOpacity(0.1)
-                          : JegoTheme.champ,
-                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(p.drapeau,
-                            style: const TextStyle(fontSize: 18)),
-                        const SizedBox(width: 10),
-                        Text(p.nom,
-                            style: TextStyle(
-                                color: actif
-                                    ? JegoTheme.vert
-                                    : JegoTheme.texte,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        Text(p.indicatif,
-                            style: TextStyle(
-                                color: JegoTheme.texteSecondaire,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
+            ],
           ),
         ),
-      ),
+        _sousErreur(_erreurs['tel']),
+      ],
     );
   }
 
-  Widget _boiteMdp(TextEditingController ctrl, String label, IconData icone) {
-    return Container(
-      decoration: BoxDecoration(
-        color: JegoTheme.champ,
-        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Icon(icone, size: 18, color: JegoTheme.vert),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: ctrl,
-              obscureText: true,
-              onChanged: (_) {
-                setState(() {
-                  if (_erreurMdp != null) _erreurMdp = null;
-                });
-              },
-              style: TextStyle(
-                  color: JegoTheme.texte,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600),
-              cursorColor: JegoTheme.vert,
-              decoration: InputDecoration(
-                labelText: label,
-                labelStyle: TextStyle(
-                    color: JegoTheme.texteTernaire, fontSize: 12.5),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+  Widget _sectionMotDePasse() {
+    // Reponse pas encore arrivee.
+    if (_aMotDePasse == null) return const SizedBox.shrink();
+
+    // Compte Google : on l'explique au lieu d'offrir un bouton qui ne
+    // pourrait que echouer.
+    if (_aMotDePasse == false) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+        decoration: BoxDecoration(
+          color: JegoTheme.champ,
+          borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+          border: Border.all(color: JegoTheme.bordCarte, width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.verified_user_outlined,
+                size: 18, color: JegoTheme.texteTernaire),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                Strings.t('profil_compte_google'),
+                style: TextStyle(
+                    color: JegoTheme.texteSecondaire,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600),
               ),
             ),
+          ],
+        ),
+      );
+    }
+
+    if (!_sectionMdp) {
+      return BoutonTactile(
+        onTap: () => setState(() => _sectionMdp = true),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            color: JegoTheme.champ,
+            borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+            border: Border.all(color: JegoTheme.bordCarte, width: 1),
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              Icon(Icons.lock_rounded, size: 18, color: JegoTheme.vert),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  Strings.t('profil_changer_mdp'),
+                  style: TextStyle(
+                      color: JegoTheme.texte,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  size: 20, color: JegoTheme.texteTernaire),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final m = _mdp.text;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.lock_rounded, size: 17, color: JegoTheme.vert),
+            const SizedBox(width: 8),
+            Text(
+              Strings.t('profil_mot_de_passe'),
+              style: TextStyle(
+                  color: JegoTheme.texte,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800),
+            ),
+            const Spacer(),
+            BoutonTactile(
+              onTap: () => setState(() {
+                _sectionMdp = false;
+                _ancienMdp.clear();
+                _mdp.clear();
+                _mdpConfirme.clear();
+                _erreurs.remove('ancien_mdp');
+                _erreurs.remove('mdp');
+                _erreurs.remove('mdp_confirme');
+              }),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Text(
+                  Strings.t('annuler'),
+                  style: TextStyle(
+                      color: JegoTheme.texteSecondaire,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _champMdp('ancien_mdp', _ancienMdp, Strings.t('profil_ancien_mdp'),
+            Icons.lock_clock_rounded),
+        const SizedBox(height: 10),
+        _champMdp('mdp', _mdp, Strings.t('profil_nouveau_mdp'),
+            Icons.lock_rounded),
+        const SizedBox(height: 10),
+        _champMdp('mdp_confirme', _mdpConfirme, Strings.t('mdp_confirmer'),
+            Icons.lock_outline_rounded),
+        const SizedBox(height: 10),
+        _regleMdp(Strings.t('mdp_regle_longueur'), m.length >= 8),
+        _regleMdp(Strings.t('mdp_regle_lettre'),
+            RegExp(r'[A-Za-z]').hasMatch(m)),
+        _regleMdp(Strings.t('mdp_regle_chiffre'), RegExp(r'\d').hasMatch(m)),
+        _regleMdp(Strings.t('mdp_regle_identique'),
+            m.isNotEmpty && m == _mdpConfirme.text),
+      ],
+    );
+  }
+
+  Widget _champMdp(String cle, TextEditingController ctrl, String libelle,
+      IconData icone) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: _cadre(cle),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(icone, size: 18, color: JegoTheme.vert),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: ctrl,
+                  obscureText: true,
+                  enabled: !_envoi,
+                  style: TextStyle(
+                      color: JegoTheme.texte,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
+                  cursorColor: JegoTheme.vert,
+                  decoration: InputDecoration(
+                    labelText: libelle,
+                    labelStyle: TextStyle(
+                        color: JegoTheme.texteTernaire, fontSize: 12.5),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _sousErreur(_erreurs[cle]),
+      ],
     );
   }
 
@@ -1503,91 +1697,134 @@ class _FeuilleEditInfosState extends State<_FeuilleEditInfos> {
     );
   }
 
-  Widget _champMotDePasse() {
-    final actif = _champActif == 'mdp';
-    final m = _mdp.text;
-    final okLongueur = m.length >= 8;
-    final okLettre = RegExp(r'[A-Za-z]').hasMatch(m);
-    final okChiffre = RegExp(r'\d').hasMatch(m);
-    final okIdentique =
-        m.isNotEmpty && _mdp.text == _mdpConfirme.text;
-
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: JegoTheme.champ,
-            borderRadius: BorderRadius.circular(JegoTheme.rPetit),
-            border: actif
-                ? Border.all(color: JegoTheme.vert.withOpacity(0.5), width: 1)
-                : null,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Icon(Icons.lock_rounded,
-                  size: 18, color: JegoTheme.vert),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Text(
-                    actif
-                        ? Strings.t('profil_mot_de_passe')
-                        : '${Strings.t('profil_mot_de_passe')} : \u2022\u2022\u2022\u2022\u2022\u2022',
-                    style: TextStyle(
-                        color: actif
-                            ? JegoTheme.texte
-                            : JegoTheme.texteSecondaire,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-              BoutonTactile(
-                onTap: () {
-                  setState(() {
-                    _champActif = actif ? null : 'mdp';
-                    _erreurMdp = null;
-                  });
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(
-                    actif ? Icons.check_rounded : Icons.edit_rounded,
-                    size: 17,
-                    color: JegoTheme.vert,
-                  ),
-                ),
-              ),
-            ],
-          ),
+  /// Le bouton dit ce qui va se passer : gris tant que rien n'a bouge,
+  /// vert des qu'il y a quelque chose a enregistrer. L'ancienne version
+  /// restait toujours active et ouvrait une confirmation, meme quand
+  /// elle n'avait rien a enregistrer.
+  Widget _boutonEnregistrer() {
+    final actif = _peutEnregistrer;
+    return BoutonTactile(
+      onTap: actif ? _enregistrer : null,
+      child: Container(
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: actif ? JegoTheme.vert : JegoTheme.champ,
+          borderRadius: BorderRadius.circular(JegoTheme.rMoyen),
+          boxShadow: actif ? JegoTheme.ombreVerte : null,
         ),
-        if (actif) ...[
-          const SizedBox(height: 10),
-          _boiteMdp(_ancienMdp, Strings.t('profil_ancien_mdp'),
-              Icons.lock_clock_rounded),
-          const SizedBox(height: 10),
-          _boiteMdp(_mdp, Strings.t('profil_nouveau_mdp'),
-              Icons.lock_rounded),
-          const SizedBox(height: 10),
-          _boiteMdp(_mdpConfirme, Strings.t('mdp_confirmer'),
-              Icons.lock_outline_rounded),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _regleMdp(Strings.t('mdp_regle_longueur'), okLongueur),
-                _regleMdp(Strings.t('mdp_regle_lettre'), okLettre),
-                _regleMdp(Strings.t('mdp_regle_chiffre'), okChiffre),
-                _regleMdp(Strings.t('mdp_regle_identique'), okIdentique),
-              ],
+        child: _envoi
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    Strings.t('profil_enregistrement'),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800),
+                  ),
+                ],
+              )
+            : Text(
+                actif
+                    ? Strings.t('profil_enregistrer')
+                    : Strings.t('profil_rien_change'),
+                style: TextStyle(
+                    color: actif ? Colors.white : JegoTheme.texteTernaire,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800),
+              ),
+      ),
+    );
+  }
+
+  void _choisirIndicatif() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FeuilleJego(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              Strings.t('choisir_indicatif'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: JegoTheme.texte,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800),
             ),
-          ),
-        ],
-      ],
+            const SizedBox(height: 12),
+            ...PaysTelephone.liste.map((p) {
+              final actif = p.indicatif == _pays.indicatif;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: BoutonTactile(
+                  onTap: () {
+                    setState(() => _pays = p);
+                    Navigator.of(ctx).pop();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 13),
+                    decoration: BoxDecoration(
+                      color: actif
+                          ? JegoTheme.vert.withOpacity(0.10)
+                          : JegoTheme.champ,
+                      borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                      border: Border.all(
+                        color: actif
+                            ? JegoTheme.vert.withOpacity(0.45)
+                            : Colors.transparent,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        DrapeauJego(p.code, largeur: 26),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            p.nom,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: JegoTheme.texte,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Text(
+                          p.indicatif,
+                          style: TextStyle(
+                              color: actif
+                                  ? JegoTheme.vert
+                                  : JegoTheme.texteSecondaire,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800),
+                        ),
+                        if (actif) ...[
+                          const SizedBox(width: 8),
+                          Icon(Icons.check_rounded,
+                              size: 17, color: JegoTheme.vert),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
     );
   }
 }

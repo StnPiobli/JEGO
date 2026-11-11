@@ -79,18 +79,18 @@ export default function Paiements() {
         <p className="text-[13px] text-ink-soft mb-4">Cette vue ne montre jamais la marge JEGO ni le prix exact paye par le client.</p>
 
         {erreur && (
-          <div className="rounded-2xl p-3 mb-6 bg-red/6 border border-red/20">
+          <div className="rounded-2xl p-3 mb-3 bg-red/6 border border-red/20">
             <p className="text-[11px] text-red">{erreur}</p>
             <button onClick={charger} className="text-[11px] font-bold text-green-700 mt-1">Réessayer</button>
           </div>
         )}
         {chargement && (
-          <div className="rounded-2xl p-3 mb-6 bg-paper border border-line">
+          <div className="rounded-2xl p-3 mb-3 bg-paper border border-line">
             <p className="text-[11px] text-ink-soft">Chargement des versements...</p>
           </div>
         )}
 
-                <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-6" />
+                <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-3" />
 
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div className="bg-paper rounded-2xl border border-line p-6">

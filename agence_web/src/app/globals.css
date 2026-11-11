@@ -143,3 +143,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   outline: 2px solid rgb(var(--c-green-500));
   outline-offset: 2px;
 }
+
+/* Barres de défilement discrètes et arrondies (partout) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-ink-soft) / 0.35) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--c-ink-soft) / 0.32);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--c-ink-soft) / 0.55); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Variante fine pour les zones internes (modales, listes) */
+.scroll-mince::-webkit-scrollbar { width: 8px; height: 8px; }

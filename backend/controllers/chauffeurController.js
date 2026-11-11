@@ -70,12 +70,13 @@ async function listerChauffeurs(req, res) {
 
     const resultat = await pool.query(
       `SELECT c.id, c.nom, c.prenom, c.telephone, c.email, c.statut, c.note_moyenne, c.desactive_urgence, c.date_naissance,
+              to_char(c.cree_le, 'YYYY-MM-DD') AS cree_le,
               COALESCE(voyages.nb, 0) AS nombre_voyages
        FROM chauffeurs c
        LEFT JOIN LATERAL (
                 SELECT COUNT(*) AS nb FROM trajets WHERE chauffeur_id = c.id AND statut = 'termine'
        ) voyages ON true
-       WHERE c.agence_id = $1 AND c.statut != 'supprime'
+       WHERE c.agence_id = $1
        ORDER BY c.nom, c.prenom`,
       [agenceId]
     );
@@ -957,4 +958,59 @@ async function supprimerChauffeur(req, res) {
   }
 }
 
-module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur };
+
+// ═══════════════════════════════════════════════════
+// AVERTISSEMENTS DU CHAUFFEUR (seuil collectif atteint)
+//
+// Le chauffeur doit voir en grand, et acquitter, les alertes deposees
+// contre sa conduite. Elles etaient enregistrees en base depuis
+// toujours mais aucune route ne les exposait : personne ne les lisait.
+// On ne renvoie que les non acquittees — l'ecran affiche un seul
+// message reprenant la liste, et « J'ai compris » les acquitte toutes.
+// ═══════════════════════════════════════════════════
+async function mesAvertissements(req, res) {
+  try {
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+    const resultat = await pool.query(
+      `SELECT id, type, titre, contenu, to_char(cree_le, 'DD/MM HH24:MI') AS heure
+         FROM notifications
+        WHERE destinataire_type = 'chauffeur'
+          AND destinataire_id = $1
+          AND lu = false
+          -- Uniquement les alertes de conduite : les envois
+          -- d'identifiants ne sont pas des avertissements.
+          AND type = 'alerte_signalement'
+        ORDER BY cree_le DESC
+        LIMIT 20`,
+      [req.utilisateur.id]
+    );
+    res.json({ nombre: resultat.rows.length, avertissements: resultat.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// « J'ai compris » : acquitte tout le lot d'un coup, puisque le
+// chauffeur les a lues dans un seul message.
+async function accuserReceptionAvertissements(req, res) {
+  try {
+    if (req.utilisateur.type !== 'chauffeur') {
+      return res.status(403).json({ error: 'Accès réservé aux chauffeurs' });
+    }
+    const resultat = await pool.query(
+      `UPDATE notifications SET lu = true
+        WHERE destinataire_type = 'chauffeur'
+          AND destinataire_id = $1
+          AND lu = false
+          AND type = 'alerte_signalement'`,
+      [req.utilisateur.id]
+    );
+    res.json({ message: 'Avertissements acquittés', nombre: resultat.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { creerChauffeur, listerChauffeurs, connexionChauffeur, mesTrajets, declarerDepart, declarerArriveeChauffeur, desactiverUrgence, reactiverChauffeur, changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur, declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur, mesAvertissements, accuserReceptionAvertissements };

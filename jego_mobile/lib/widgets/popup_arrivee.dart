@@ -8,14 +8,18 @@ import '../l10n/strings.dart';
 /// direct entre noter le voyage ou signaler une fausse arrivee. Remplace
 /// l'ancienne banniere qui glissait depuis le haut : plus visible, et evite
 /// a l'utilisateur de devoir chercher l'action ailleurs.
-void afficherPopupArrivee({
+/// Rend une Future qui se termine a la fermeture : l'appelant peut
+/// ainsi attendre avant d'en ouvrir une autre. Sans cela, deux billets
+/// arrives empilaient deux boites l'une sur l'autre, et il fallait
+/// fermer autant de fois qu'il y avait de trajets termines.
+Future<void> afficherPopupArrivee({
   required Map<String, dynamic> billet,
   required VoidCallback onNoter,
-}) {
+}) async {
   final context = SoftLock.navKey.currentContext;
   if (context == null) return;
 
-  showDialog(
+  await showDialog(
     context: context,
     barrierDismissible: true,
     builder: (dialogContext) => _PopupArrivee(

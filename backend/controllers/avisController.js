@@ -144,4 +144,48 @@ async function avisAgence(req, res) {
   }
 }
 
-module.exports = { noterVoyage, avisAgence };
+
+// ═══════════════════════════════════════════════════
+// AVIS D'UN TRAJET (agence)
+//
+// L'agence voit comment son voyage a ete juge : notes et commentaires,
+// avec le nom du voyageur seulement s'il a accepte de le montrer.
+// ═══════════════════════════════════════════════════
+async function avisTrajet(req, res) {
+  try {
+    if (req.utilisateur.type !== 'agence') {
+      return res.status(403).json({ error: 'Réservé aux agences' });
+    }
+    const trajetId = req.params.id;
+    const check = await pool.query(
+      `SELECT id FROM trajets WHERE id = $1 AND agence_id = $2`,
+      [trajetId, req.utilisateur.id]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Trajet introuvable' });
+    }
+
+    const resultat = await pool.query(
+      `SELECT a.id, a.note_globale, a.note_service, a.note_conduite,
+              a.note_horaires, a.note_confort, a.commentaire,
+              to_char(a.cree_le, 'DD/MM/YYYY') AS date_avis,
+              CASE WHEN v.avis_avec_nom THEN v.prenom || ' ' || v.nom ELSE NULL END AS voyageur
+         FROM avis a
+         JOIN voyageurs v ON v.id = a.voyageur_id
+        WHERE a.trajet_id = $1 AND a.statut <> 'supprime'
+        ORDER BY a.cree_le DESC`,
+      [trajetId]
+    );
+
+    const notes = resultat.rows.map((r) => Number(r.note_globale)).filter((n) => !Number.isNaN(n));
+    const moyenne = notes.length
+      ? Math.round((notes.reduce((s, n) => s + n, 0) / notes.length) * 10) / 10
+      : null;
+
+    res.json({ nombre: resultat.rows.length, moyenne, avis: resultat.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { noterVoyage, avisAgence, avisTrajet };

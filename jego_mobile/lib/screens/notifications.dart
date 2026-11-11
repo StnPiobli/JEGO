@@ -6,6 +6,7 @@ import '../config/notifs_store.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import 'apres_voyage.dart';
+import '../widgets/style_jego.dart';
 
 /// Espace Notifications : suppression une par une (glisser) ou tout d'un coup.
 /// A l'ouverture, tout est marque comme lu (le badge cloche disparait).
@@ -130,7 +131,15 @@ class _EcranNotificationsState extends State<EcranNotifications> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: SafeArea(
+      body: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 240),
+          ),
+          SafeArea(
         child: ValueListenableBuilder<List<Map<String, dynamic>>>(
           valueListenable: NotifsStore.liste,
           builder: (context, notifs, _) {
@@ -149,6 +158,7 @@ class _EcranNotificationsState extends State<EcranNotifications> {
                             shape: BoxShape.circle,
                             border: Border.all(
                                 color: JegoTheme.bordCarte, width: 1),
+                            boxShadow: JegoTheme.ombreDouce,
                           ),
                           child: Icon(Icons.close_rounded,
                               size: 20, color: JegoTheme.texte),
@@ -253,6 +263,8 @@ class _EcranNotificationsState extends State<EcranNotifications> {
             );
           },
         ),
+      ),
+        ],
       ),
     );
   }

@@ -8,8 +8,8 @@
 import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini, Toast } from "@/components/ui";
 import DateNav from "@/components/DateNav";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch } from "@/lib/api";
+import { dateISOLocale } from "@/lib/format";
 
 type Commentaire = {
   id: string; texte: string; auteur: string; agence: string;
@@ -28,7 +28,7 @@ export default function ModerationPage() {
     async function charger() {
       setChargement(true);
       try {
-        const res = await apiFetch(`/api/admin/moderation?date=${date.toISOString().slice(0, 10)}`);
+        const res = await apiFetch(`/api/admin/moderation?date=${dateISOLocale(date)}`);
         if (!annule) setCommentaires(res.commentaires || []);
         if (!annule) setErreur(null);
       } catch (e) {
@@ -65,7 +65,6 @@ export default function ModerationPage() {
             {chargement ? "Chargement…" : `${commentaires.length} commentaire(s) signalé(s)`}
           </div>
         </div>
-        <HistoriqueButton label="Historique de modération" entrees={[]} />
       </div>
       <div className="mb-4"><DateNav date={date} onChange={setDate} /></div>
 
@@ -76,7 +75,7 @@ export default function ModerationPage() {
         ) : chargement ? (
           <div className="px-5 py-10 text-center text-ink-soft text-[13px]">Chargement…</div>
         ) : (
-          <div className="max-h-[420px] overflow-y-auto">
+          <div>
 <table className="w-full">
             <thead><tr>{["Commentaire", "Auteur", "Agence visée", "Motif", ""].map((h) => <th key={h} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}</th>)}</tr></thead>
             <tbody>

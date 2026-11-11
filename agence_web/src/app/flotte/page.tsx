@@ -38,6 +38,19 @@ export default function Flotte() {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [suppression, setSuppression] = useState<Bus | null>(null);
+  // Arrivee depuis un lien « bus » de la page Trajets : on met la carte
+  // en evidence et on y fait defiler la page.
+  const [focusBus, setFocusBus] = useState<string | null>(null);
+
+  useEffect(() => {
+    const f = new URLSearchParams(window.location.search).get('focus');
+    if (!f) return;
+    setFocusBus(f);
+    const minuterie = setTimeout(() => {
+      document.getElementById(`bus-${f}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+    return () => clearTimeout(minuterie);
+  }, []);
 
   async function charger() {
     setChargement(true);
@@ -86,7 +99,11 @@ export default function Flotte() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {bus.map((b) => (
-              <div key={b.id} className="bg-paper rounded-2xl border border-line p-5">
+              <div
+                key={b.id}
+                id={`bus-${b.id}`}
+                className={`bg-paper rounded-2xl border p-5 scroll-mt-24 transition-colors ${focusBus === String(b.id) ? 'border-green-500 ring-2 ring-green-500/40' : 'border-line'}`}
+              >
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>
                     <p className="text-[14px] font-extrabold text-ink">{b.nom}</p>

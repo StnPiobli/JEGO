@@ -534,13 +534,14 @@ class _VueConnexionState extends State<_VueConnexion> {
                     const SizedBox(width: 6),
                     BoutonTactile(
                       onTap: () {
-                        final v = ctrl.text.trim();
+                        final v = ctrl.text.replaceAll(RegExp(r'\D'), '');
                         if (v.length < pays.longueur) {
                           maj(() => erreurLocale =
                               'Entrez un numéro de téléphone valide.');
                           return;
                         }
-                        Navigator.of(ctx).pop('${pays.indicatif}$v');
+                        Navigator.of(ctx)
+                            .pop(PaysTelephone.composer(pays, v));
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -901,7 +902,7 @@ class _VueInscriptionState extends State<_VueInscription> {
     }
 
     setState(() => _enCours = true);
-    final telephone = '${_paysTel.indicatif}${_cTel.text.trim()}';
+    final telephone = PaysTelephone.composer(_paysTel, _cTel.text);
 
     try {
       await ApiService.inscrire(
@@ -915,7 +916,7 @@ class _VueInscriptionState extends State<_VueInscription> {
         motDePasse: _cMdp.text,
         contactUrgence: _cUrgenceTel.text.trim().isEmpty
             ? null
-            : '${_paysUrgence.indicatif}${_cUrgenceTel.text.trim()}',
+            : PaysTelephone.composer(_paysUrgence, _cUrgenceTel.text),
       );
       if (!mounted) return;
       setState(() => _enCours = false);

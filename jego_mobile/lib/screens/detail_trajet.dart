@@ -7,6 +7,7 @@ import 'connexion_inscription.dart';
 import 'fiche_agence.dart';
 import 'selection_siege.dart';
 import '../config/nature_trajet.dart';
+import '../widgets/style_jego.dart';
 
 /// Page Informations du voyage. Mode : 'simple' | 'aller' | 'retour'.
 class EcranDetailTrajet extends StatelessWidget {
@@ -128,7 +129,15 @@ class EcranDetailTrajet extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: SafeArea(
+      body: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 260),
+          ),
+          SafeArea(
         child: Column(
           children: [
             Padding(
@@ -144,6 +153,7 @@ class EcranDetailTrajet extends StatelessWidget {
                         shape: BoxShape.circle,
                         border:
                             Border.all(color: JegoTheme.bordCarte, width: 1),
+                        boxShadow: JegoTheme.ombreDouce,
                       ),
                       child: Icon(Icons.arrow_back_rounded,
                           size: 20, color: JegoTheme.texte),
@@ -460,6 +470,8 @@ class EcranDetailTrajet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+        ],
       ),
     );
   }

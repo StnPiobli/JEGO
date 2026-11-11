@@ -94,7 +94,8 @@ class _EcranAccueilRechercheState extends State<EcranAccueilRecherche> {
           ? (_dateRetour ?? _dateAller ?? maintenant)
           : (_dateAller ?? maintenant),
       premiere: retour ? (_dateAller ?? maintenant) : maintenant,
-      derniere: maintenant.add(const Duration(days: 365)),
+      derniere: DateTime(maintenant.year + 5, maintenant.month,
+          maintenant.day),
     );
     if (choisie != null) {
       setState(() {

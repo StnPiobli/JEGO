@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 class EcranPolitiqueConfidentialite extends StatelessWidget {
   const EcranPolitiqueConfidentialite({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('politique_confidentialite'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: ListView(
+    return EcranJego(
+             titre: Strings.t('politique_confidentialite'),
+             corps: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           _section('Donnees collectees',
@@ -32,7 +26,7 @@ class EcranPolitiqueConfidentialite extends StatelessWidget {
               style: TextStyle(color: JegoTheme.texteTernaire, fontSize: 11)),
         ],
       ),
-    );
+           );
   }
 
   Widget _section(String titre, String texte) {

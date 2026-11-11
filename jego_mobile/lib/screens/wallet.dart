@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../config/wallet_store.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// Ecran Portefeuille JEGO : solde credite par les remboursements
 /// d'annulation, historique des mouvements. Volontairement SANS recharge,
@@ -84,7 +85,15 @@ class _EcranWalletState extends State<EcranWallet> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: CustomScrollView(
+      body: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 260),
+          ),
+          CustomScrollView(
         slivers: [
           SliverToBoxAdapter(child: _enTeteCarte()),
           SliverPadding(
@@ -218,6 +227,8 @@ class _EcranWalletState extends State<EcranWallet> {
               ]),
             ),
           ),
+        ],
+      ),
         ],
       ),
     );

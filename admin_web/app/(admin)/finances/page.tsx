@@ -1,64 +1,49 @@
 "use client";
 // BRANCHÉ SUR LE VRAI BACKEND — finances.
-//   GET /api/admin/finances/resume?date=YYYY-MM-DD&mois=YYYY-MM
+//   GET /api/admin/finances/resume?periode=jour|mois|annee&date=YYYY-MM-DD
 //   GET /api/admin/finances/serie?jours=7&date=YYYY-MM-DD
-//   GET /api/admin/finances/transactions?date=YYYY-MM-DD
-//   GET /api/admin/finances/detail?type=…&date=…&mois=…   ← liste complète cliquable
+//   GET /api/admin/finances/detail?type=revenu|remboursements&periode=…&date=…
 //
-// Le revenu JEGO vient de escrow.montant_jego : déjà net des frais Mobile
-// Money et des réductions en points appliquées au moment du paiement.
-// La commission moyenne est celle RÉELLEMENT constatée sur les 30 derniers
-// jours (marge / prix agence), pas le taux théorique de la grille.
+// UNE seule période à la fois (jour / mois / année) : tous les blocs
+// affichent la même. Le revenu JEGO vient de escrow.montant_jego (déjà net
+// des frais Mobile Money et des réductions en points).
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Panel, StatCard, Toast } from "@/components/ui";
-import DateNav from "@/components/DateNav";
-import HistoriqueButton from "@/components/HistoriqueButton";
+import Calendrier from "@/components/Calendrier";
 import { apiFetch } from "@/lib/api";
 
-type PointSerie = { jour: string; valeur: number };
-type Transaction = {
-  id: string; client: string; agence: string;
-  paye: number; verse: number; frais: number; marge: number; ref: string;
-};
-type Resume = {
-  revenuMois: string; revenuJour: string; commissionMoyenne: string; remboursementsEnCours: string;
-  billetsMois?: string;
+// Date au format AAAA-MM-JJ à partir des composants LOCAUX (pas toISOString,
+// qui décale d'un jour dans les fuseaux à l'est de UTC).
+const isoLocal = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+type Periode = "jour" | "mois" | "annee";
+type PointSerie = { jour: string; valeur: number };
+type Resume = {
+  revenu: string; billets: string; verseAgences: string; encaisse: string;
+  commissionMoyenne: string; remboursementsEnCours: string; remboursementsNb: string;
+};
 const resumeVide: Resume = {
-  revenuMois: "—", revenuJour: "—", commissionMoyenne: "—", remboursementsEnCours: "—",
+  revenu: "—", billets: "—", verseAgences: "—", encaisse: "—",
+  commissionMoyenne: "—", remboursementsEnCours: "—", remboursementsNb: "0",
 };
 
 // ── Détail cliquable : colonnes et mise en forme par type ──────────────
-type TypeDetail = "revenu_mois" | "revenu_jour" | "commission" | "remboursements";
+type TypeDetail = "revenu" | "remboursements";
 type Colonne = { cle: string; libelle: string; type: "text" | "money" | "percent" | "date" };
 type Ligne = Record<string, string | number | null>;
 
 const COLONNES: Record<TypeDetail, Colonne[]> = {
-  revenu_mois: [
+  revenu: [
     { cle: "client", libelle: "Client", type: "text" },
     { cle: "agence", libelle: "Agence", type: "text" },
     { cle: "ref", libelle: "Référence", type: "text" },
     { cle: "paye", libelle: "Payé", type: "money" },
     { cle: "verse", libelle: "Versé agence", type: "money" },
-    { cle: "marge", libelle: "Revenu JEGO", type: "money" },
-    { cle: "date", libelle: "Date", type: "date" },
-  ],
-  revenu_jour: [
-    { cle: "client", libelle: "Client", type: "text" },
-    { cle: "agence", libelle: "Agence", type: "text" },
-    { cle: "ref", libelle: "Référence", type: "text" },
-    { cle: "paye", libelle: "Payé", type: "money" },
-    { cle: "verse", libelle: "Versé agence", type: "money" },
-    { cle: "marge", libelle: "Revenu JEGO", type: "money" },
-    { cle: "date", libelle: "Date", type: "date" },
-  ],
-  commission: [
-    { cle: "client", libelle: "Client", type: "text" },
-    { cle: "agence", libelle: "Agence", type: "text" },
-    { cle: "prixAgence", libelle: "Prix agence", type: "money" },
     { cle: "marge", libelle: "Revenu JEGO", type: "money" },
     { cle: "taux", libelle: "Commission", type: "percent" },
     { cle: "date", libelle: "Date", type: "date" },
@@ -68,7 +53,8 @@ const COLONNES: Record<TypeDetail, Colonne[]> = {
     { cle: "agence", libelle: "Agence", type: "text" },
     { cle: "ref", libelle: "Billet", type: "text" },
     { cle: "motif", libelle: "Motif", type: "text" },
-    { cle: "montant", libelle: "Montant", type: "money" },
+    { cle: "prixBillet", libelle: "Prix billet initial", type: "money" },
+    { cle: "montant", libelle: "À rembourser", type: "money" },
     { cle: "date", libelle: "Date", type: "date" },
   ],
 };
@@ -82,7 +68,6 @@ function formatCell(col: Colonne, v: string | number | null): string {
   return v === null || v === undefined || v === "" ? "—" : String(v);
 }
 
-// "JJ/MM/AAAA HH:MM" -> "AAAAMMJJHHMM" pour trier des dates textuelles.
 const cleDate = (d: unknown) => {
   const m = String(d || "").match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
   return m ? m[3] + m[2] + m[1] + m[4] + m[5] : "";
@@ -90,11 +75,11 @@ const cleDate = (d: unknown) => {
 
 export default function FinancesPage() {
   const [toast] = useState<string | null>(null);
+  const [periode, setPeriode] = useState<Periode>("jour");
   const [date, setDate] = useState(new Date());
-  const [mois, setMois] = useState(() => new Date().toISOString().slice(0, 7));
+  const [pickerOuvert, setPickerOuvert] = useState(false);
   const [resume, setResume] = useState<Resume>(resumeVide);
   const [serie, setSerie] = useState<PointSerie[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -107,29 +92,35 @@ export default function FinancesPage() {
 
   const max = useMemo(() => Math.max(...serie.map((s) => s.valeur), 1), [serie]);
 
-  const libelleMois = useMemo(() => {
-    const [a, m] = mois.split("-");
-    return new Date(Number(a), Number(m) - 1, 1)
-      .toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  }, [mois]);
+  const estAujourdhui = new Date().toDateString() === date.toDateString();
+  const libellePeriode = useMemo(() => {
+    if (periode === "jour") return estAujourdhui ? "aujourd'hui" : date.toLocaleDateString("fr-FR");
+    if (periode === "mois") return date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    return String(date.getFullYear());
+  }, [periode, date, estAujourdhui]);
 
-  const libelleJour = useMemo(() => {
-    const auj = new Date().toDateString() === date.toDateString();
-    return auj ? "aujourd'hui" : date.toLocaleDateString("fr-FR");
-  }, [date]);
+  function decaler(sens: 1 | -1) {
+    setDate((d) => {
+      const n = new Date(d);
+      if (periode === "jour") n.setDate(n.getDate() + sens);
+      else if (periode === "mois") n.setMonth(n.getMonth() + sens);
+      else n.setFullYear(n.getFullYear() + sens);
+      return n;
+    });
+  }
+
 
   useEffect(() => {
     let annule = false;
     async function charger() {
       setChargement(true);
       try {
-        const iso = date.toISOString().slice(0, 10);
-        const r = await apiFetch(`/api/admin/finances/resume?date=${iso}&mois=${mois}`);
+        const iso = isoLocal(date);
+        const r = await apiFetch(`/api/admin/finances/resume?periode=${periode}&date=${iso}`);
         if (!annule) setResume({ ...resumeVide, ...r });
-        const serieRes = await apiFetch(`/api/admin/finances/serie?jours=7&date=${iso}`);
-        if (!annule) setSerie(serieRes.serie || []);
-        const t = await apiFetch(`/api/admin/finances/transactions?date=${iso}`);
-        if (!annule) { setTransactions(t.transactions || []); setErreur(null); }
+        // Tendance : toujours les 7 derniers jours jusqu'à aujourd'hui.
+        const serieRes = await apiFetch(`/api/admin/finances/serie?jours=7&date=${isoLocal(new Date())}`);
+        if (!annule) { setSerie(serieRes.serie || []); setErreur(null); }
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les finances.");
       } finally {
@@ -138,16 +129,16 @@ export default function FinancesPage() {
     }
     charger();
     return () => { annule = true; };
-  }, [date, mois]);
+  }, [periode, date]);
 
   async function ouvrirDetail(type: TypeDetail, titre: string) {
     setDetail({ type, titre });
     setRecherche("");
-    setTri(type === "commission" ? { cle: "taux", sens: "desc" } : { cle: "date", sens: "desc" });
+    setTri({ cle: "date", sens: "desc" });
     setDetailChargement(true);
     try {
-      const iso = date.toISOString().slice(0, 10);
-      const r = await apiFetch(`/api/admin/finances/detail?type=${type}&date=${iso}&mois=${mois}`);
+      const iso = isoLocal(date);
+      const r = await apiFetch(`/api/admin/finances/detail?type=${type}&periode=${periode}&date=${iso}`);
       setLignes(r.lignes || []);
     } catch {
       setLignes([]);
@@ -179,7 +170,7 @@ export default function FinancesPage() {
 
   const totalMontant = useMemo(() => {
     if (!detail) return null;
-    const champ = detail.type === "remboursements" ? "montant" : detail.type === "commission" ? "marge" : "marge";
+    const champ = detail.type === "remboursements" ? "montant" : "marge";
     return lignesAffichees.reduce((s, l) => s + Number(l[champ] ?? 0), 0);
   }, [detail, lignesAffichees]);
 
@@ -189,117 +180,123 @@ export default function FinancesPage() {
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-5">
-        <div>
-          <h1 className="font-display text-[22px] tracking-tight">Finances</h1>
-          <div className="text-ink-soft text-[13px] mt-0.5">Commissionnement, remboursements, revenu JEGO</div>
-        </div>
-        <HistoriqueButton label="Historique financier" entrees={[]} />
+      <div className="mb-5">
+        <h1 className="font-display text-[22px] tracking-tight">Finances</h1>
+        <div className="text-ink-soft text-[13px] mt-0.5">Commissionnement, remboursements, revenu JEGO</div>
       </div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <DateNav date={date} onChange={setDate} />
-        <label className="flex items-center gap-2 text-[12px] text-ink-soft">
-          Mois analysé
-          <input
-            type="month"
-            value={mois}
-            onChange={(e) => setMois(e.target.value)}
-            className="px-2.5 py-1.5 border border-line rounded-lg text-xs bg-transparent"
-          />
-        </label>
+
+      {/* Sélecteur de période unique + navigation */}
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-2">
+          {(["jour", "mois", "annee"] as Periode[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriode(p)}
+              className={`text-xs font-semibold px-3.5 py-1.5 rounded-full border ${periode === p ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}
+            >
+              {p === "jour" ? "Jour" : p === "mois" ? "Mois" : "Année"}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => decaler(-1)} className="w-8 h-8 rounded-lg border border-line text-ink-soft hover:bg-off-white flex items-center justify-center">◀</button>
+
+          {/* Date cliquable : ouvre un sélecteur précis selon la période */}
+          <div className="relative">
+            <button
+              onClick={() => setPickerOuvert((o) => !o)}
+              title="Choisir la date"
+              className="min-w-[160px] px-2 py-1.5 rounded-lg border border-transparent hover:border-line hover:bg-off-white flex items-center justify-center gap-1.5 text-[13.5px] font-semibold capitalize"
+            >
+              {libellePeriode}
+              <span className="text-ink-soft text-[10px] not-italic">▼</span>
+            </button>
+            {pickerOuvert && (
+              <Calendrier
+                mode={periode}
+                value={date}
+                onChange={(d) => { setDate(d); setPickerOuvert(false); }}
+                onFermer={() => setPickerOuvert(false)}
+              />
+            )}
+          </div>
+
+          <button onClick={() => decaler(1)} className="w-8 h-8 rounded-lg border border-line text-ink-soft hover:bg-off-white flex items-center justify-center">▶</button>
+
+          {/* Toujours présent (invisible aujourd'hui) : n'apparaît pas en décalant la date */}
+          <button
+            onClick={() => setDate(new Date())}
+            className={`text-[12px] text-green-700 font-semibold hover:underline ml-1 whitespace-nowrap ${estAujourdhui ? "invisible pointer-events-none" : ""}`}
+          >
+            Revenir à aujourd&apos;hui
+          </button>
+        </div>
       </div>
 
       {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
 
       <div className="grid grid-cols-4 gap-3.5 mb-4">
-        <button onClick={() => ouvrirDetail("revenu_mois", `Revenu net JEGO — ${libelleMois}`)} className="text-left">
-          <StatCard num={resume.revenuMois} label={`Revenu net JEGO — ${libelleMois}`} />
+        {/* Revenu net JEGO — cliquable (détail avec commission par billet) */}
+        <button onClick={() => ouvrirDetail("revenu", `Revenu net JEGO — ${libellePeriode}`)} className="text-left">
+          <StatCard num={resume.revenu} label={`Revenu net JEGO — ${libellePeriode}`} />
         </button>
-        <button onClick={() => ouvrirDetail("revenu_jour", `Revenu net — ${libelleJour}`)} className="text-left">
-          <StatCard num={resume.revenuJour} label={`Revenu net — ${libelleJour}`} />
-        </button>
-        <button onClick={() => ouvrirDetail("commission", "Commission par billet — 30 derniers jours")} className="text-left">
-          <StatCard num={resume.commissionMoyenne} label="Commission moyenne appliquée" />
-        </button>
+        {/* Billets vendus — informatif */}
+        <StatCard num={resume.billets} label={`Billets vendus — ${libellePeriode}`} />
+        {/* Commission moyenne — NON cliquable */}
+        <StatCard num={resume.commissionMoyenne} label={`Commission moyenne — ${libellePeriode}`} />
+        {/* Remboursements en cours — cliquable */}
         <button onClick={() => ouvrirDetail("remboursements", "Remboursements en cours")} className="text-left">
-          <StatCard num={resume.remboursementsEnCours} label="Remboursements en cours" />
+          <StatCard num={resume.remboursementsEnCours} label={`Remboursements en cours (${resume.remboursementsNb})`} />
         </button>
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr] gap-4">
-        <Panel title={`Revenu net — 7 jours jusqu'au ${date.toLocaleDateString("fr-FR")}`}>
-          <div className="px-[18px] py-4">
-            {serie.length === 0 ? (
-              <div className="h-[160px] flex items-center justify-center text-ink-soft text-[12.5px]">
-                {chargement ? "Chargement…" : "Aucune donnée sur la période"}
-              </div>
-            ) : (
-              <svg viewBox="0 0 320 140" className="w-full h-[160px]">
-                {[0, 1, 2, 3].map((i) => (
-                  <line key={i} x1="30" y1={10 + i * 30} x2="310" y2={10 + i * 30} style={{ stroke: "rgb(var(--c-line))" }} strokeWidth="1" />
-                ))}
-                {[0, 1, 2, 3].map((i) => (
-                  <text key={i} x="26" y={14 + i * 30} fontSize="7" style={{ fill: "rgb(var(--c-ink-soft))" }} textAnchor="end">
-                    {Math.round((max * (3 - i)) / 3 / 1000)}k
-                  </text>
-                ))}
-                {serie.map((s, i) => {
-                  const w = 280 / serie.length;
-                  const h = (s.valeur / max) * 90;
-                  const x = 30 + i * w + w * 0.15;
-                  const y = 100 - h;
-                  return (
-                    <g key={s.jour}>
-                      <rect x={x} y={y} width={w * 0.7} height={h} fill={i === serie.length - 1 ? "#2E7D54" : "#6FBE94"} rx="2" />
-                      <text x={x + w * 0.35} y="112" fontSize="7" style={{ fill: "rgb(var(--c-ink-soft))" }} textAnchor="middle">{s.jour}</text>
-                    </g>
-                  );
-                })}
-                <line x1="30" y1="100" x2="310" y2="100" style={{ stroke: "rgb(var(--c-ink))" }} strokeWidth="1" />
-                <line x1="30" y1="10" x2="30" y2="100" style={{ stroke: "rgb(var(--c-ink))" }} strokeWidth="1" />
-              </svg>
-            )}
-          </div>
-          <div className="px-[18px] pb-3.5 text-[11px] text-ink-soft">
-            Axe vertical : revenu net (FCFA) — axe horizontal : jour. Grille de commissions : <Link href="/frais" className="text-green-700 font-semibold">Configuration des frais →</Link>
-          </div>
-        </Panel>
-
-        <Panel
-          title="Toutes les transactions"
-          action={
-            <button onClick={() => ouvrirDetail("revenu_jour", `Revenu net — ${libelleJour}`)} className="text-[12px] font-semibold text-green-700 hover:underline">
-              Voir tout →
-            </button>
-          }
-        >
-          <div className="max-h-[280px] overflow-y-auto">
-            {transactions.map((t) => (
-              <div key={t.id} className="px-[18px] py-3 border-t border-dashed border-line first:border-t-0">
-                <div className="flex justify-between text-[12.5px]"><b>{t.client}</b><span className="text-ink-soft">{t.agence}</span></div>
-                <div className="flex justify-between text-[11.5px] text-ink-soft mt-1">
-                  <span>Payé {t.paye} F · Versé {t.verse} F</span>
-                  <span className="font-mono">Marge {t.marge} F</span>
-                </div>
-                <div className="text-[10.5px] text-ink-soft font-mono mt-0.5">{t.ref}</div>
-              </div>
-            ))}
-            {!chargement && transactions.length === 0 && (
-              <div className="px-[18px] py-6 text-center text-ink-soft text-[12.5px]">Aucune transaction pour cette date</div>
-            )}
-          </div>
-        </Panel>
-      </div>
+      <Panel title="Revenu net — 7 derniers jours">
+        <div className="px-[18px] py-4">
+          {serie.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-ink-soft text-[12.5px]">
+              {chargement ? "Chargement…" : "Aucune donnée sur la période"}
+            </div>
+          ) : (
+            <svg viewBox="0 0 640 180" className="w-full h-[200px]">
+              {[0, 1, 2, 3].map((i) => (
+                <line key={i} x1="34" y1={14 + i * 40} x2="628" y2={14 + i * 40} style={{ stroke: "rgb(var(--c-line))" }} strokeWidth="1" />
+              ))}
+              {[0, 1, 2, 3].map((i) => (
+                <text key={i} x="30" y={18 + i * 40} fontSize="9" style={{ fill: "rgb(var(--c-ink-soft))" }} textAnchor="end">
+                  {Math.round((max * (3 - i)) / 3 / 1000)}k
+                </text>
+              ))}
+              {serie.map((s, i) => {
+                const w = 594 / serie.length;
+                const h = (s.valeur / max) * 120;
+                const x = 34 + i * w + w * 0.18;
+                const y = 134 - h;
+                return (
+                  <g key={s.jour + i}>
+                    <rect x={x} y={y} width={w * 0.64} height={h} fill={i === serie.length - 1 ? "#2E7D54" : "#6FBE94"} rx="3" />
+                    <text x={x + w * 0.32} y="150" fontSize="9" style={{ fill: "rgb(var(--c-ink-soft))" }} textAnchor="middle">{s.jour}</text>
+                  </g>
+                );
+              })}
+              <line x1="34" y1="134" x2="628" y2="134" style={{ stroke: "rgb(var(--c-ink))" }} strokeWidth="1" />
+              <line x1="34" y1="14" x2="34" y2="134" style={{ stroke: "rgb(var(--c-ink))" }} strokeWidth="1" />
+            </svg>
+          )}
+        </div>
+        <div className="px-[18px] pb-3.5 text-[11px] text-ink-soft">
+          Axe vertical : revenu net (FCFA) — axe horizontal : jour. Grille de commissions : <Link href="/frais" className="text-green-700 font-semibold">Configuration des frais →</Link>
+        </div>
+      </Panel>
 
       {detail && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6" onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 py-6 pr-6 pl-[264px]" onClick={() => setDetail(null)}>
           <div className="bg-paper rounded-2xl shadow-card w-full max-w-5xl max-h-[88vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <div>
                 <h3 className="font-display text-[15px] font-semibold">{detail.titre}</h3>
                 <div className="text-[11.5px] text-ink-soft mt-0.5">
                   {lignesAffichees.length} ligne(s)
-                  {detail.type !== "commission" && totalMontant !== null && ` · total ${fmtMoney(totalMontant)}`}
+                  {totalMontant !== null && ` · ${detail.type === "remboursements" ? "à rembourser" : "revenu JEGO"} ${fmtMoney(totalMontant)}`}
                 </div>
               </div>
               <button onClick={() => setDetail(null)} className="text-ink-soft text-sm">✕</button>

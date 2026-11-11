@@ -9,7 +9,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Panel, Badge } from "@/components/ui";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch } from "@/lib/api";
 
 type Journal = {
@@ -128,7 +127,6 @@ export default function DashboardPage() {
             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             Session Super Admin - connexion loggée
           </div>
-          <HistoriqueButton entrees={[]} />
         </div>
       </div>
 

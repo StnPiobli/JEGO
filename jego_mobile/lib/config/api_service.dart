@@ -329,6 +329,19 @@ class ApiService {
     return Map<String, dynamic>.from(rep['voyageur'] ?? rep);
   }
 
+  /// Change le mot de passe d'une personne deja connectee. L'ancien
+  /// mot de passe part au serveur, qui seul peut le verifier : le
+  /// telephone ne detient aucune empreinte a comparer.
+  static Future<void> changerMotDePasse({
+    required String ancien,
+    required String nouveau,
+  }) async {
+    await _put('${ApiConfig.baseUrl}/api/voyageurs/mot-de-passe', {
+      'ancien_mot_de_passe': ancien,
+      'nouveau_mot_de_passe': nouveau,
+    });
+  }
+
   static Future<Map<String, dynamic>> monProfil() async {
     final rep = await _get(ApiConfig.profil, authentifie: true);
     return Map<String, dynamic>.from(rep['voyageur'] ?? rep);
@@ -752,4 +765,36 @@ class ApiService {
         .timeout(_delai);
     _traiter(r);
   }
+
+  /// Avertissements non acquittés du chauffeur (seuil collectif atteint
+  /// sur un de ses trajets). Tant qu'il n'a pas appuyé « J'ai compris »,
+  /// ils reviennent à chaque ouverture de l'application.
+  static Future<List<Map<String, dynamic>>> mesAvertissements(String token) async {
+    final r = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/api/chauffeurs/mes-avertissements'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+    ).timeout(_delai);
+    final rep = _traiter(r);
+    final liste = (rep['avertissements'] as List?) ?? [];
+    return liste.map<Map<String, dynamic>>((a) => Map<String, dynamic>.from(a)).toList();
+  }
+
+  /// « J'ai compris » : acquitte tout le lot affiché.
+  static Future<void> accuserReceptionAvertissements(String token) async {
+    final r = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/api/chauffeurs/mes-avertissements/lus'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+    ).timeout(_delai);
+    _traiter(r);
+  }
+
+  // ── Litiges (voyageur) ──
+
+  /// Litiges ouverts par le voyageur, du plus recent au plus ancien.
+  static Future<List<Map<String, dynamic>>> mesLitiges() async {
+    final rep = await _get('${ApiConfig.litiges}/mes-litiges', authentifie: true);
+    final liste = (rep['litiges'] as List?) ?? [];
+    return liste.map<Map<String, dynamic>>((l) => Map<String, dynamic>.from(l)).toList();
+  }
+
 }

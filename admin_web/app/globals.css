@@ -91,3 +91,20 @@ input::placeholder, textarea::placeholder {
   border-top: 1px dashed rgb(var(--c-line));
 }
 .kv:first-child { border-top: none; }
+
+/* Barres de défilement discrètes et arrondies (partout) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-ink-soft) / 0.35) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--c-ink-soft) / 0.32);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--c-ink-soft) / 0.55); }
+::-webkit-scrollbar-corner { background: transparent; }
+.scroll-mince::-webkit-scrollbar { width: 8px; height: 8px; }

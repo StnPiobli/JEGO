@@ -20,6 +20,7 @@ app.use(cors());
 // ceux-là restent servis via une route API authentifiée séparée.
 app.use('/uploads/agences/logos', express.static(path.join(__dirname, 'uploads', 'agences', 'logos')));
 app.use('/uploads/messages', express.static(path.join(__dirname, 'uploads', 'messages')));
+app.use('/uploads/litiges', express.static(path.join(__dirname, 'uploads', 'litiges')));
 // express.json() doit laisser passer les envois de fichiers : la route
 // de téléversement lit le flux multipart brut elle-même.
 app.use((req, res, next) => {

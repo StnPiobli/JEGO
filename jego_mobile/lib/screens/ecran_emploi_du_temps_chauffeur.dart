@@ -3,6 +3,7 @@ import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
 import '../widgets/itineraire_trajet.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// Vue semaine complete. Le titre "date debut — date fin" est cliquable
 /// pour choisir n'importe quelle semaine via un calendrier ; chaque jour
@@ -50,16 +51,9 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
     const joursSemaine = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
     final finSemaine = _debutSemaine.add(const Duration(days: 6));
 
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('emploi_du_temps'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: Column(
+    return EcranJego(
+             titre: Strings.t('emploi_du_temps'),
+             corps: Column(
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -178,7 +172,7 @@ class _EcranEmploiDuTempsChauffeurState extends State<EcranEmploiDuTempsChauffeu
           ),
         ],
       ),
-    );
+           );
   }
 
   /// Un trajet de la journée, repliable indépendamment des autres.

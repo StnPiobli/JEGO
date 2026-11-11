@@ -6,11 +6,18 @@ import 'config/preferences_voyage.dart';
 import 'config/photo_profil.dart';
 import 'config/surveillance_arrivee.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'config/derniere_page.dart';
 import 'config/theme_jego.dart';
 import 'l10n/strings.dart';
 import 'screens/navigation_principale.dart';
 import 'screens/ecran_accueil_chauffeur.dart';
 import 'screens/ecran_theme.dart';
+import 'screens/ecran_litiges.dart';
+import 'screens/ecran_securite.dart';
+import 'screens/ecran_confidentialite.dart';
+import 'screens/conditions_utilisation.dart';
+import 'screens/ecran_politique_confidentialite.dart';
+import 'screens/ecran_verif_maj.dart';
 import 'widgets/bascule_theme.dart';
 
 Future<void> main() async {
@@ -46,6 +53,17 @@ class _JegoAppState extends State<JegoApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _rouvrirDernierePage();
+  }
+
+  /// Recharger l'onglet relance l'application : on rouvre l'ecran ou
+  /// l'utilisateur etait, au lieu de le renvoyer a l'accueil.
+  Future<void> _rouvrirDernierePage() async {
+    final page = await DernierePage.lire();
+    if (page == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SoftLock.navKey.currentState?.pushNamed(page);
+    });
   }
 
   @override
@@ -75,6 +93,17 @@ class _JegoAppState extends State<JegoApp> with WidgetsBindingObserver {
             title: 'JEGO',
             debugShowCheckedModeBanner: false,
             navigatorKey: SoftLock.navKey,
+            navigatorObservers: [ObservateurPage()],
+            routes: {
+              '/litiges': (_) => const EcranLitiges(),
+              '/securite': (_) => EcranSecurite(),
+              '/confidentialite': (_) => EcranConfidentialite(),
+              '/cgu': (_) => EcranConditionsUtilisation(),
+              '/politique-confidentialite': (_) =>
+                  EcranPolitiqueConfidentialite(),
+              '/theme': (_) => EcranTheme(),
+              '/verif-maj': (_) => EcranVerifMaj(),
+            },
             theme: JegoTheme.theme(),
             // La clé porte le thème et la langue : en changer recrée
             // entièrement l'accueil. Sans elle, Flutter réutilise ce

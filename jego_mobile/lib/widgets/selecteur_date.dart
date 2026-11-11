@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import 'style_jego.dart';
 
 /// Calendrier JEGO premium en panneau bas.
 /// Taper un jour selectionne ET ferme. Annee via molette defilante.
@@ -71,26 +72,10 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
         int selection = annees[indexInitial];
         final ctrl =
             FixedExtentScrollController(initialItem: indexInitial);
-        return SafeArea(
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-            decoration: BoxDecoration(
-              color: JegoTheme.fondCarte,
-              borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-            ),
-            child: Column(
+        return FeuilleJego(
+          child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 42,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: JegoTheme.bordCarte,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
                 Text(
                   Strings.t('choisir_annee'),
                   style: TextStyle(
@@ -162,7 +147,6 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                   ),
                 ),
               ],
-            ),
           ),
         );
       },
@@ -205,33 +189,10 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
     final ceJour =
         DateTime(aujourdHui.year, aujourdHui.month, aujourdHui.day);
 
-    return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-        decoration: BoxDecoration(
-          color: JegoTheme.fondCarte,
-          borderRadius: BorderRadius.circular(JegoTheme.rGrand),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF14201A).withOpacity(0.14),
-              blurRadius: 30,
-              offset: const Offset(0, -6),
-            ),
-          ],
-        ),
-        child: Column(
+    return FeuilleJego(
+      child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 42,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: JegoTheme.bordCarte,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
             Row(
               children: [
                 BoutonTactile(
@@ -283,7 +244,7 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
             ),
             const SizedBox(height: 6),
             SizedBox(
-              height: 6 * 44,
+              height: ((decalage + nbJours) / 7).ceil() * 44,
               child: GridView.builder(
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate:
@@ -322,6 +283,8 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                               ? Border.all(
                                   color: JegoTheme.vert, width: 1.2)
                               : null,
+                          boxShadow:
+                              estInitiale ? JegoTheme.ombreVerte : null,
                         ),
                         child: Text(
                           '$numJour',
@@ -330,7 +293,8 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                                 ? Colors.white
                                 : actif
                                     ? JegoTheme.texte
-                                    : JegoTheme.bordCarte,
+                                    : JegoTheme.texteTernaire
+                                        .withOpacity(0.45),
                             fontSize: 14,
                             fontWeight: estInitiale || estAujourdHui
                                 ? FontWeight.w800
@@ -343,8 +307,30 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
                 },
               ),
             ),
+            if (_selectionnable(ceJour)) ...[
+              const SizedBox(height: 10),
+              BoutonTactile(
+                onTap: () => Navigator.of(context).pop(ceJour),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: JegoTheme.vert.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+                  ),
+                  child: Text(
+                    Strings.t('aujourdhui'),
+                    style: TextStyle(
+                      color: JegoTheme.vert,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
-        ),
       ),
     );
   }
@@ -362,7 +348,9 @@ class _CalendrierJegoState extends State<_CalendrierJego> {
         child: Icon(
           icone,
           size: 20,
-          color: actif ? JegoTheme.vert : JegoTheme.bordCarte,
+          color: actif
+              ? JegoTheme.vert
+              : JegoTheme.texteTernaire.withOpacity(0.45),
         ),
       ),
     );

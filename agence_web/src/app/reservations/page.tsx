@@ -8,6 +8,7 @@
 // client, qui inclut la commission JEGO et les frais annexes).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
 import { todayInputDate } from '../lib/date';
@@ -50,8 +51,15 @@ function chaineHoraires(t: TrajetAvecPassagers): string {
 
 export default function Reservations() {
   const [dateChoisie, setDateChoisie] = useState(AUJOURDHUI);
-  const [ouverts, setOuverts] = useState<Set<string>>(new Set());
+  // Trajet affiché en grand. On garde l'identifiant plutôt que l'objet :
+  // un rechargement des données ne laisse pas une fiche périmée ouverte.
+  const [trajetVuId, setTrajetVuId] = useState<string | null>(null);
+  // Arrivee depuis la page Trajets : on ouvre la fiche du voyage vise et
+  // on propose un retour vers Trajets, pas vers l'accueil des
+  // reservations.
+  const [voyageCible, setVoyageCible] = useState<string | null>(null);
   const [recherche, setRecherche] = useState('');
+  const [rechercheFiche, setRechercheFiche] = useState('');
   const [tousLesTrajets, setTousLesTrajets] = useState<TrajetAvecPassagers[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -131,6 +139,21 @@ export default function Reservations() {
 
   useEffect(() => { charger(); }, [charger]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const d = params.get('date');
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDateChoisie(d);
+    const v = params.get('voyage');
+    if (v) setVoyageCible(v);
+  }, []);
+
+  // Des que les trajets sont charges, on ouvre celui qui est vise.
+  useEffect(() => {
+    if (!voyageCible || tousLesTrajets.length === 0) return;
+    const cible = tousLesTrajets.find((t) => t.numeroVoyage === voyageCible);
+    if (cible) setTrajetVuId(cible.id);
+  }, [voyageCible, tousLesTrajets]);
+
   const trajetsDuJour = useMemo(
     () => tousLesTrajets.filter((t) => t.date === dateChoisie),
     [tousLesTrajets, dateChoisie],
@@ -146,9 +169,33 @@ export default function Reservations() {
     );
   }, [recherche, tousLesTrajets]);
 
-  function toggle(id: string) {
-    setOuverts((prev) => { const copie = new Set(prev); copie.has(id) ? copie.delete(id) : copie.add(id); return copie; });
-  }
+  const trajetVu = useMemo(
+    () => tousLesTrajets.find((t) => t.id === trajetVuId) ?? null,
+    [tousLesTrajets, trajetVuId],
+  );
+
+  // Fermeture au clavier, comme sur les autres fiches détaillées.
+  useEffect(() => {
+    if (!trajetVuId) return;
+    const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape') setTrajetVuId(null); };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [trajetVuId]);
+
+  // La recherche de la fiche ne porte que sur ses propres passagers : on
+  // la vide en changeant de trajet pour ne pas ouvrir une liste filtree
+  // par un terme saisi sur le trajet precedent.
+  useEffect(() => { setRechercheFiche(''); }, [trajetVuId]);
+
+  const passagersFiltres = useMemo(() => {
+    if (!trajetVu) return [] as Passager[];
+    const terme = rechercheFiche.trim().toLowerCase();
+    if (!terme) return trajetVu.passagers;
+    return trajetVu.passagers.filter((p) =>
+      [p.nom, p.id, p.telephone, formatTelephone(p.telephone), p.email, p.siege, p.trajetAssocie, ...(p.optionsSupp || []), libellesStatut[p.statut]]
+        .join(' ').toLowerCase().includes(terme),
+    );
+  }, [trajetVu, rechercheFiche]);
 
   function stats(t: TrajetAvecPassagers) {
     const actifs = t.passagers.filter((p) => p.statut !== 'annule');
@@ -158,24 +205,27 @@ export default function Reservations() {
   return (
     <LayoutAgence>
       <div className="max-w-5xl mx-auto">
+        {voyageCible && (
+          <Link href="/trajets" className="inline-flex items-center gap-1 text-[12px] font-semibold text-green-700 hover:underline mb-2">
+            ← Retour aux trajets
+          </Link>
+        )}
         <h1 className="text-[28px] font-extrabold text-ink mb-1">Reservations</h1>
         <p className="text-[13px] text-ink-soft mb-4">Par trajet — montants nets perçus par ton agence, options supplémentaires te concernant.</p>
 
         {erreur && (
-          <div className="rounded-2xl p-3 mb-6 bg-red/6 border border-red/20">
+          <div className="rounded-2xl p-3 mb-3 bg-red/6 border border-red/20">
             <p className="text-[11px] text-red">{erreur}</p>
             <button onClick={charger} className="text-[11px] font-bold text-green-700 mt-1">Réessayer</button>
           </div>
         )}
 
-        <div className="bg-paper rounded-2xl border border-line p-4 mb-5">
-          <label className="block text-[11px] font-semibold text-ink-soft mb-2">Recherche globale sur toutes les reservations</label>
-          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Nom client, telephone, trajet, siege, ID, option..." className="w-full rounded-xl px-4 py-3 text-[13px]" />
-          <p className="text-[10px] text-ink-soft mt-2">La recherche parcourt toute la page sur toutes les dates.</p>
+        <div className="mb-3">
+          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="🔍 Rechercher une réservation sur toutes les dates (nom, téléphone, trajet, siège, ID…)" className="w-full rounded-xl border border-line bg-paper px-4 py-2.5 text-[13px]" />
         </div>
 
         {recherche.trim() && (
-          <div className="bg-paper rounded-2xl border border-line overflow-hidden mb-6">
+          <div className="bg-paper rounded-2xl border border-line overflow-hidden mb-3">
             <div className="px-5 py-4 border-b border-line"><h2 className="text-sm font-bold text-ink">Resultats de recherche ({resultatsRecherche.length})</h2></div>
             {resultatsRecherche.length === 0 ? (
               <div className="p-6 text-[12px] text-ink-soft">Aucune reservation ne correspond a cette recherche.</div>
@@ -202,7 +252,7 @@ export default function Reservations() {
           </div>
         )}
 
-        <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-6" />
+        <DateNavigator date={dateChoisie} onChange={setDateChoisie} className="mb-3" />
 
         {chargement ? (
           <div className="bg-paper rounded-2xl border border-line p-10 text-center"><p className="text-[13px] text-ink-soft">Chargement des réservations...</p></div>
@@ -212,10 +262,9 @@ export default function Reservations() {
           <div className="space-y-4">
             {trajetsDuJour.map((t) => {
               const s = stats(t);
-              const ouvert = ouverts.has(t.id);
               return (
                 <div key={t.id} className="bg-paper rounded-2xl border border-line overflow-hidden">
-                  <button onClick={() => toggle(t.id)} className="w-full text-left px-5 py-4 hover:bg-off-white transition-colors">
+                  <button onClick={() => setTrajetVuId(t.id)} className="w-full text-left px-5 py-4 hover:bg-off-white transition-colors">
                     <div className="flex items-center justify-between mb-1">
                       <div>
                         <div className="flex items-center gap-2">
@@ -236,7 +285,7 @@ export default function Reservations() {
                           {t.demarre && <span className="text-green-700 font-bold"> · En cours</span>}
                         </p>
                       </div>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgb(var(--c-ink-soft))" strokeWidth="2" className={`transition-transform shrink-0 ${ouvert ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+                      <span className="text-[11px] font-semibold text-green-700 shrink-0 whitespace-nowrap">Voir les reservations →</span>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
                       <div><p className="text-[10px] text-ink-soft">Places</p><p className="text-[13px] font-bold text-ink">{t.capacite}</p></div>
@@ -246,34 +295,104 @@ export default function Reservations() {
                       <div><p className="text-[10px] text-ink-soft">Remplissage</p><p className="text-[13px] font-bold text-ink">{s.remplissage}%</p></div>
                     </div>
                   </button>
-
-                  {ouvert && (
-                    <div className="border-t border-line divide-y divide-line">
-                      {t.passagers.map((p) => (
-                        <div key={p.id} className="px-5 py-3 flex items-start gap-4">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-700 to-green-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0">{p.nom.split(' ').map((n) => n[0]).join('')}</div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[13px] font-semibold text-ink">{p.nom}</p>
-                              <span className="text-[10px] font-mono text-ink-soft">#{p.id}</span>
-                            </div>
-                            <p className="text-[12px] text-ink-soft">{formatTelephone(p.telephone)} · Siege {p.siege}</p>
-                            <p className="text-[11px] text-ink-soft truncate">{p.email}</p>
-                            <p className="text-[11px] text-ink-soft mt-1">Options : <strong className="text-ink">{p.optionsSupp && p.optionsSupp.length ? p.optionsSupp.join(', ') : 'Aucune'}</strong></p>
-                            <p className="text-[10.5px] text-purple font-semibold mt-0.5">Trajet associé : {p.trajetAssocie}</p>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${stylesStatut[p.statut]}`}>{libellesStatut[p.statut]}</span>
-                          <p className="w-20 text-right text-[12px] font-bold text-ink">{p.montantAgence.toLocaleString('fr-FR')} F</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {trajetVu && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => setTrajetVuId(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-y-auto scroll-mince shadow-xl">
+            <div className="bg-gradient-to-br from-green-700 to-green-900 px-7 pt-7 pb-5 rounded-t-3xl sticky top-0 z-10">
+              <div className="flex items-start gap-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[17px] font-display font-bold text-white truncate">{trajetVu.trajet}</p>
+                    <span className="text-[10px] font-mono text-white/70">{trajetVu.numeroVoyage}</span>
+                    {trajetVu.demarre && <span className="px-2 py-0.5 rounded-full bg-white/15 text-white text-[10px] font-bold">En cours</span>}
+                  </div>
+                  <p className="text-[12px] text-white/80 mt-0.5">{trajetVu.date.split('-').reverse().join('/')} · {chaineHoraires(trajetVu)}</p>
+                  <p className="text-[11.5px] text-white/70 mt-0.5">
+                    {trajetVu.pointsDetail.length > 0
+                      ? trajetVu.pointsDetail.map((p, i, arr) => (
+                          <span key={i}>
+                            <span className="font-bold text-white">{p.ville}</span>
+                            {p.lieu && <span> ({p.lieu})</span>}
+                            {i < arr.length - 1 && <span> → </span>}
+                          </span>
+                        ))
+                      : <span className="font-bold text-white">{trajetVu.trajet}</span>}
+                  </p>
+                </div>
+                <button onClick={() => setTrajetVuId(null)} className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center text-sm shrink-0" aria-label="Fermer">✕</button>
+              </div>
+            </div>
+
+            <div className="px-7 pt-5">
+              {(() => {
+                const s = stats(trajetVu);
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="rounded-2xl bg-off-white p-4"><p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Places</p><p className="text-[20px] font-display font-bold text-ink">{trajetVu.capacite}</p></div>
+                    <div className="rounded-2xl bg-off-white p-4"><p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Reservations</p><p className="text-[20px] font-display font-bold text-ink">{s.reservations}</p></div>
+                    {trajetVu.demarre && <div className="rounded-2xl bg-off-white p-4"><p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Embarques</p><p className="text-[20px] font-display font-bold text-ink">{s.embarques}</p></div>}
+                    <div className="rounded-2xl bg-off-white p-4"><p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Net perçu</p><p className="text-[20px] font-display font-bold text-green-700">{s.argent.toLocaleString('fr-FR')} F</p></div>
+                    <div className="rounded-2xl bg-off-white p-4"><p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Remplissage</p><p className="text-[20px] font-display font-bold text-ink">{s.remplissage}%</p></div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="px-7 py-5">
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide">
+                  Passagers ({rechercheFiche.trim() ? `${passagersFiltres.length}/${trajetVu.passagers.length}` : trajetVu.passagers.length})
+                </p>
+                {trajetVu.passagers.length > 0 && (
+                  <div className="relative w-[280px] max-w-[55%]">
+                    <input
+                      value={rechercheFiche}
+                      onChange={(e) => setRechercheFiche(e.target.value)}
+                      placeholder="🔍 Rechercher un passager (nom, tel, siege, ID…)"
+                      className="w-full rounded-xl border border-line bg-off-white pl-3 pr-8 py-2 text-[12px]"
+                    />
+                    {rechercheFiche && (
+                      <button onClick={() => setRechercheFiche('')} className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-ink-soft hover:bg-line flex items-center justify-center text-[11px]" aria-label="Effacer la recherche">✕</button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {trajetVu.passagers.length === 0 ? (
+                <div className="rounded-2xl border border-line p-8 text-center"><p className="text-[13px] text-ink-soft">Aucune reservation sur ce trajet.</p></div>
+              ) : passagersFiltres.length === 0 ? (
+                <div className="rounded-2xl border border-line p-8 text-center"><p className="text-[13px] text-ink-soft">Aucun passager ne correspond a cette recherche.</p></div>
+              ) : (
+                <div className="rounded-2xl border border-line divide-y divide-line overflow-hidden">
+                  {passagersFiltres.map((p) => (
+                    <div key={p.id} className="px-5 py-3.5 flex items-start gap-4">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-700 to-green-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0">{p.nom.split(' ').map((n) => n[0]).join('')}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[13px] font-semibold text-ink">{p.nom}</p>
+                          <span className="text-[10px] font-mono text-ink-soft">#{p.id}</span>
+                        </div>
+                        <p className="text-[12px] text-ink-soft">{formatTelephone(p.telephone)} · Siege {p.siege}</p>
+                        <p className="text-[11px] text-ink-soft truncate">{p.email}</p>
+                        <p className="text-[11px] text-ink-soft mt-1">Options : <strong className="text-ink">{p.optionsSupp && p.optionsSupp.length ? p.optionsSupp.join(', ') : 'Aucune'}</strong></p>
+                        <p className="text-[10.5px] text-purple font-semibold mt-0.5">Trajet associé : {p.trajetAssocie}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold shrink-0 ${stylesStatut[p.statut]}`}>{libellesStatut[p.statut]}</span>
+                      <p className="w-20 text-right text-[12px] font-bold text-ink shrink-0">{p.montantAgence.toLocaleString('fr-FR')} F</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </LayoutAgence>
   );
 }

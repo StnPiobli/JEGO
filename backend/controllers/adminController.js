@@ -692,7 +692,7 @@ async function listerTrajetsAdmin(req, res) {
 
     const trajets = await pool.query(
       `SELECT
-          t.id, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
+          t.id, t.numero, t.date_depart, t.heure_depart, t.heure_arrivee_estimee,
           t.statut, t.retard_minutes, t.categorie, t.prix_base,
           t.prix_bagage_supplementaire, t.distribution_nourriture,
           a.nom AS agence,
@@ -713,7 +713,10 @@ async function listerTrajetsAdmin(req, res) {
             WHERE b2.trajet_id = t.id AND b2.statut IN ('confirme', 'utilise')
               AND b2.source_vente = 'physique') AS vendus_guichet,
           COALESCE(pointsDetail.points, '[]'::json) AS points_detail,
-          COALESCE(prixSections.troncons, '[]'::json) AS prix_sections
+          COALESCE(prixSections.troncons, '[]'::json) AS prix_sections,
+          -- Litiges ouverts sur ce trajet : l'admin doit les voir a cote
+          -- des signalements, sans changer de page pour les compter.
+          (SELECT COUNT(*) FROM litiges lt WHERE lt.trajet_id = t.id) AS nb_litiges
        FROM trajets t
        JOIN agences a ON a.id = t.agence_id
        JOIN lignes l ON l.id = t.ligne_id
@@ -798,11 +801,11 @@ async function listerTrajetsAdmin(req, res) {
 
     const libellesStatut = {
       programme: 'Programmé', en_cours: 'En cours', termine: 'Terminé',
-      annule: 'Annulé', retard: 'Retard déclaré', incident: 'Incident'
+      annule: 'Annulé', retard: 'Retard déclaré'
     };
     const couleursStatut = {
       programme: 'grey', en_cours: 'green', termine: 'grey',
-      annule: 'red', retard: 'amber', incident: 'red'
+      annule: 'red', retard: 'amber'
     };
 
     // Format telephone uniforme : « +237 XXXXXXXXX ». En base certains
@@ -856,20 +859,32 @@ async function listerTrajetsAdmin(req, res) {
       const totales = parseInt(t.places_totales) || 0;
       const vendues = parseInt(t.places_vendues) || 0;
 
+      // « incident » est un etat interne (fausse arrivee au seuil) : un
+      // trajet en litige reste un trajet ordinaire, seule l'etiquette
+      // litige le distingue. Le chauffeur n'ayant jamais declare
+      // d'arrivee, il redevient un trajet programme -- donc « En cours »
+      // une fois l'heure de depart passee, comme n'importe quel autre.
+      const departPrevu = new Date(`${t.date_depart}T${t.heure_depart}`);
+      const statutLisible = t.statut !== 'incident'
+        ? t.statut
+        : (new Date() > departPrevu ? 'en_cours' : 'programme');
+
       return {
         id: t.id,
+        numero: t.numero,
+        nb_litiges: parseInt(t.nb_litiges) || 0,
         trajet: `${t.depart_affiche} → ${t.arrivee_affiche}`,
         ville_depart: t.depart_affiche,
         ville_arrivee: t.arrivee_affiche,
         agence: t.agence,
-        statutCode: t.statut,
+        statutCode: statutLisible,
         depart: String(t.heure_depart).slice(0, 5),
         arrivee: String(t.heure_arrivee_estimee).slice(0, 5),
         occ: totales > 0 ? `${vendues}/${totales}` : '—',
         statut: t.retard_minutes > 0
           ? `Retard déclaré +${t.retard_minutes}min`
-          : (libellesStatut[t.statut] || t.statut),
-        color: t.retard_minutes > 0 ? 'amber' : (couleursStatut[t.statut] || 'grey'),
+          : (libellesStatut[statutLisible] || statutLisible),
+        color: t.retard_minutes > 0 ? 'amber' : (couleursStatut[statutLisible] || 'grey'),
         app: parseInt(t.vendus_app) || 0,
         site: parseInt(t.vendus_guichet) || 0,
         categorie: t.categorie,
@@ -899,30 +914,21 @@ async function listerTrajetsAdmin(req, res) {
 // ═══════════════════════════════════════════════════
 async function resumeTrajetsAdmin(req, res) {
   try {
-    const { date } = req.query;
+    const { date, periode } = req.query;
     const jour = date || new Date().toISOString().slice(0, 10);
+    // Jour par defaut ; « mois » et « annee » elargissent la fenetre du
+    // taux de remplissage sans changer le reste de la page.
+    const fenetre = ['jour', 'mois', 'annee'].includes(periode) ? periode : 'jour';
 
-    // 1. Trajets programmés sur les 7 prochains jours
-    const programmes = await pool.query(
-      `SELECT COUNT(*) AS nb FROM trajets
-       WHERE date_depart >= CURRENT_DATE
-         AND date_depart < CURRENT_DATE + INTERVAL '7 days'
-         AND statut != 'annule'`
-    );
-    const detailProgrammes = await pool.query(
-      `SELECT vd.nom_affiche || ' → ' || va.nom_affiche AS label,
-              COUNT(*) || ' trajets' AS valeur
-       FROM trajets t
-       JOIN lignes l ON l.id = t.ligne_id
-       JOIN villes vd ON vd.code = l.ville_depart
-       JOIN villes va ON va.code = l.ville_arrivee
-       WHERE t.date_depart >= CURRENT_DATE
-         AND t.date_depart < CURRENT_DATE + INTERVAL '7 days'
-         AND t.statut != 'annule'
-       GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 5`
-    );
+    // 1. Taux de remplissage sur la periode demandee, autour de la date
+    //    consultee. Il etait fige sur « les 7 derniers jours » et ne
+    //    bougeait donc jamais, quel que soit le jour affiche.
+    const clausePeriode = fenetre === 'annee'
+      ? `DATE_TRUNC('year', t.date_depart) = DATE_TRUNC('year', $1::date)`
+      : fenetre === 'mois'
+        ? `DATE_TRUNC('month', t.date_depart) = DATE_TRUNC('month', $1::date)`
+        : `t.date_depart = $1::date`;
 
-    // 2. Taux de remplissage moyen sur les 7 derniers jours
     const remplissage = await pool.query(
       `SELECT
           COALESCE(SUM(vendus), 0) AS vendus,
@@ -936,23 +942,28 @@ async function resumeTrajetsAdmin(req, res) {
            (SELECT COUNT(*) FROM billets b WHERE b.trajet_id = t.id AND b.statut IN ('confirme','utilise') AND b.source_vente = 'physique') AS vendus_guichet,
            (SELECT COUNT(*) FROM sieges s WHERE s.bus_id = t.bus_id AND s.statut NOT IN ('supprime_toilettes','desactive')) AS places
          FROM trajets t
-         WHERE t.date_depart >= CURRENT_DATE - INTERVAL '7 days'
-           AND t.date_depart <= CURRENT_DATE
+         WHERE ${clausePeriode}
            AND t.statut != 'annule'
-       ) AS q`
+       ) AS q`,
+      [jour]
     );
     const r = remplissage.rows[0];
     const taux = parseInt(r.places) > 0
       ? Math.round((parseInt(r.vendus) / parseInt(r.places)) * 100) + '%'
       : '—';
 
-    // 3. Agences dont le programme ne couvre pas les 2 prochaines semaines.
-    //    Trois cas distincts, sinon l'écran affiche un nombre négatif qui
-    //    ne veut rien dire :
-    //      - aucun trajet publié du tout
-    //      - dernier trajet déjà passé -> programme épuisé depuis X jours
-    //      - programme qui court encore, mais moins de 14 jours
-    const programmeCourt = await pool.query(
+    // 2. Agences dont le programme ne couvre pas le seuil d'alerte.
+    //    Le seuil vient des parametres systeme (il valait 14 jours en
+    //    dur ici, alors qu'il est configurable depuis l'ecran Reglages).
+    //    0 est une valeur valide : aucune alerte.
+    const params = await pool.query(
+      `SELECT valeur FROM parametres_systeme WHERE cle = 'programmation_seuil_alerte_jours'`
+    );
+    const seuilAlerte = Number.isInteger(parseInt(params.rows[0]?.valeur))
+      ? parseInt(params.rows[0].valeur)
+      : 14;
+
+    const programmeCourt = seuilAlerte <= 0 ? { rows: [] } : await pool.query(
       `SELECT a.nom AS label,
               CASE
                 WHEN MAX(t.date_depart) IS NULL THEN 'aucun trajet publié'
@@ -966,36 +977,23 @@ async function resumeTrajetsAdmin(req, res) {
        LEFT JOIN trajets t ON t.agence_id = a.id AND t.statut != 'annule'
        WHERE a.statut = 'actif'
        GROUP BY a.id, a.nom
-       HAVING COALESCE(MAX(t.date_depart), CURRENT_DATE - 1) < CURRENT_DATE + INTERVAL '14 days'
-       ORDER BY COALESCE(MAX(t.date_depart), '1900-01-01'::date) ASC`
-    );
-
-    // 4. Trajets retardés à la date consultée
-    const retardes = await pool.query(
-      `SELECT a.nom || ' — ' || vd.nom_affiche || '→' || va.nom_affiche AS label,
-              '+' || t.retard_minutes || ' min' AS valeur
-       FROM trajets t
-       JOIN agences a ON a.id = t.agence_id
-       JOIN lignes l ON l.id = t.ligne_id
-       JOIN villes vd ON vd.code = l.ville_depart
-       JOIN villes va ON va.code = l.ville_arrivee
-       WHERE t.date_depart = $1 AND t.retard_minutes > 0
-       ORDER BY t.retard_minutes DESC`,
-      [jour]
+       HAVING COALESCE(MAX(t.date_depart), CURRENT_DATE - 1) < CURRENT_DATE + ($1 || ' days')::interval
+       ORDER BY COALESCE(MAX(t.date_depart), '1900-01-01'::date) ASC`,
+      [seuilAlerte]
     );
 
     res.json({
-      programmes7j: String(programmes.rows[0].nb),
       tauxRemplissage: taux,
+      periodeRemplissage: fenetre,
       agencesProgrammeCourt: String(programmeCourt.rows.length),
-      trajetsRetardes: String(retardes.rows.length),
-      detailProgrammes: detailProgrammes.rows,
+      seuilAlerteJours: seuilAlerte,
       detailRemplissage: [
         { label: "Vendus via l'app JEGO", valeur: String(r.vendus_app) },
         { label: 'Vendus au guichet', valeur: String(r.vendus_guichet) },
+        { label: 'Places au total', valeur: String(r.places) },
+        { label: 'Places vendues', valeur: String(r.vendus) },
       ],
       detailProgrammeCourt: programmeCourt.rows,
-      detailRetardes: retardes.rows,
     });
 
   } catch (err) {
@@ -1009,81 +1007,58 @@ async function resumeTrajetsAdmin(req, res) {
 // des réductions points au moment du paiement). Un billet vendu au guichet
 // ne rapporte rien à JEGO tant qu'aucune commission n'est prélevée dessus.
 // ═══════════════════════════════════════════════════
+// Clause SQL de période unifiée : jour / mois / année, sur l'alias b.cree_le.
+function clausePeriodeFinances(periode) {
+  if (periode === 'annee') return `DATE_TRUNC('year', b.cree_le) = DATE_TRUNC('year', $1::date)`;
+  if (periode === 'mois') return `DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)`;
+  return `b.cree_le::date = $1::date`; // jour (défaut)
+}
+
 async function resumeFinances(req, res) {
   try {
-    const jour = req.query.date || new Date().toISOString().slice(0, 10);
-    // Le mois peut être choisi indépendamment du jour consulté (format
-    // YYYY-MM). Sans paramètre, on prend le mois du jour affiché.
-    const moisRef = req.query.mois ? `${req.query.mois}-01` : jour;
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const periode = ['jour', 'mois', 'annee'].includes(req.query.periode) ? req.query.periode : 'jour';
+    const clause = clausePeriodeFinances(periode);
 
-    const mois = await pool.query(
-      `SELECT COALESCE(SUM(e.montant_jego), 0) AS revenu,
-              COUNT(*) AS billets
-       FROM escrow e
-       JOIN billets b ON b.id = e.billet_id
-       WHERE DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)
-         AND b.statut IN ('confirme', 'utilise')`,
-      [moisRef]
-    );
-
-    const detailMois = await pool.query(
-      `SELECT a.nom AS label, SUM(e.montant_jego)::text || ' F' AS valeur
-       FROM escrow e
-       JOIN billets b ON b.id = e.billet_id
-       JOIN agences a ON a.id = b.agence_id
-       WHERE DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)
-         AND b.statut IN ('confirme', 'utilise')
-       GROUP BY a.nom ORDER BY SUM(e.montant_jego) DESC LIMIT 5`,
-      [moisRef]
-    );
-
-    const dujour = await pool.query(
+    // Revenu net JEGO, billets, versé agences et encaissé — MÊME période
+    // partout (plus de mélange jour/mois).
+    const rev = await pool.query(
       `SELECT COALESCE(SUM(e.montant_jego), 0) AS revenu,
               COUNT(*) AS billets,
-              COALESCE(SUM(e.montant_agence), 0) AS verse_agences
+              COALESCE(SUM(e.montant_agence), 0) AS verse_agences,
+              COALESCE(SUM(e.montant_total), 0) AS encaisse
        FROM escrow e
        JOIN billets b ON b.id = e.billet_id
-       WHERE b.cree_le::date = $1::date
-         AND b.statut IN ('confirme', 'utilise')`,
-      [jour]
+       WHERE ${clause} AND b.statut IN ('confirme', 'utilise')`,
+      [date]
     );
 
-    // Commission moyenne réellement constatée : marge JEGO rapportée au
-    // prix agence, pas le taux théorique de la grille.
+    // Commission moyenne réellement constatée (marge JEGO / prix agence),
+    // sur la même période que le reste.
     const commission = await pool.query(
       `SELECT COALESCE(ROUND(AVG(b.marge_jego::numeric / NULLIF(b.prix_agence, 0) * 100), 1), 0) AS taux
        FROM billets b
-       WHERE b.statut IN ('confirme', 'utilise')
-         AND b.cree_le >= $1::date - INTERVAL '30 days'`,
-      [jour]
+       WHERE b.statut IN ('confirme', 'utilise') AND ${clause}`,
+      [date]
     );
 
+    // Remboursements en cours : instantané des demandes en attente
+    // (indépendant de la période — c'est un « reste à traiter »).
     const remboursements = await pool.query(
       `SELECT COALESCE(SUM(montant), 0) AS total, COUNT(*) AS nb
        FROM remboursements WHERE statut = 'en_attente'`
     );
 
-    const detailRemboursements = await pool.query(
-      `SELECT motif AS label,
-              SUM(montant)::text || ' F (' || COUNT(*) || ')' AS valeur
-       FROM remboursements WHERE statut = 'en_attente'
-       GROUP BY motif ORDER BY SUM(montant) DESC`
-    );
-
     const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' F';
 
     res.json({
-      revenuMois: fmt(mois.rows[0].revenu),
-      revenuJour: fmt(dujour.rows[0].revenu),
+      revenu: fmt(rev.rows[0].revenu),
+      billets: String(rev.rows[0].billets),
+      verseAgences: fmt(rev.rows[0].verse_agences),
+      encaisse: fmt(rev.rows[0].encaisse),
       commissionMoyenne: commission.rows[0].taux + '%',
       remboursementsEnCours: fmt(remboursements.rows[0].total),
-      billetsMois: String(mois.rows[0].billets),
-      detailRevenuMois: detailMois.rows,
-      detailRevenuJour: [
-        { label: 'Billets vendus', valeur: String(dujour.rows[0].billets) },
-        { label: 'Versé aux agences', valeur: fmt(dujour.rows[0].verse_agences) },
-      ],
-      detailRemboursements: detailRemboursements.rows,
+      remboursementsNb: String(remboursements.rows[0].nb),
     });
 
   } catch (err) {
@@ -1169,23 +1144,21 @@ async function transactionsFinances(req, res) {
 
 // ═══════════════════════════════════════════════════
 // FINANCES — DÉTAIL D'UNE CARTE (liste complète cliquable)
-// type = revenu_mois | revenu_jour | commission | remboursements
-// Chaque type renvoie { lignes: [...] } avec des montants NUMÉRIQUES
-// (le front les met en forme + filtre/trie).
+// type = revenu | remboursements   ·   periode = jour | mois | annee
+// Le détail « revenu » inclut la commission (taux) par billet.
+// Le détail « remboursements » inclut le prix initial du billet et le
+// montant qui sera remboursé.
 // ═══════════════════════════════════════════════════
 async function detailFinances(req, res) {
   try {
     const type = req.query.type;
-    const jour = req.query.date || new Date().toISOString().slice(0, 10);
-    const moisRef = req.query.mois ? `${req.query.mois}-01` : jour;
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const periode = ['jour', 'mois', 'annee'].includes(req.query.periode) ? req.query.periode : 'jour';
+    const clause = clausePeriodeFinances(periode);
 
     let lignes = [];
 
-    if (type === 'revenu_mois' || type === 'revenu_jour') {
-      const filtreDate = type === 'revenu_mois'
-        ? `DATE_TRUNC('month', b.cree_le) = DATE_TRUNC('month', $1::date)`
-        : `b.cree_le::date = $1::date`;
-      const param = type === 'revenu_mois' ? moisRef : jour;
+    if (type === 'revenu') {
       const r = await pool.query(
         `SELECT b.numero,
                 v.prenom || ' ' || v.nom AS client,
@@ -1194,6 +1167,7 @@ async function detailFinances(req, res) {
                 e.montant_agence::numeric AS verse,
                 e.frais_momo::numeric AS frais,
                 e.montant_jego::numeric AS marge,
+                ROUND(b.marge_jego::numeric / NULLIF(b.prix_agence, 0) * 100, 1) AS taux,
                 COALESCE(p.reference_momo, b.numero) AS ref,
                 TO_CHAR(b.cree_le, 'DD/MM/YYYY HH24:MI') AS date
          FROM billets b
@@ -1201,43 +1175,21 @@ async function detailFinances(req, res) {
          JOIN voyageurs v ON v.id = b.voyageur_id
          JOIN agences a ON a.id = b.agence_id
          LEFT JOIN paiements p ON p.billet_id = b.id AND p.type = 'paiement'
-         WHERE ${filtreDate} AND b.statut IN ('confirme', 'utilise')
+         WHERE ${clause} AND b.statut IN ('confirme', 'utilise')
          ORDER BY b.cree_le DESC`,
-        [param]
+        [date]
       );
       lignes = r.rows.map((x) => ({
         client: x.client, agence: x.agence, ref: x.ref, date: x.date,
         paye: Number(x.paye), verse: Number(x.verse),
         frais: Number(x.frais), marge: Number(x.marge),
-      }));
-
-    } else if (type === 'commission') {
-      const r = await pool.query(
-        `SELECT b.numero,
-                v.prenom || ' ' || v.nom AS client,
-                a.nom AS agence,
-                b.prix_agence::numeric AS prix_agence,
-                b.marge_jego::numeric AS marge,
-                ROUND(b.marge_jego::numeric / NULLIF(b.prix_agence, 0) * 100, 1) AS taux,
-                TO_CHAR(b.cree_le, 'DD/MM/YYYY HH24:MI') AS date
-         FROM billets b
-         JOIN voyageurs v ON v.id = b.voyageur_id
-         JOIN agences a ON a.id = b.agence_id
-         WHERE b.statut IN ('confirme', 'utilise')
-           AND b.cree_le >= $1::date - INTERVAL '30 days'
-         ORDER BY b.cree_le DESC`,
-        [jour]
-      );
-      lignes = r.rows.map((x) => ({
-        client: x.client, agence: x.agence, date: x.date,
-        prixAgence: Number(x.prix_agence), marge: Number(x.marge),
         taux: x.taux === null ? null : Number(x.taux),
       }));
 
     } else if (type === 'remboursements') {
       const r = await pool.query(
         `SELECT r.montant::numeric AS montant, r.motif, r.pourcentage,
-                r.statut, r.reference,
+                b.prix_total_client::numeric AS prix_billet,
                 v.prenom || ' ' || v.nom AS client,
                 a.nom AS agence, b.numero,
                 TO_CHAR(r.cree_le, 'DD/MM/YYYY HH24:MI') AS date
@@ -1250,8 +1202,9 @@ async function detailFinances(req, res) {
       );
       lignes = r.rows.map((x) => ({
         client: x.client || '—', agence: x.agence || '—',
-        ref: x.numero || x.reference || '—', motif: x.motif || '—',
-        date: x.date, montant: Number(x.montant),
+        ref: x.numero || '—', motif: x.motif || '—', date: x.date,
+        prixBillet: x.prix_billet === null ? null : Number(x.prix_billet),
+        montant: Number(x.montant),
         pourcentage: x.pourcentage === null ? null : Number(x.pourcentage),
       }));
     } else {
@@ -1723,7 +1676,7 @@ async function agenceTrajets(req, res) {
        WHERE t.agence_id = $1 AND t.date_depart >= CURRENT_DATE
        ORDER BY t.date_depart ASC, t.heure_depart ASC`, [id]);
 
-    const libelles = { programme:'Programmé', en_cours:'En cours', termine:'Terminé', annule:'Annulé', retard:'Retard', incident:'Incident' };
+    const libelles = { programme:'Programmé', en_cours:'En cours', termine:'Terminé', annule:'Annulé', retard:'Retard', incident:'' };
     res.json({
       trajets: q.rows.map((t) => ({
         id: t.id,

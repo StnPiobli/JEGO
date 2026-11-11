@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
+import '../widgets/champ_telephone.dart';
 
 /// Recap en lecture seule des infos du compte. La vraie edition se fait
 /// deja via la feuille dediee dans Profil (_FeuilleEditInfos) -- cet
@@ -12,16 +14,9 @@ class EcranInfosCompte extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nomComplet = '${Session.prenom ?? ''} ${Session.nom ?? ''}'.trim();
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('infos_compte'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: ListView(
+    return EcranJego(
+             titre: Strings.t('infos_compte'),
+             corps: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           Container(
@@ -36,7 +31,9 @@ class EcranInfosCompte extends StatelessWidget {
                 _ligne(Icons.badge_rounded, 'Nom complet',
                     nomComplet.isEmpty ? '-' : nomComplet),
                 Divider(height: 1, color: JegoTheme.bordCarte),
-                _ligne(Icons.phone_rounded, 'Telephone', Session.telephone ?? '-'),
+                _ligne(Icons.phone_rounded, 'Téléphone',
+                    PaysTelephone.afficher(Session.telephone ?? '')
+                        .ifEmpty('-')),
                 Divider(height: 1, color: JegoTheme.bordCarte),
                 _ligne(Icons.mail_rounded, 'Email', Session.email ?? '-'),
                 Divider(height: 1, color: JegoTheme.bordCarte),
@@ -51,7 +48,7 @@ class EcranInfosCompte extends StatelessWidget {
           ),
         ],
       ),
-    );
+           );
   }
 
   Widget _ligne(IconData icone, String libelle, String valeur) {
@@ -75,4 +72,9 @@ class EcranInfosCompte extends StatelessWidget {
       ),
     );
   }
+}
+
+extension _SiVide on String {
+  /// Un numero absent doit se lire « - », pas une ligne vide.
+  String ifEmpty(String remplacement) => isEmpty ? remplacement : this;
 }

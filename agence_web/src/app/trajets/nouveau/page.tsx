@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import LayoutAgence from '../../components/LayoutAgence';
+import Calendrier from '../../components/Calendrier';
 import { VILLES } from '../../villes';
 import { todayInputDate } from '../../lib/date';
 import { apiFetch } from '../../lib/api';
@@ -114,6 +115,7 @@ export default function NouveauTrajet() {
   const [busId, setBusId] = useState('');
   const [chauffeurId, setChauffeurId] = useState('');
   const [dateDepart, setDateDepart] = useState(todayInputDate());
+  const [dateDepartPickerOuvert, setDateDepartPickerOuvert] = useState(false);
   const [heureDepart, setHeureDepart] = useState('');
   const [heureArrivee, setHeureArrivee] = useState('');
   const [distributionNourriture, setDistributionNourriture] = useState(false);
@@ -474,12 +476,24 @@ export default function NouveauTrajet() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-ink-soft mb-1.5">Date de depart</label>
-              <input
-                type="date"
-                value={dateDepart}
-                onChange={(e) => { setDateDepart(e.target.value); setErreur(null); }}
-                className="w-full rounded-xl bg-off-white border border-transparent focus:border-green-700 focus:bg-paper outline-none px-4 py-3 text-sm text-ink transition-colors"
-              />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setDateDepartPickerOuvert((o) => !o)}
+                  className={`w-full text-left rounded-xl bg-off-white border border-transparent hover:border-green-700/40 outline-none px-4 py-3 text-sm transition-colors ${dateDepart ? "text-ink" : "text-ink-soft"}`}
+                >
+                  {dateDepart ? dateDepart.split("-").reverse().join("/") : "Choisir une date"}
+                </button>
+                {dateDepartPickerOuvert && (
+                  <Calendrier
+                    mode="jour"
+                    value={dateDepart ? new Date(Number(dateDepart.slice(0, 4)), Number(dateDepart.slice(5, 7)) - 1, Number(dateDepart.slice(8, 10))) : null}
+                    onChange={(d) => { setDateDepart(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); setErreur(null); setDateDepartPickerOuvert(false); }}
+                    onFermer={() => setDateDepartPickerOuvert(false)}
+                    align="left"
+                  />
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-semibold text-ink-soft mb-1.5">Categorie</label>

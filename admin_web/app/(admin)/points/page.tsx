@@ -10,7 +10,6 @@
 
 import { useEffect, useState } from "react";
 import { Panel, Badge, StatCard } from "@/components/ui";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch } from "@/lib/api";
 import { formatTelephone } from "@/lib/format";
 
@@ -65,7 +64,6 @@ export default function PointsPage() {
           <h1 className="font-display text-[22px] tracking-tight">Points JEGO</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">Soldes, gains et reconversions</div>
         </div>
-        <HistoriqueButton label="Historique des reconversions" entrees={[]} />
       </div>
 
       {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}
@@ -82,7 +80,7 @@ export default function PointsPage() {
           title="Points par voyageur"
           action={<input placeholder="Rechercher…" value={recherche} onChange={(e) => setRecherche(e.target.value)} className="px-2.5 py-1.5 border border-line rounded-lg text-xs w-48 bg-transparent" />}
         >
-          <div className="max-h-[380px] overflow-y-auto">
+          <div>
             <table className="w-full">
               <thead>
                 <tr>{["Voyageur", "Téléphone", "Solde", "Gagnés", "Utilisés"].map((h) => <th key={h} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}</th>)}</tr>
@@ -109,7 +107,7 @@ export default function PointsPage() {
         </Panel>
 
         <Panel title="Derniers usages">
-          <div className="max-h-[380px] overflow-y-auto">
+          <div>
             {usages.map((u) => (
               <div key={u.id} className="px-[18px] py-3 border-t border-dashed border-line first:border-t-0">
                 <div className="flex justify-between text-[12.5px]">

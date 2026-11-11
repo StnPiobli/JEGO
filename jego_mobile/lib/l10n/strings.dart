@@ -195,6 +195,24 @@ class Strings {
       'vest_leger': 'Il fera chaud : privilégiez une tenue légère.',
       'vest_normal': 'Une tenue normale suffira pour ce voyage.',
       'choisir_annee': 'Choisir l\'année',
+      'choisir_indicatif': 'Indicatif du pays',
+      'profil_sous_titre':
+          'Ces informations servent à te contacter et à te connecter.',
+      'profil_regle_nom':
+          'Le nom et le prénom ne peuvent être modifiés qu\'une fois tous les 6 mois.',
+      'profil_compte_google':
+          'Ce compte se connecte avec Google : il n\'a pas de mot de passe.',
+      'profil_enregistrement': 'Enregistrement…',
+      'erreur_reseau':
+          'Connexion au serveur impossible. Vérifie ton réseau.',
+      'profil_rien_change': 'Aucune modification',
+      'profil_maj_ok': 'Informations enregistrées',
+      'profil_mdp_ok': 'Mot de passe modifié',
+      'profil_changer_mdp': 'Changer le mot de passe',
+      'profil_champ_vide': 'Ce champ ne peut pas être vide',
+      'profil_email_invalide': 'Adresse email invalide',
+      'profil_tel_invalide': 'Numéro de téléphone invalide',
+      'aujourdhui': 'Aujourd\'hui',
       'valider': 'Valider',
       'tout_effacer': 'Tout effacer',
       'notif_tout_suppr_titre': 'Supprimer toutes les notifications ?',
@@ -646,6 +664,23 @@ class Strings {
       'vest_leger': 'It will be hot: go for light clothing.',
       'vest_normal': 'Normal clothing will be fine for this trip.',
       'choisir_annee': 'Choose the year',
+      'choisir_indicatif': 'Country code',
+      'profil_sous_titre':
+          'These details are used to contact you and to sign you in.',
+      'profil_regle_nom':
+          'Your first and last name can only be changed once every 6 months.',
+      'profil_compte_google':
+          'This account signs in with Google: it has no password.',
+      'profil_enregistrement': 'Saving…',
+      'erreur_reseau': 'Cannot reach the server. Check your network.',
+      'profil_rien_change': 'No changes',
+      'profil_maj_ok': 'Details saved',
+      'profil_mdp_ok': 'Password changed',
+      'profil_changer_mdp': 'Change password',
+      'profil_champ_vide': 'This field cannot be empty',
+      'profil_email_invalide': 'Invalid email address',
+      'profil_tel_invalide': 'Invalid phone number',
+      'aujourdhui': 'Today',
       'valider': 'Confirm',
       'tout_effacer': 'Clear all',
       'notif_tout_suppr_titre': 'Delete all notifications?',

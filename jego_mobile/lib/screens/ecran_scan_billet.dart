@@ -5,6 +5,7 @@ import '../config/session_chauffeur.dart';
 import '../config/theme_jego.dart';
 import '../config/scan_hors_ligne.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// Scanner caméra réel (mobile_scanner).
 ///
@@ -172,21 +173,9 @@ class _EcranScanBilletState extends State<EcranScanBillet> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.fondCarte),
-        title: Text(Strings.t('scanner_billet'), style: TextStyle(color: Colors.white)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
-            onPressed: () => _controleur.toggleTorch(),
-          ),
-        ],
-      ),
-      body: Stack(
+    return EcranJego(
+             titre: Strings.t('scanner_billet'),
+             corps: Stack(
         children: [
           MobileScanner(controller: _controleur, onDetect: _onDetection),
           Center(
@@ -218,6 +207,6 @@ class _EcranScanBilletState extends State<EcranScanBillet> {
           ),
         ],
       ),
-    );
+           );
   }
 }

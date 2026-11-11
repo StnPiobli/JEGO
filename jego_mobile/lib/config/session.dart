@@ -21,9 +21,6 @@ class Session {
   static String? prenom;
   static String? telephone;
   static String? email;
-  // Le mot de passe n'est JAMAIS conservé en clair : ce champ ne
-  // sert qu'à l'affichage masqué le temps de la saisie.
-  static String motDePasse = '';
   // Index du fond d'avatar JEGO choisi (0 = degrade vert par defaut).
   static int fondAvatar = 0;
   // Date d'inscription, renseignée depuis le profil serveur.
@@ -161,6 +158,25 @@ class Session {
     // connexion, il restait vide -- les billets semblaient perdus.
     BilletsStore.charger();
     WalletStore.charger();
+    _enregistrer();
+  }
+
+  /// Met a jour l'identite apres un enregistrement accepte par le
+  /// serveur, et l'ecrit sur l'appareil.
+  ///
+  /// Les champs etaient auparavant affectes directement depuis l'ecran
+  /// de profil : sans passer par ici, `_enregistrer()` n'etait jamais
+  /// appele et la modification disparaissait au redemarrage.
+  static void majProfil({
+    String? pNom,
+    String? pPrenom,
+    String? pTelephone,
+    String? pEmail,
+  }) {
+    if (pNom != null) nom = pNom;
+    if (pPrenom != null) prenom = pPrenom;
+    if (pTelephone != null) telephone = pTelephone;
+    if (pEmail != null) email = pEmail;
     _enregistrer();
   }
 

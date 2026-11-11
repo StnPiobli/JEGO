@@ -13,9 +13,9 @@
 import { useEffect, useState } from "react";
 import { Panel, BtnMini, Badge, Toast } from "@/components/ui";
 import TypeToConfirm from "@/components/TypeToConfirm";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import { apiFetch, getToken } from "@/lib/api";
 import { formatTelephone } from "@/lib/format";
+import Calendrier from "@/components/Calendrier";
 
 type AgTrajet = {
   id: string; date: string; dateFr: string; heure: string; arrivee: string;
@@ -51,9 +51,12 @@ type DocumentAgence = {
  *  deux lignes ; l'identifiant complet reste accessible au survol. */
 /** Traduit l'état du programme en phrase lisible. Un badge "en retard" sans
  *  précision oblige à aller chercher l'information ailleurs. */
-function etatProgramme(a: AgenceEtat): { texte: string; alerte: boolean } {
-  if (a.a_jour) return { texte: "À jour", alerte: false };
-  if (!a.dernier_trajet) return { texte: "Aucun trajet publié", alerte: true };
+function etatProgramme(a: AgenceEtat): { texte: string; couleur: "green" | "amber" | "red" | "grey" } {
+  // Une couleur par situation : vert quand tout va bien, ambre quand le
+  // programme court encore mais sous le seuil, rouge quand il est
+  // epuise, gris quand l'agence n'a jamais rien publie.
+  if (a.a_jour) return { texte: "À jour", couleur: "green" };
+  if (!a.dernier_trajet) return { texte: "Aucun trajet publié", couleur: "grey" };
 
   const dernier = new Date(a.dernier_trajet);
   const aujourdhui = new Date();
@@ -61,9 +64,13 @@ function etatProgramme(a: AgenceEtat): { texte: string; alerte: boolean } {
   aujourdhui.setHours(0, 0, 0, 0);
   const jours = Math.round((dernier.getTime() - aujourdhui.getTime()) / 86400000);
 
-  if (jours < 0) return { texte: `Programme épuisé depuis ${Math.abs(jours)} j`, alerte: true };
-  if (jours === 0) return { texte: "Plus rien après aujourd'hui", alerte: true };
-  return { texte: `Plus que ${jours} j de programme`, alerte: true };
+  // On donne la date de fin plutot qu'un decompte : « jusqu'au 5 septembre »
+  // se verifie d'un coup d'oeil contre le calendrier, « plus que 7 j » non.
+  const finProgramme = dernier.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+  if (jours < 0) return { texte: `Programme épuisé depuis ${Math.abs(jours)} j`, couleur: "red" };
+  if (jours === 0) return { texte: "Plus rien après aujourd'hui", couleur: "red" };
+  return { texte: `Programme allant jusqu'au ${finProgramme}`, couleur: "amber" };
 }
 
 // Numero public de l'agence, attribue en base a la creation. On
@@ -99,8 +106,13 @@ export default function AgencesPage() {
   const [agChargement, setAgChargement] = useState(false);
   const [trajRecherche, setTrajRecherche] = useState("");
   const [trajDate, setTrajDate] = useState("");
+  const [trajDatePickerOuvert, setTrajDatePickerOuvert] = useState(false);
   const [documentOuvert, setDocumentOuvert] = useState<string | null>(null);
   const [motifDesactivation, setMotifDesactivation] = useState("");
+  // Filtre de la liste des agences validees, sur l'etat du programme.
+  const [filtreProgramme, setFiltreProgramme] = useState<"toutes" | "green" | "amber" | "red" | "grey">("toutes");
+  // Filtre des trajets dans la fiche d'une agence.
+  const [filtreTrajets, setFiltreTrajets] = useState<"tous" | "passes" | "en_cours" | "programmes">("tous");
 
   function notifier(msg: string) {
     setToast(msg);
@@ -271,7 +283,6 @@ export default function AgencesPage() {
           <h1 className="font-display text-[22px] tracking-tight">Agences</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">{agences.length} agence(s) en attente de validation</div>
         </div>
-        <HistoriqueButton label="Historique des validations" entrees={[]} />
       </div>
 
       {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}
@@ -307,7 +318,7 @@ export default function AgencesPage() {
       {!chargement && vue === "a_valider" && (
         <div className="grid grid-cols-[1.4fr_1fr] gap-4 mb-6">
           <Panel title={`Dossiers à valider (${agences.length})`}>
-            <div className="max-h-[420px] overflow-y-auto">
+            <div>
 <table className="w-full">
               <tbody>
                 {agences.length === 0 && (
@@ -402,29 +413,53 @@ export default function AgencesPage() {
       )}
 
       <div className="grid grid-cols-1 gap-4">
-        {vue === "validees" && (
-        <Panel title={`Agences validées (${validees.length})`}>
-          <div className="h-[calc(100vh-168px)] overflow-y-auto">
+        {vue === "validees" && (() => {
+          const parEtat = (couleur: typeof filtreProgramme) =>
+            couleur === "toutes" ? validees : validees.filter((a) => etatProgramme(a).couleur === couleur);
+          const listeAgences = parEtat(filtreProgramme);
+          return (
+        <Panel title={`Agences validées (${listeAgences.length})`}>
+          {/* Filtre sur l'etat du programme : les couleurs des badges
+              deviennent des entrees de tri. */}
+          <div className="px-[18px] pt-3 pb-1 flex flex-wrap gap-2">
+            {([
+              ["toutes", "Toutes"],
+              ["green", "À jour"],
+              ["amber", "Bientôt épuisé"],
+              ["red", "En retard"],
+              ["grey", "Aucun trajet"],
+            ] as const).map(([cle, libelle]) => (
+              <button
+                key={cle}
+                onClick={() => setFiltreProgramme(cle)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${filtreProgramme === cle ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}
+              >
+                {libelle} ({parEtat(cle).length})
+              </button>
+            ))}
+          </div>
+          <div>
 <table className="w-full">
             <tbody>
-              {validees.map((a) => (
+              {listeAgences.map((a) => (
                 <tr key={a.id} className="border-t border-line first:border-t-0 hover:bg-green-500/5 cursor-pointer" onClick={() => setDetailEtat(a)}>
                   <td className="px-[18px] py-2.5 text-[13px]">
                     <span className="font-mono text-[10.5px] text-ink-soft" title={String(a.id)}>{identifiantAgence(a)}</span> <b>{a.nom}</b><br />
                     <span className="text-ink-soft text-[11.5px]">{a.ville}</span><br />
                     <span className="text-ink-soft text-[11px] font-mono">{avecIndicatif(a.telephone)} · {a.email}</span>
                   </td>
-                  <td className="px-[18px] py-2.5"><Badge color={a.a_jour ? "green" : "amber"}>{etatProgramme(a).texte}</Badge></td>
+                  <td className="px-[18px] py-2.5"><Badge color={etatProgramme(a).couleur}>{etatProgramme(a).texte}</Badge></td>
                 </tr>
               ))}
             </tbody>
           </table>
 </div>
         </Panel>
-        )}
+          );
+        })()}
         {vue === "refusees" && (
         <Panel title={`Agences refusées (${refusees.length})`}>
-          <div className="h-[calc(100vh-168px)] overflow-y-auto">
+          <div>
 <table className="w-full">
             <tbody>
               {refusees.map((a) => (
@@ -452,12 +487,21 @@ export default function AgencesPage() {
 
       {detailEtat && (() => {
         const dateFr = trajDate ? trajDate.split("-").reverse().join("/") : "";
-        const trajetsFiltres = agTrajets.filter((t) => {
+        // Etat reel du trajet : « en cours » des que le depart est passe
+        // et que l'arrivee n'est pas declaree, « passe » une fois
+        // terminee ou annulee, « programme » avant le depart.
+        const etatTrajet = (t: AgTrajet): "passes" | "en_cours" | "programmes" => {
+          if (["termine", "annule", "supprime"].includes(t.statutCode)) return "passes";
+          const depart = new Date(`${t.date}T${t.heure || "00:00"}`);
+          return new Date() > depart ? "en_cours" : "programmes";
+        };
+        const parEtatTrajet = (cle: typeof filtreTrajets) => agTrajets.filter((t) => {
           const q = trajRecherche.trim().toLowerCase();
           const okTexte = !q || [t.route, t.chauffeur, t.numero].some((c) => (c || "").toLowerCase().includes(q));
           const okDate = !dateFr || t.dateFr === dateFr;
-          return okTexte && okDate;
+          return okTexte && okDate && (cle === "tous" || etatTrajet(t) === cle);
         });
+        const trajetsFiltres = parEtatTrajet(filtreTrajets);
         return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6" onClick={() => setDetailEtat(null)}>
           <div className="bg-paper rounded-2xl shadow-card w-[940px] max-w-[95vw] max-h-[88vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
@@ -484,13 +528,46 @@ export default function AgencesPage() {
             </div>
 
             <div className="mt-5 mb-2 flex items-center justify-between gap-3 flex-wrap">
-              <h4 className="font-display text-[14px] font-semibold">Programme des trajets à venir ({trajetsFiltres.length})</h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="font-display text-[14px] font-semibold">Trajets ({trajetsFiltres.length})</h4>
+                {([
+                  ["tous", "Tous"],
+                  ["passes", "Passés"],
+                  ["en_cours", "En cours"],
+                  ["programmes", "Programmés"],
+                ] as const).map(([cle, libelle]) => (
+                  <button
+                    key={cle}
+                    onClick={() => setFiltreTrajets(cle)}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${filtreTrajets === cle ? "bg-green-700 text-white border-green-700" : "border-line text-ink-soft"}`}
+                  >
+                    {libelle} ({parEtatTrajet(cle).length})
+                  </button>
+                ))}
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5">
                   <span className="text-ink-soft text-[13px]">🔍</span>
                   <input value={trajRecherche} onChange={(e) => setTrajRecherche(e.target.value)} placeholder="Rechercher (trajet, chauffeur, numéro)" className="text-[12.5px] outline-none bg-transparent w-[220px]" />
                 </div>
-                <input type="date" value={trajDate} onChange={(e) => setTrajDate(e.target.value)} className="text-[12.5px] rounded-lg border border-line px-2.5 py-1.5 text-ink-soft" />
+                <div className="relative">
+                  <button
+                    onClick={() => setTrajDatePickerOuvert((o) => !o)}
+                    className="text-[12.5px] rounded-lg border border-line px-3 py-1.5 text-ink-soft hover:border-green-700/40"
+                  >
+                    {trajDate ? trajDate.split("-").reverse().join("/") : "Filtrer par date"}
+                  </button>
+                  {trajDatePickerOuvert && (
+                    <Calendrier
+                      mode="jour"
+                      value={trajDate ? new Date(Number(trajDate.slice(0, 4)), Number(trajDate.slice(5, 7)) - 1, Number(trajDate.slice(8, 10))) : null}
+                      onChange={(d) => { setTrajDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); setTrajDatePickerOuvert(false); }}
+                      onEffacer={() => { setTrajDate(""); setTrajDatePickerOuvert(false); }}
+                      onFermer={() => setTrajDatePickerOuvert(false)}
+                      align="right"
+                    />
+                  )}
+                </div>
                 {(trajRecherche || trajDate) && (
                   <button onClick={() => { setTrajRecherche(""); setTrajDate(""); }} className="text-[12px] text-ink-soft underline">Effacer</button>
                 )}
@@ -501,22 +578,20 @@ export default function AgencesPage() {
               <div className="max-h-[40vh] overflow-y-auto">
                 <table className="w-full">
                   <thead className="bg-off-white sticky top-0">
-                    <tr>{["Date", "Heure", "Trajet", "Chauffeur", "Occ.", "Statut"].map((h) => <th key={h} className="text-left text-[10px] uppercase tracking-wide text-ink-soft px-3 py-2 font-semibold">{h}</th>)}</tr>
+                    <tr>{["Trajet", "Date", "Heure", "N° de voyage"].map((h) => <th key={h} className="text-left text-[10px] uppercase tracking-wide text-ink-soft px-3 py-2 font-semibold">{h}</th>)}</tr>
                   </thead>
                   <tbody>
                     {agChargement ? (
-                      <tr><td colSpan={6} className="px-3 py-6 text-center text-ink-soft text-[12.5px]">Chargement…</td></tr>
+                      <tr><td colSpan={4} className="px-3 py-6 text-center text-ink-soft text-[12.5px]">Chargement…</td></tr>
                     ) : trajetsFiltres.length === 0 ? (
-                      <tr><td colSpan={6} className="px-3 py-6 text-center text-ink-soft text-[12.5px]">Aucun trajet à venir.</td></tr>
+                      <tr><td colSpan={4} className="px-3 py-6 text-center text-ink-soft text-[12.5px]">Aucun trajet.</td></tr>
                     ) : (
                       trajetsFiltres.map((t) => (
                         <tr key={t.id} className="border-t border-line">
+                          <td className="px-3 py-2 text-[12.5px] font-semibold">{t.route}</td>
                           <td className="px-3 py-2 text-[12px] font-mono">{t.dateFr}</td>
                           <td className="px-3 py-2 text-[12px] font-mono">{t.heure}</td>
-                          <td className="px-3 py-2 text-[12.5px] font-semibold">{t.route}</td>
-                          <td className="px-3 py-2 text-[12px] text-ink-soft">{t.chauffeur}</td>
-                          <td className="px-3 py-2 text-[12px]">{t.occ}</td>
-                          <td className="px-3 py-2"><Badge color={t.statutCode === "annule" ? "red" : t.statutCode === "en_cours" ? "green" : t.statutCode === "retard" || t.statutCode === "incident" ? "amber" : "grey"}>{t.statut}</Badge></td>
+                          <td className="px-3 py-2 text-[11.5px] font-mono text-ink-soft">{t.numero}</td>
                         </tr>
                       ))
                     )}

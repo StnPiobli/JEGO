@@ -12,9 +12,11 @@
 // "voir le mot de passe" n'a de sens réel, seulement réinitialiser.
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import LayoutAgence from '../components/LayoutAgence';
 import { Panel, Badge, ToastDemo } from '../components/ui';
 import TelephoneInput from '../components/TelephoneInput';
+import Calendrier from '../components/Calendrier';
 import { apiFetch } from '../lib/api';
 import { formatTelephone } from '../lib/format';
 
@@ -28,10 +30,13 @@ type Chauffeur = {
   note_moyenne: number | null;
   nombre_voyages: number;
   date_naissance?: string;
+  cree_le?: string;
+  statut?: string;
 };
 
 type TrajetChauffeur = {
   id: string;
+  numero: string;
   date_depart: string;
   heure_depart: string;
   statut: 'programme' | 'en_cours' | 'retard' | 'termine' | 'annule';
@@ -56,18 +61,10 @@ function calculerAge(dateNaissance?: string): number | null {
   return age;
 }
 
-type TriChauffeur = 'alpha' | 'notes';
+type TriChauffeur = 'alpha' | 'notes' | 'ancien';
 
 function initiales(p: string, n: string) {
   return `${p[0] ?? ''}${n[0] ?? ''}`.toUpperCase();
-}
-
-function identifiantTrajet(t: TrajetChauffeur): string {
-  const date = t.date_depart.replace(/-/g, '').slice(2);
-  const heure = t.heure_depart.replace(':', '');
-  const abrevDepart = t.ville_depart.slice(0, 3).toUpperCase();
-  const abrevArrivee = t.ville_arrivee.slice(0, 3).toUpperCase();
-  return `JG-${date}-${heure}-${abrevDepart}${abrevArrivee}`;
 }
 
 export default function ChauffeursPage() {
@@ -78,8 +75,11 @@ export default function ChauffeursPage() {
 
   const [modaleOuverte, setModaleOuverte] = useState(false);
   const [chauffeurVu, setChauffeurVu] = useState<Chauffeur | null>(null);
+  // Arrivee depuis un lien « chauffeur » de la page Trajets : on ouvre
+  // directement sa fiche.
+  const [focusChauffeur, setFocusChauffeur] = useState<string | null>(null);
   const [tri, setTri] = useState<TriChauffeur>('alpha');
-  const [filtreStatut, setFiltreStatut] = useState<'tous' | 'actif' | 'desactive'>('tous');
+  const [filtreStatut, setFiltreStatut] = useState<'tous' | 'actif' | 'desactive' | 'supprime'>('tous');
 
   const [confirmationStatut, setConfirmationStatut] = useState<Chauffeur | null>(null);
   const [texteConfirmation, setTexteConfirmation] = useState('');
@@ -89,6 +89,8 @@ export default function ChauffeursPage() {
   const [texteSuppression, setTexteSuppression] = useState('');
   const [trajetsChauffeur, setTrajetsChauffeur] = useState<TrajetChauffeur[]>([]);
   const [chargementTrajets, setChargementTrajets] = useState(false);
+  const [filtreTrajet, setFiltreTrajet] = useState<'prevu' | 'en_cours' | 'passe'>('prevu');
+  const [erreurFiche, setErreurFiche] = useState<string | null>(null);
 
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
@@ -96,6 +98,7 @@ export default function ChauffeursPage() {
   const [telephone, setTelephone] = useState('');
   const [indicatifTel, setIndicatifTel] = useState('+237');
   const [dateNaissance, setDateNaissance] = useState('');
+  const [dobPickerOuvert, setDobPickerOuvert] = useState(false);
   const [lieuNaissance, setLieuNaissance] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [envoye, setEnvoye] = useState(false);
@@ -124,27 +127,50 @@ export default function ChauffeursPage() {
   }
   useEffect(() => { charger(); }, []);
 
+  useEffect(() => {
+    const f = new URLSearchParams(window.location.search).get('focus');
+    if (f) setFocusChauffeur(f);
+  }, []);
+
+  // Des que la liste est la, on ouvre la fiche demandee.
+  useEffect(() => {
+    if (!focusChauffeur || chauffeurs.length === 0) return;
+    const cible = chauffeurs.find((c) => String(c.id) === focusChauffeur);
+    if (cible) setChauffeurVu(cible);
+    setFocusChauffeur(null);
+  }, [focusChauffeur, chauffeurs]);
+
   const chauffeursAffiches = useMemo(() => {
     const copie = chauffeurs.filter((c) => {
+      const supprime = c.statut === 'supprime';
+      if (filtreStatut === 'supprime') return supprime;
+      if (supprime) return false; // les supprimés n'apparaissent que dans leur filtre
       if (filtreStatut === 'tous') return true;
       const actif = !c.desactive_urgence;
       return filtreStatut === 'actif' ? actif : !actif;
     });
     if (tri === 'notes') return [...copie].sort((a, b) => (b.note_moyenne ?? 0) - (a.note_moyenne ?? 0));
+    if (tri === 'ancien') return [...copie].sort((a, b) => (a.cree_le ?? '').localeCompare(b.cree_le ?? ''));
     return [...copie].sort((a, b) => a.nom.localeCompare(b.nom));
   }, [chauffeurs, tri, filtreStatut]);
 
-  const trajetsAVenir = useMemo(
-    () => trajetsChauffeur.filter((t) => t.statut === 'programme' || t.statut === 'en_cours'),
-    [trajetsChauffeur]
-  );
-  const trajetsEffectues = useMemo(
-    () => trajetsChauffeur.filter((t) => t.statut === 'termine'),
-    [trajetsChauffeur]
-  );
+  const trajetsFiltres = useMemo(() => {
+    if (filtreTrajet === 'prevu') return trajetsChauffeur.filter((t) => t.statut === 'programme');
+    if (filtreTrajet === 'en_cours') return trajetsChauffeur.filter((t) => t.statut === 'en_cours' || t.statut === 'retard');
+    return trajetsChauffeur.filter((t) => t.statut === 'termine' || t.statut === 'annule');
+  }, [trajetsChauffeur, filtreTrajet]);
+  const compteTrajet = (cle: 'prevu' | 'en_cours' | 'passe') =>
+    trajetsChauffeur.filter((t) =>
+      cle === 'prevu' ? t.statut === 'programme'
+        : cle === 'en_cours' ? (t.statut === 'en_cours' || t.statut === 'retard')
+        : (t.statut === 'termine' || t.statut === 'annule')
+    ).length;
 
   useEffect(() => {
     if (!chauffeurVu) { setTrajetsChauffeur([]); return; }
+    // Fiche fraîche : pas d'erreur résiduelle, onglet par défaut.
+    setErreurFiche(null);
+    setFiltreTrajet('prevu');
     setChargementTrajets(true);
     apiFetch(`/api/trajets?chauffeur_id=${chauffeurVu.id}`)
       .then((data) => {
@@ -171,11 +197,16 @@ export default function ChauffeursPage() {
       await apiFetch(`/api/chauffeurs/${id}/${action}`, { method: 'PUT' });
       await charger();
       notifier(action === 'desactiver' ? 'Chauffeur désactivé' : 'Chauffeur réactivé');
-    } catch (err) {
-      setErreur(err instanceof Error ? err.message : 'Erreur');
-    } finally {
+      setErreurFiche(null);
       setChauffeurVu(null);
+    } catch (err) {
+      // Refus (ex. trajets à venir/en cours) : on garde la fiche ouverte,
+      // on montre pourquoi, et on met sous les yeux les trajets bloquants.
+      setErreurFiche(err instanceof Error ? err.message : 'Erreur');
+      setFiltreTrajet(compteTrajet('prevu') > 0 ? 'prevu' : 'en_cours');
+    } finally {
       setConfirmationStatut(null);
+      setTexteConfirmation('');
     }
   }
 
@@ -198,9 +229,12 @@ export default function ChauffeursPage() {
       await apiFetch(`/api/chauffeurs/${confirmationSuppression.id}`, { method: 'DELETE' });
       await charger();
       notifier('Chauffeur supprimé');
+      setErreurFiche(null);
       setChauffeurVu(null);
     } catch (err) {
-      notifier(err instanceof Error ? err.message : 'Erreur lors de la suppression');
+      // Refus (trajets à venir/en cours) : fiche gardée ouverte + trajets bloquants.
+      setErreurFiche(err instanceof Error ? err.message : 'Erreur lors de la suppression');
+      setFiltreTrajet(compteTrajet('prevu') > 0 ? 'prevu' : 'en_cours');
     } finally {
       setConfirmationSuppression(null);
       setTexteSuppression('');
@@ -249,13 +283,13 @@ export default function ChauffeursPage() {
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <span className="text-xs text-ink-soft font-semibold mr-1">Trier :</span>
-          {([{ v: 'alpha', l: 'Alphabétique' }, { v: 'notes', l: 'Meilleures notes' }] as const).map((t) => (
+          {([{ v: 'alpha', l: 'Alphabétique' }, { v: 'notes', l: 'Meilleures notes' }, { v: 'ancien', l: 'Plus ancien' }] as const).map((t) => (
             <button key={t.v} onClick={() => setTri(t.v)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${tri === t.v ? 'bg-green-700 text-white' : 'bg-paper border border-line text-ink-soft'}`}>{t.l}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2 mb-5">
           <span className="text-xs text-ink-soft font-semibold mr-1">Filtrer :</span>
-          {([{ v: 'tous', l: 'Tous' }, { v: 'actif', l: 'Actifs' }, { v: 'desactive', l: 'Désactivés' }] as const).map((f) => (
+          {([{ v: 'tous', l: 'Tous' }, { v: 'actif', l: 'Actifs' }, { v: 'desactive', l: 'Désactivés' }, { v: 'supprime', l: 'Supprimés' }] as const).map((f) => (
             <button key={f.v} onClick={() => setFiltreStatut(f.v)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${filtreStatut === f.v ? 'bg-green-700 text-white' : 'bg-paper border border-line text-ink-soft'}`}>{f.l}</button>
           ))}
         </div>
@@ -274,7 +308,7 @@ export default function ChauffeursPage() {
                         <p className="text-sm font-bold text-ink">{c.prenom} {c.nom}</p>
                         <p className="text-xs text-ink-soft font-mono whitespace-nowrap">{formatTelephone(c.telephone)}</p>
                       </div>
-                      <Badge color={!c.desactive_urgence ? 'green' : 'red'}>{!c.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
+                      <Badge color={c.statut === 'supprime' ? 'grey' : !c.desactive_urgence ? 'green' : 'red'}>{c.statut === 'supprime' ? 'Supprimé' : !c.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
                     </div>
                     <div className="flex items-center justify-between text-xs text-ink-soft">
                       <span>{c.nombre_voyages} voyage(s)</span>
@@ -311,7 +345,25 @@ export default function ChauffeursPage() {
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm" />
                 <TelephoneInput indicatif={indicatifTel} numero={telephone} onChangeIndicatif={setIndicatifTel} onChangeNumero={setTelephone} />
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="date" value={dateNaissance} onChange={(e) => setDateNaissance(e.target.value)} className="rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm" />
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setDobPickerOuvert((o) => !o)}
+                      className={`w-full text-left rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm ${dateNaissance ? "text-ink" : "text-ink-soft"}`}
+                    >
+                      {dateNaissance ? dateNaissance.split("-").reverse().join("/") : "Date de naissance"}
+                    </button>
+                    {dobPickerOuvert && (
+                      <Calendrier
+                        mode="jour"
+                        value={dateNaissance ? new Date(Number(dateNaissance.slice(0, 4)), Number(dateNaissance.slice(5, 7)) - 1, Number(dateNaissance.slice(8, 10))) : null}
+                        onChange={(d) => { setDateNaissance(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); setDobPickerOuvert(false); }}
+                        onEffacer={() => { setDateNaissance(""); setDobPickerOuvert(false); }}
+                        onFermer={() => setDobPickerOuvert(false)}
+                        align="left"
+                      />
+                    )}
+                  </div>
                   <input value={lieuNaissance} onChange={(e) => setLieuNaissance(e.target.value)} placeholder="Lieu de naissance" className="rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm" />
                 </div>
                 <p className="text-[10.5px] text-ink-soft">🔐 Un mot de passe est généré automatiquement. Utilise &quot;Renvoyer ses identifiants&quot; depuis sa fiche pour le lui envoyer par email.</p>
@@ -327,7 +379,7 @@ export default function ChauffeursPage() {
 
       {chauffeurVu && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={() => setChauffeurVu(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-3xl max-w-md w-full max-h-[85vh] overflow-y-auto shadow-xl">
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-y-auto scroll-mince shadow-xl">
             <div className="bg-gradient-to-br from-green-700 to-green-900 px-7 pt-7 pb-5 rounded-t-3xl">
               <div className="flex items-center gap-3.5">
                 <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-bold text-lg shrink-0 border border-white/20">
@@ -337,7 +389,10 @@ export default function ChauffeursPage() {
                   <p className="text-[17px] font-display font-bold text-white truncate">{chauffeurVu.prenom} {chauffeurVu.nom}</p>
                   <p className="text-[12px] text-white/70 font-mono whitespace-nowrap">{formatTelephone(chauffeurVu.telephone)}</p>
                 </div>
-                <Badge color={!chauffeurVu.desactive_urgence ? 'green' : 'red'}>{!chauffeurVu.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>
+                {chauffeurVu.statut === 'supprime'
+                  ? <Badge color="grey">Supprimé</Badge>
+                  : <Badge color={!chauffeurVu.desactive_urgence ? 'green' : 'red'}>{!chauffeurVu.desactive_urgence ? 'Actif' : 'Désactivé'}</Badge>}
+                <button onClick={() => setChauffeurVu(null)} className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center text-sm shrink-0" aria-label="Fermer">✕</button>
               </div>
             </div>
 
@@ -356,6 +411,7 @@ export default function ChauffeursPage() {
               <div className="rounded-2xl border border-line p-4 space-y-2 mb-4">
                 <div className="kv"><span>Email</span><span className="font-semibold">{chauffeurVu.email ?? '—'}</span></div>
                 <div className="kv"><span>Âge</span><span className="font-semibold">{calculerAge(chauffeurVu.date_naissance) != null ? `${calculerAge(chauffeurVu.date_naissance)} ans` : '—'}</span></div>
+                <div className="kv"><span>Enregistré le</span><span className="font-semibold">{chauffeurVu.cree_le ? chauffeurVu.cree_le.split('-').reverse().join('/') : '—'}</span></div>
               </div>
 
               <div className="flex gap-2 mb-5">
@@ -365,58 +421,62 @@ export default function ChauffeursPage() {
                 <button onClick={() => demanderBasculeStatut(chauffeurVu)} className={`flex-1 rounded-xl text-[11.5px] font-bold py-2.5 ${!chauffeurVu.desactive_urgence ? 'bg-red-bg text-red' : 'bg-ok-bg text-green-700'}`}>
                   {!chauffeurVu.desactive_urgence ? 'Désactiver' : 'Réactiver'}
                 </button>
+                <button onClick={() => setConfirmationSuppression(chauffeurVu)} className="flex-1 rounded-xl bg-red-bg text-red text-[11.5px] font-bold py-2.5">
+                  🗑 Supprimer
+                </button>
               </div>
 
+              {erreurFiche && (
+                <div className="rounded-xl border border-red/30 bg-red/6 px-4 py-3 mb-4">
+                  <p className="text-[12px] font-semibold text-red">⚠ {erreurFiche}</p>
+                  <p className="text-[11px] text-ink-soft mt-1">Réassigne d&apos;abord ces trajets via <span className="font-semibold text-ink">Trajets → « Changer de chauffeur »</span> — ils sont listés ci-dessous.</p>
+                </div>
+              )}
+
               <div className="mb-4">
-                <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-2">Trajets à venir</p>
+                <div className="inline-flex rounded-xl bg-off-white border border-line p-1 mb-3">
+                  {([['prevu', 'Prévus'], ['en_cours', 'En cours'], ['passe', 'Passés']] as const).map(([cle, label]) => (
+                    <button
+                      key={cle}
+                      onClick={() => setFiltreTrajet(cle)}
+                      className={`px-3.5 py-1.5 rounded-lg text-[12px] font-bold transition ${filtreTrajet === cle ? 'bg-green-700 text-white shadow-sm' : 'text-ink-soft hover:text-ink'}`}
+                    >
+                      {label} <span className={filtreTrajet === cle ? 'text-white/70' : 'text-ink-soft'}>({compteTrajet(cle)})</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Hauteur mini : évite que le bloc s'effondre / se décale en changeant d'onglet */}
+                <div className="min-h-[360px]">
                 {chargementTrajets ? (
                   <p className="text-[12px] text-ink-soft">Chargement…</p>
-                ) : trajetsAVenir.length === 0 ? (
-                  <p className="text-[12px] text-ink-soft">Aucun trajet programmé ou en cours pour l&apos;instant.</p>
+                ) : trajetsFiltres.length === 0 ? (
+                  <p className="text-[13px] text-ink-soft h-[360px] flex items-center justify-center">
+                    {filtreTrajet === 'prevu' ? 'Aucun trajet prévu.' : filtreTrajet === 'en_cours' ? 'Aucun trajet en cours.' : 'Aucun trajet passé.'}
+                  </p>
                 ) : (
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {trajetsAVenir.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between bg-off-white rounded-xl px-3.5 py-2.5">
+                  <div className="space-y-2">
+                    {trajetsFiltres.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between gap-3 bg-off-white rounded-xl px-3.5 py-2.5">
                         <div className="min-w-0">
                           <p className="text-[12.5px] font-semibold text-ink truncate">{t.ville_depart} → {t.ville_arrivee}</p>
-                          <p className="text-[10px] text-ink-soft font-mono">{identifiantTrajet(t)}</p>
+                          <p className="text-[10px] text-ink-soft font-mono">{t.numero}</p>
                           <p className="text-[10.5px] text-ink-soft">{t.date_depart.split('-').reverse().join('/')} · {t.heure_depart}</p>
                         </div>
-                        <Badge color={couleurStatutTrajet[t.statut]}>{libellesStatutTrajet[t.statut]}</Badge>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <Badge color={couleurStatutTrajet[t.statut]}>{libellesStatutTrajet[t.statut]}</Badge>
+                          <Link href={`/trajets?date=${t.date_depart}&focus=${t.id}`} className="text-[11px] font-bold text-green-700 hover:underline whitespace-nowrap">
+                            Voir le trajet →
+                          </Link>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
+                </div>
               </div>
 
-              <div className="mb-4">
-                <p className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-2">Trajets effectués</p>
-                {chargementTrajets ? (
-                  <p className="text-[12px] text-ink-soft">Chargement…</p>
-                ) : trajetsEffectues.length === 0 ? (
-                  <p className="text-[12px] text-ink-soft">Aucun trajet effectué pour l&apos;instant.</p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {trajetsEffectues.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between bg-off-white rounded-xl px-3.5 py-2.5">
-                        <div className="min-w-0">
-                          <p className="text-[12.5px] font-semibold text-ink truncate">{t.ville_depart} → {t.ville_arrivee}</p>
-                          <p className="text-[10px] text-ink-soft font-mono">{identifiantTrajet(t)}</p>
-                          <p className="text-[10.5px] text-ink-soft">{t.date_depart.split('-').reverse().join('/')} · {t.heure_depart}</p>
-                        </div>
-                        <Badge color={couleurStatutTrajet[t.statut]}>{libellesStatutTrajet[t.statut]}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <p className="text-[10.5px] text-ink-soft mb-5">Le mot de passe est chiffré côté serveur — il ne peut plus être consulté une fois créé, seulement réinitialisé via le renvoi par email.</p>
-            </div>
-
-            <div className="flex gap-3 px-7 pb-7">
-              <button onClick={() => setChauffeurVu(null)} className="flex-1 rounded-xl bg-off-white border border-line text-ink font-semibold text-sm py-3">Fermer</button>
-              <button onClick={() => setConfirmationSuppression(chauffeurVu)} className="rounded-xl bg-red-bg text-red font-semibold text-sm px-4 py-3">Supprimer</button>
+              <div className="pb-7" />
             </div>
           </div>
         </div>
@@ -426,9 +486,22 @@ export default function ChauffeursPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]" onClick={() => setConfirmationStatut(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
             <div className="w-12 h-12 rounded-full bg-red-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">⚠</span></div>
-            <p className="text-center text-sm font-bold text-ink mb-1">
+            <p className="text-center text-sm font-bold text-ink mb-2">
               {!confirmationStatut.desactive_urgence ? 'Désactiver' : 'Réactiver'} {confirmationStatut.prenom} {confirmationStatut.nom} ?
             </p>
+            {!confirmationStatut.desactive_urgence ? (
+              <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left space-y-1.5">
+                <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Son accès est <strong>coupé immédiatement</strong> (y compris une session en cours) : il ne peut plus se connecter ni conduire.</p>
+                <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Il ne pourra plus être <strong>assigné</strong> à de nouveaux trajets.</p>
+                <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s'il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d'abord (Trajets → « Changer de chauffeur »).</p>
+                <p className="text-[11px] text-ink-soft pt-0.5">Réversible à tout moment via « Réactiver ».</p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left space-y-1.5">
+                <p className="text-[11.5px] text-ink"><span className="text-green-700 font-bold">•</span> Il pourra de nouveau <strong>se connecter</strong> à son espace chauffeur.</p>
+                <p className="text-[11.5px] text-ink"><span className="text-green-700 font-bold">•</span> Il redevient <strong>assignable</strong> à des trajets.</p>
+              </div>
+            )}
             <p className="text-center text-xs text-ink-soft mb-4">
               Pour confirmer, écris <strong>{!confirmationStatut.desactive_urgence ? 'DESACTIVER' : 'ACTIVER'}</strong> ci-dessous.
             </p>
@@ -445,7 +518,11 @@ export default function ChauffeursPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]" onClick={() => setConfirmationRenvoi(false)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
             <div className="w-12 h-12 rounded-full bg-amber-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">💬</span></div>
-            <p className="text-center text-sm font-bold text-ink mb-1">Renvoyer les identifiants ?</p>
+            <p className="text-center text-sm font-bold text-ink mb-2">Renvoyer les identifiants ?</p>
+            <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left">
+              <p className="text-[11.5px] text-ink">Un email avec un <strong>nouveau mot de passe</strong> lui sera envoyé.</p>
+              <p className="text-[11px] text-ink-soft mt-1">Le mot de passe est chiffré côté serveur — il ne peut jamais être consulté une fois créé, seulement réinitialisé via ce renvoi.</p>
+            </div>
             <p className="text-center text-xs text-ink-soft mb-4">
               Pour confirmer, écris <strong>RENVOYER</strong> ci-dessous.
             </p>
@@ -461,9 +538,14 @@ export default function ChauffeursPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[60]" onClick={() => setConfirmationSuppression(null)}>
           <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-2xl p-7 max-w-sm w-full">
             <div className="w-12 h-12 rounded-full bg-red-bg flex items-center justify-center mx-auto mb-4"><span className="text-xl">🗑</span></div>
-            <p className="text-center text-sm font-bold text-ink mb-1">Supprimer {confirmationSuppression.prenom} {confirmationSuppression.nom} ?</p>
+            <p className="text-center text-sm font-bold text-ink mb-2">Supprimer {confirmationSuppression.prenom} {confirmationSuppression.nom} ?</p>
+            <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left space-y-1.5">
+              <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Le chauffeur <strong>disparaît des listes</strong> : il ne peut plus se connecter ni être assigné.</p>
+              <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Son <strong>historique</strong> (trajets terminés, avis reçus) est <strong>conservé</strong>.</p>
+              <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s'il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d'abord (Trajets → « Changer de chauffeur »).</p>
+              <p className="text-[11px] text-ink-soft pt-0.5">Non réversible depuis l&apos;interface — pour une coupure temporaire, préfère « Désactiver ».</p>
+            </div>
             <p className="text-center text-xs text-ink-soft mb-4">
-              Action définitive. Si ce chauffeur est assigné à un trajet à venir ou en cours, la suppression sera refusée — retire-le du trajet ou utilise plutôt &quot;Désactiver&quot;. Un historique de trajets déjà terminés n&apos;empêche pas la suppression.
               Pour confirmer, écris <strong>SUPPRIMER</strong> ci-dessous.
             </p>
             <input value={texteSuppression} onChange={(e) => setTexteSuppression(e.target.value)} placeholder="SUPPRIMER" className="w-full rounded-lg bg-off-white border border-line px-4 py-2.5 text-sm text-center font-bold mb-4" />

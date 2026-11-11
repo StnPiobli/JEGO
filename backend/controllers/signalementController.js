@@ -1,5 +1,7 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
+const { genererIdentifiant } = require('../utils/identifiant');
+const { lireParametreEntier } = require('../services/parametreService');
 
 // Catégories de signalement autorisées (doivent correspondre à la contrainte BDD)
 const CATEGORIES = [
@@ -85,6 +87,38 @@ async function signaler(req, res) {
       'autre': 'un autre problème'
     };
     const libCat = LIBELLES[categorie] || categorie;
+
+    // Avertissement affiche au chauffeur : le titre nomme ce qu'on lui
+    // reproche, le message dit quoi corriger. Un chauffeur signale pour
+    // exces de vitesse n'a pas la meme chose a changer qu'un chauffeur
+    // signale pour un arret trop long.
+    const AVERTISSEMENTS = {
+      'exces_vitesse': {
+        titre: 'Excès de vitesse',
+        message: 'Plusieurs passagers vous trouvent trop rapide. Ralentissez et respectez les limitations.'
+      },
+      'conduite_dangereuse': {
+        titre: 'Conduite dangereuse',
+        message: 'Plusieurs passagers se sentent en danger. Ralentissez et évitez les manœuvres risquées.'
+      },
+      'comportement_inapproprie': {
+        titre: 'Comportement inapproprié',
+        message: 'Plusieurs passagers se plaignent de votre attitude. Restez courtois avec eux.'
+      },
+      'panne_technique': {
+        titre: 'Panne technique',
+        message: 'Plusieurs passagers signalent un problème sur le bus. Faites-le vérifier avant de repartir.'
+      },
+      'arret_prolonge': {
+        titre: 'Arrêt prolongé',
+        message: 'Plusieurs passagers trouvent cet arrêt trop long. Reprenez la route dès que possible.'
+      },
+      'autre': {
+        titre: 'Signalement de passagers',
+        message: 'Plusieurs passagers ont signalé un problème pendant le trajet. Restez vigilant.'
+      }
+    };
+    const avertissement = AVERTISSEMENTS[categorie] || AVERTISSEMENTS['autre'];
     const estFausseArrivee = categorie === 'fausse_arrivee';
 
     // 4. Seuil collectif base sur le nombre de voyageurs REELLEMENT
@@ -181,18 +215,71 @@ async function signaler(req, res) {
       if (trj.chauffeur_id && !estFausseArrivee) {
         await creerNotification({
           destinataire_type: 'chauffeur', destinataire_id: trj.chauffeur_id,
-          type: 'alerte_signalement', titre: 'Signalement collectif',
-          contenu: `Plusieurs passagers ont signalé : ${libCat}. Merci de rester vigilant.`,
+          type: 'alerte_signalement', titre: avertissement.titre,
+          contenu: avertissement.message,
           canal: 'push', trajet_id
         });
       }
 
-      // Fausse arrivee au seuil : le trajet part en investigation.
+      // Fausse arrivee au seuil : le trajet part en investigation ET un
+      // litige s'ouvre automatiquement. Un litige par denonciateur, car
+      // l'escrow est retenu billet par billet : c'est le seul decoupage
+      // qui permette de rembourser le bon voyageur si JEGO lui donne
+      // raison.
       if (estFausseArrivee) {
+        // Le trajet part en investigation. Le statut n'est plus affiche
+        // nulle part (c'est le litige qui parle a l'utilisateur), mais
+        // la mecanique interne reste : elle gele le dossier.
         await client.query(
           `UPDATE trajets SET statut = 'incident', mis_a_jour_le = NOW()
            WHERE id = $1 AND statut NOT IN ('annule')`, [trajet_id]
         );
+
+        // UN SEUL litige par trajet, mais COLLECTIF : c'est le meme fait
+        // pour tout le monde. Il porte le billet du premier denonciateur
+        // (un litige porte toujours un billet, celui qui tient l'escrow),
+        // et le drapeau `collectif` fait qu'il est visible par tous les
+        // denonciateurs et que le remboursement les couvre tous.
+        const dejaOuvert = await client.query(
+          `SELECT id FROM litiges WHERE trajet_id = $1 AND motif = 'Fausse arrivée'`,
+          [trajet_id]
+        );
+        const denonciateurs = await client.query(
+          `SELECT s.voyageur_id, b.id AS billet_id
+             FROM signalements s
+             JOIN billets b ON b.trajet_id = s.trajet_id
+                           AND b.voyageur_id = s.voyageur_id
+                           AND b.statut IN ('confirme','utilise')
+            WHERE s.trajet_id = $1 AND s.categorie = 'fausse_arrivee'
+            ORDER BY s.cree_le ASC
+            LIMIT 1`,
+          [trajet_id]
+        );
+
+        if (dejaOuvert.rows.length === 0 && denonciateurs.rows.length > 0) {
+          const d = denonciateurs.rows[0];
+          await client.query(
+            `INSERT INTO litiges
+              (numero, billet_id, trajet_id, voyageur_id, agence_id, ouvert_par,
+               niveau, motif, description, statut, collectif)
+             VALUES ($1, $2, $3, $4, $5, 'voyageur', 1, 'Fausse arrivée', $6, 'ouvert', true)`,
+            [
+              genererIdentifiant('LIT'), d.billet_id, trajet_id, d.voyageur_id,
+              trj.agence_id,
+              "Fausse arrivée signalée par plusieurs voyageurs. JEGO enquête, le versement à l'agence est suspendu.",
+            ]
+          );
+        }
+
+        if (trj.agence_id && dejaOuvert.rows.length === 0 && denonciateurs.rows.length > 0) {
+          const delaiHeures = await lireParametreEntier('delai_reponse_agence_heures', 48);
+          await creerNotification({
+            destinataire_type: 'agence', destinataire_id: trj.agence_id,
+            type: 'litige_ouvert', titre: 'Litige ouvert automatiquement',
+            contenu: `Fausse arrivée confirmée sur ${trajetLibelle}. Un litige est ouvert, vous avez ${delaiHeures}h pour répondre.`,
+            canal: 'email'
+          });
+        }
       }
     }
 
@@ -236,23 +323,58 @@ async function signalementsAgence(req, res) {
     }
 
     const resultat = await pool.query(
-      `SELECT s.id, s.categorie, s.commentaire, s.cree_le, s.trajet_id,
-              t.date_depart, t.heure_depart, t.statut AS statut_trajet,
-              'JG-' || to_char(t.date_depart, 'YYMMDD') || '-' ||
-              to_char(t.heure_depart, 'HH24MI') || '-' ||
-              UPPER(SUBSTRING(t.id::text, 1, 4)) AS numero_voyage,
+      `SELECT s.id, s.categorie, s.commentaire, s.trajet_id,
+              -- Dates/heures formatées côté SQL : évite tout décalage de
+              -- fuseau que provoquerait une sérialisation JSON du timestamp.
+              to_char(t.date_depart, 'YYYY-MM-DD') AS date_depart,
+              to_char(t.heure_depart, 'HH24:MI') AS heure_depart,
+              to_char(t.heure_arrivee_estimee, 'HH24:MI') AS heure_arrivee,
+              to_char(s.cree_le, 'YYYY-MM-DD') AS date_signalement,
+              to_char(s.cree_le, 'HH24:MI') AS heure_signalement,
+              t.statut AS statut_trajet,
+              t.numero AS numero_voyage,
               vd.nom_affiche AS depart, va.nom_affiche AS arrivee,
               c.nom AS nom_chauffeur, c.prenom AS prenom_chauffeur,
+              -- Auteur du signalement : l'agence le voit deja sur sa page
+              -- Trajets (listerTrajets), on l'expose donc aussi ici pour
+              -- que la fiche Incidents affiche « Par : ... ».
+              v.prenom || ' ' || v.nom AS passager,
+              -- Itinéraire complet (arrêts, lieux, heures) pour l'affichage
+              -- détaillé « 02:46 → 17:23 → 23:59 / Douala (bar) → … ».
+              COALESCE(pointsDetail.points, '[]'::json) AS points_detail,
               (SELECT COUNT(*) FROM signalements s2
                WHERE s2.trajet_id = s.trajet_id AND s2.categorie = s.categorie)
-                AS signalements_meme_categorie
+                AS signalements_meme_categorie,
+              -- Passagers du trajet : sert a rapporter le nombre de
+              -- signalements a l'effectif reel (« 20 ont signale / 65 »).
+              (SELECT COUNT(*) FROM billets b2
+                WHERE b2.trajet_id = s.trajet_id
+                  AND b2.statut IN ('confirme','utilise')) AS nb_passagers,
+              -- Litiges ouverts sur ce trajet, affiches sous le nombre
+              -- de signalements.
+              (SELECT COUNT(*) FROM litiges lt WHERE lt.trajet_id = s.trajet_id)
+                AS nb_litiges
        FROM signalements s
        JOIN trajets t ON t.id = s.trajet_id
        JOIN lignes l ON l.id = t.ligne_id
        JOIN villes vd ON vd.code = l.ville_depart
        JOIN villes va ON va.code = l.ville_arrivee
+       JOIN voyageurs v ON v.id = s.voyageur_id
        LEFT JOIN chauffeurs c ON c.id = t.chauffeur_id
+       LEFT JOIN LATERAL (
+         SELECT JSON_AGG(JSON_BUILD_OBJECT(
+                  'ville', v3.nom_affiche,
+                  'lieu', lp3.lieu_prise_en_charge,
+                  'heure', to_char(lp3.heure_arrivee_estimee, 'HH24:MI')
+                ) ORDER BY lp3.ordre) AS points
+         FROM ligne_points lp3
+         JOIN villes v3 ON v3.code = lp3.ville
+         WHERE lp3.ligne_id = t.ligne_id
+       ) AS pointsDetail ON true
        WHERE t.agence_id = $1
+         -- La fausse arrivee n'est pas un incident de conduite : au
+         -- seuil elle ouvre un litige, et c'est la qu'elle se traite.
+         AND s.categorie <> 'fausse_arrivee'
        ORDER BY s.cree_le DESC
        LIMIT 200`,
       [req.utilisateur.id]

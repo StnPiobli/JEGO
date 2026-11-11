@@ -76,7 +76,7 @@ export default function VoyageursPage() {
     : voyageurs;
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div>
       <div className="flex items-baseline justify-between mb-5">
         <div>
           <h1 className="font-display text-[22px] tracking-tight">Voyageurs</h1>
@@ -100,7 +100,7 @@ export default function VoyageursPage() {
         }
       >
         {erreur && <p className="px-[18px] py-4 text-[13px] text-red font-medium">{erreur}</p>}
-        <div className="h-[calc(100vh-185px)] overflow-y-auto">
+        <div>
 <table className="w-full">
           <thead>
             <tr>{["Voyageur", "Téléphone", "Email", "Voyages", "Litiges", "Statut", ""].map((h) => <th key={h} title={h === "Statut" ? "Actif = compte normal. Banni commentaires = ne peut plus laisser de commentaires écrits (les notes chiffrées restent possibles)." : undefined} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}{h === "Statut" && <span className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-ink-soft/20 text-ink-soft text-[8px] font-bold not-italic normal-case">i</span>}</th>)}</tr>

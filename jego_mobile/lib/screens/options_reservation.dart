@@ -85,12 +85,12 @@ class _EcranOptionsReservationState extends State<EcranOptionsReservation> {
       if (r.cadeauAller[i]) {
         r.cadeauNomAller[i] = _nomAller[i].text.trim();
         r.cadeauTelAller[i] =
-            '${_paysAller[i].indicatif}${_telAller[i].text.trim()}';
+            PaysTelephone.composer(_paysAller[i], _telAller[i].text);
       }
       if (r.estAllerRetour && r.cadeauRetour[i]) {
         r.cadeauNomRetour[i] = _nomRetour[i].text.trim();
         r.cadeauTelRetour[i] =
-            '${_paysRetour[i].indicatif}${_telRetour[i].text.trim()}';
+            PaysTelephone.composer(_paysRetour[i], _telRetour[i].text);
       }
     }
     Navigator.of(context).push(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/api.dart';
 import '../config/session.dart';
 import '../config/theme_jego.dart';
+import '../widgets/style_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/ecran_toggles_generique.dart';
 
@@ -50,19 +51,11 @@ class _EcranConfidentialiteState extends State<EcranConfidentialite> {
   @override
   Widget build(BuildContext context) {
     if (_avecNom == null) {
-      return Scaffold(
-        backgroundColor: JegoTheme.fond,
-        // Une barre avec retour : sans elle, un écran qui ne peut rien
-        // charger enferme la personne dedans.
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          iconTheme: IconThemeData(color: JegoTheme.texte),
-          title: Text(Strings.t('confidentialite'),
-              style: TextStyle(
-                  color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-        ),
-        body: Center(
+      // Une barre avec retour : sans elle, un écran qui ne peut rien
+      // charger enferme la personne dedans.
+      return EcranJego(
+        titre: Strings.t('confidentialite'),
+        corps: Center(
           child: _erreur == null
               ? const CircularProgressIndicator()
               : Padding(

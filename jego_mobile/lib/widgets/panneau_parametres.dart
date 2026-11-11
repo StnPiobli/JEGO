@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
-import '../screens/conditions_utilisation.dart';
-import '../screens/ecran_confidentialite.dart';
-import '../screens/ecran_politique_confidentialite.dart';
-import '../screens/ecran_securite.dart';
-import '../screens/ecran_theme.dart';
-import '../screens/ecran_verif_maj.dart';
 
 /// Panneau lateral (Drawer), ouvert via le hamburger de l'accueil.
 /// Reprend l'interface "Parametres" de la maquette fournie. Seuls Langue
@@ -69,13 +63,16 @@ class _PanneauParametresState extends State<PanneauParametres> {
                   _carteSection([
                     _ligne(Icons.lock_outline_rounded,
                         Strings.t('param_securite'), onTap: () {
-                      Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => EcranSecurite()));
+                      Navigator.of(context).pushNamed('/securite');
                     }),
                     _ligne(Icons.shield_outlined,
                         Strings.t('param_confidentialite'), onTap: () {
-                      Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => EcranConfidentialite()));
+                      Navigator.of(context).pushNamed('/confidentialite');
+                    }),
+                    // Espace litige : ouvrir une reclamation sur un
+                    // voyage passe et suivre la reponse de l'agence.
+                    _ligne(Icons.gavel_rounded, 'Litiges', onTap: () {
+                      Navigator.of(context).pushNamed('/litiges');
                     }),
                   ]),
                   const SizedBox(height: 22),
@@ -90,8 +87,7 @@ class _PanneauParametresState extends State<PanneauParametres> {
                         Strings.t('param_theme'),
                         Strings.t('theme_' + (modeTheme.value == 'systeme' ? 'systeme' : (modeSombre.value ? 'sombre' : 'clair'))),
                         onTap: () async {
-                      await Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => EcranTheme()));
+                      await Navigator.of(context).pushNamed('/theme');
                       if (mounted) setState(() {});
                     }),
                   ]),
@@ -100,21 +96,15 @@ class _PanneauParametresState extends State<PanneauParametres> {
                   _carteSection([
                     _ligne(Icons.info_outline_rounded, Strings.t('cgu_titre'),
                         onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                EcranConditionsUtilisation()),
-                      );
+                      Navigator.of(context).pushNamed('/cgu');
                     }),
                     _ligne(Icons.description_outlined,
                         Strings.t('param_politique_confidentialite'), onTap: () {
-                      Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => EcranPolitiqueConfidentialite()));
+                      Navigator.of(context).pushNamed('/politique-confidentialite');
                     }),
                     _ligneValeur(Icons.refresh_rounded,
                         Strings.t('param_verifier_maj'), 'v1.0.0', onTap: () {
-                      Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => EcranVerifMaj()));
+                      Navigator.of(context).pushNamed('/verif-maj');
                     }),
                   ]),
                 ],

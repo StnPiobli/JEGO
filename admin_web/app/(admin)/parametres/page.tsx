@@ -6,7 +6,6 @@
 
 import { useEffect, useState } from "react";
 import { Panel, BtnMini } from "@/components/ui";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import TypeToConfirm from "@/components/TypeToConfirm";
 import { apiFetch } from "@/lib/api";
 
@@ -88,7 +87,6 @@ export default function ParametresPage() {
           <h1 className="font-display text-[22px] tracking-tight">Paramètres système</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">Table parametres_systeme — clé/valeur, tracé par modifie_par</div>
         </div>
-        <HistoriqueButton label="Historique des modifications" entrees={[]} />
       </div>
 
       {erreur && <div className="text-xs text-red bg-red-bg rounded-lg px-3 py-2 mb-4">{erreur}</div>}

@@ -17,6 +17,15 @@ if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.startsWith('re_')) 
   console.warn('⚠️ [Notification] RESEND_API_KEY absente — les emails ne seront pas envoyés (les notifications restent enregistrées en base).');
 }
 
+// Interrupteur d'envoi des emails. Mis a `true` dans .env, plus aucun
+// email ne part : les notifications restent enregistrees en base et
+// visibles dans les applications. Sert pendant les phases de test, ou
+// les envois reels polluent les boites des vrais clients.
+const EMAILS_SUSPENDUS = process.env.EMAILS_SUSPENDUS === 'true';
+if (EMAILS_SUSPENDUS) {
+  console.warn('⏸️ [Notification] Envoi des emails SUSPENDU (EMAILS_SUSPENDUS=true dans .env)');
+}
+
 // ═══════════════════════════════════════════════════
 // SERVICE : CRÉER UNE NOTIFICATION
 // Enregistre toujours l'événement en base.
@@ -41,6 +50,7 @@ async function creerNotification({ destinataire_type, destinataire_id, type, tit
 
   // Envoi réel uniquement pour le canal email
   if (canal === 'email') {
+    if (EMAILS_SUSPENDUS) return;
     // Sans clé Resend configurée, on n'essaie pas d'envoyer : la
     // notification reste consultable dans l'application.
     if (!resend) return;

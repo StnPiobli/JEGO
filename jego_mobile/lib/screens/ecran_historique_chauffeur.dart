@@ -3,6 +3,7 @@ import '../config/theme_jego.dart';
 import '../config/trajet_chauffeur.dart';
 import '../widgets/itineraire_trajet.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 class EcranHistoriqueChauffeur extends StatefulWidget {
   const EcranHistoriqueChauffeur({super.key});
@@ -45,16 +46,9 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
       }).toList();
     }
 
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('historique_voyage'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: Column(
+    return EcranJego(
+             titre: Strings.t('historique_voyage'),
+             corps: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
@@ -222,7 +216,7 @@ class _EcranHistoriqueChauffeurState extends State<EcranHistoriqueChauffeur> {
           ),
         ],
       ),
-    );
+           );
   }
 
   Widget _ligne(String libelle, String valeur, {Color? couleur}) {

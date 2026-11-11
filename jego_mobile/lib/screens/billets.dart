@@ -9,6 +9,7 @@ import '../config/remboursement.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
 import '../widgets/billet_qr.dart';
+import '../widgets/style_jego.dart';
 import '../config/pdf_partage.dart';
 import '../config/api.dart';
 import '../config/wallet_store.dart';
@@ -51,7 +52,15 @@ class _EcranBilletsState extends State<EcranBillets> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JegoTheme.fond,
-      body: SafeArea(
+      body: Stack(
+        children: [
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: FondDegrade(hauteur: 280),
+          ),
+          SafeArea(
         bottom: false,
         child: ValueListenableBuilder<List<Map<String, dynamic>>>(
           valueListenable: BilletsStore.billets,
@@ -66,19 +75,10 @@ class _EcranBilletsState extends State<EcranBillets> {
             return Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        Strings.t('nav_billets'),
-                        style: TextStyle(
-                          color: JegoTheme.texte,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const Spacer(),
-                      BoutonTactile(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
+                  child: EnteteJego(
+                    titre: Strings.t('nav_billets'),
+                    actionTitre: BoutonTactile(
                         onTap: _recupererBillet,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -104,8 +104,7 @@ class _EcranBilletsState extends State<EcranBillets> {
                             ],
                           ),
                         ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 Padding(
@@ -156,6 +155,8 @@ class _EcranBilletsState extends State<EcranBillets> {
             );
           },
         ),
+          ),
+        ],
       ),
     );
   }

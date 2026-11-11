@@ -16,7 +16,6 @@
 
 import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini, Toast } from "@/components/ui";
-import HistoriqueButton from "@/components/HistoriqueButton";
 import TypeToConfirm from "@/components/TypeToConfirm";
 import { apiFetch } from "@/lib/api";
 
@@ -151,7 +150,6 @@ export default function FraisPage() {
             Un taux de dérogation remplace toute la grille par tranches pour l&apos;agence concernée (pas un ajustement tranche par tranche)
           </div>
         </div>
-        <HistoriqueButton label="Historique des changements" entrees={[]} />
       </div>
 
       {erreur && <p className="mb-4 text-[13px] text-red font-medium">{erreur}</p>}

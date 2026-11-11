@@ -62,6 +62,10 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
 
   Timer? _timerActualisation;
 
+  /// Avertissements deja affiches dans une boite ouverte : evite qu'un
+  /// rafraichissement toutes les 30 s en empile une seconde par-dessus.
+  bool _avertissementsAffiches = false;
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +96,150 @@ class _EcranAccueilChauffeurState extends State<EcranAccueilChauffeur> {
     if (mounted && (bilan['envoyes'] ?? 0) > 0) {
       setState(() {});
     }
+
+    await _verifierAvertissements();
+  }
+
+  /// Avertissements non acquittés : ils s'affichent en grand, par-dessus
+  /// tout, et ne partent que sur « J'ai compris ». Tant que le chauffeur
+  /// n'a pas appuyé, le serveur les renvoie à chaque ouverture.
+  Future<void> _verifierAvertissements() async {
+    if (_avertissementsAffiches) return;
+    final token = SessionChauffeur.token;
+    if (token == null) return;
+    List<Map<String, dynamic>> liste;
+    try {
+      liste = await ApiService.mesAvertissements(token);
+    } catch (_) {
+      return; // hors ligne : on retentera au prochain rafraichissement
+    }
+    if (!mounted || liste.isEmpty) return;
+
+    _avertissementsAffiches = true;
+    await _afficherAvertissements(liste);
+    _avertissementsAffiches = false;
+  }
+
+  Future<void> _afficherAvertissements(
+      List<Map<String, dynamic>> liste) async {
+    await showDialog<void>(
+      context: context,
+      // Ni clic à côté ni bouton retour : le chauffeur doit acquitter.
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          backgroundColor: JegoTheme.fondCarte,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JegoTheme.rGrand)),
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: JegoTheme.danger, size: 34),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      liste.length > 1
+                          ? '${liste.length} avertissements'
+                          : 'Avertissement',
+                      style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: JegoTheme.danger),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: liste
+                          .map((a) => Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: JegoTheme.danger.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(
+                                      JegoTheme.rPetit),
+                                  border: Border.all(
+                                      color:
+                                          JegoTheme.danger.withOpacity(0.35)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    // Titre = ce qui est reproche,
+                                    // message = quoi corriger.
+                                    Text('${a['titre'] ?? 'Signalement'}',
+                                        style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w800,
+                                            color: JegoTheme.danger)),
+                                    const SizedBox(height: 4),
+                                    Text('${a['contenu'] ?? ''}',
+                                        style: TextStyle(
+                                            fontSize: 15,
+                                            height: 1.35,
+                                            color: JegoTheme.texte)),
+                                    if (a['heure'] != null) ...[
+                                      const SizedBox(height: 6),
+                                      Text('${a['heure']}',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color:
+                                                  JegoTheme.texteSecondaire)),
+                                    ],
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: JegoTheme.danger,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(JegoTheme.rPetit)),
+                    ),
+                    onPressed: () async {
+                      final token = SessionChauffeur.token;
+                      if (token != null) {
+                        // Acquittement serveur : sans lui, l'alerte
+                        // reviendrait a la prochaine ouverture.
+                        try {
+                          await ApiService
+                              .accuserReceptionAvertissements(token);
+                        } catch (_) {}
+                      }
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                    },
+                    child: const Text("J'ai compris",
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Demande au serveur si le bus est actuellement à quai à un arrêt.

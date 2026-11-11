@@ -20,7 +20,6 @@ import { useEffect, useMemo, useState } from "react";
 import { jsPDF } from "jspdf";
 import { Panel, BtnMini, Toast } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import HistoriqueButton from "@/components/HistoriqueButton";
 
 type Periode = "hebdo" | "mensuel" | "annuel";
 
@@ -334,7 +333,6 @@ export default function RapportsPage() {
           <h1 className="font-display text-[22px] tracking-tight">Rapports &amp; statistiques</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">Génération automatique, export PDF</div>
         </div>
-        <HistoriqueButton entrees={[]} />
       </div>
 
       <div className="flex items-center gap-3 mb-4">
@@ -366,7 +364,7 @@ export default function RapportsPage() {
 
       <div className="grid grid-cols-[1.4fr_1fr] gap-4">
         <Panel title="Rapports disponibles">
-          <div className="max-h-[420px] overflow-y-auto">
+          <div>
 <table className="w-full">
             <tbody>
               {donnees.rapportsDisponibles.map((r) => (

@@ -4,7 +4,6 @@ const { genererToken } = require('../utils/jwt');
 const { localiserIp, ipClient } = require('../utils/geoip');
 const { verifierJetonGoogle } = require('../utils/google');
 const { normaliserTelephone } = require('../utils/telephone');
-const { genererIdentifiant } = require('../utils/identifiant');
 const crypto = require('crypto');
 const { envoyerEmailDirect } = require('../services/notificationService');
 
@@ -175,7 +174,13 @@ async function monProfil(req, res) {
     const resultat = await pool.query(
       `SELECT id, nom, prenom, date_naissance, lieu_naissance,
               telephone, email, contact_urgence, points_fidelite,
-              langue, mode_sombre, mode_eco_donnees, avis_avec_nom, cree_le
+              langue, mode_sombre, mode_eco_donnees, avis_avec_nom, cree_le,
+              email_verifie,
+              -- Jamais l'empreinte elle-meme : seulement s'il en existe
+              -- une. Un compte cree via Google n'en a pas, et proposer
+              -- d'en changer n'aurait aucun sens.
+              (mot_de_passe IS NOT NULL) AS a_mot_de_passe,
+              (google_id IS NOT NULL) AS compte_google
        FROM voyageurs WHERE id = $1`,
       [voyageurId]
     );
@@ -197,7 +202,7 @@ async function monProfil(req, res) {
 async function modifierProfil(req, res) {
   try {
     const voyageurId = req.utilisateur.id;
-    const { nom, prenom, email, contact_urgence, langue, mode_sombre, mode_eco_donnees, avis_avec_nom } = req.body;
+    const { nom, prenom, email, telephone, contact_urgence, langue, mode_sombre, mode_eco_donnees, avis_avec_nom } = req.body;
 
     const actuel = await pool.query('SELECT * FROM voyageurs WHERE id = $1', [voyageurId]);
     if (actuel.rows.length === 0) {
@@ -227,9 +232,29 @@ async function modifierProfil(req, res) {
       }
     }
 
+    // Le téléphone est un identifiant de connexion au même titre que
+    // l'email : il doit rester unique, sinon deux comptes répondraient
+    // à la même saisie et la connexion deviendrait ambiguë.
+    if (telephone && telephone !== voyageur.telephone) {
+      const telExiste = await pool.query(
+        'SELECT id FROM voyageurs WHERE telephone = $1 AND id != $2',
+        [telephone, voyageurId]
+      );
+      if (telExiste.rows.length > 0) {
+        return res.status(409).json({ error: 'Ce numéro est déjà utilisé' });
+      }
+    }
+
     const nouveauNom = nom || voyageur.nom;
     const nouveauPrenom = prenom || voyageur.prenom;
     const nouvelEmail = email || voyageur.email;
+    const nouveauTelephone = telephone || voyageur.telephone;
+    // Changer d'adresse annule sa verification : personne n'a
+    // prouve que la nouvelle appartient bien a cette personne. Un
+    // compte cree via Google arrivait ici avec email_verifie a vrai
+    // et le gardait sur une adresse saisie a la main.
+    const emailChange = email && email !== voyageur.email;
+    const nouveauEmailVerifie = emailChange ? false : voyageur.email_verifie;
     const nouveauContact = contact_urgence !== undefined ? contact_urgence : voyageur.contact_urgence;
     const nouvelleLangue = langue || voyageur.langue;
     const nouveauModeSombre = mode_sombre !== undefined ? mode_sombre : voyageur.mode_sombre;
@@ -241,18 +266,77 @@ async function modifierProfil(req, res) {
       `UPDATE voyageurs SET
         nom = $1, prenom = $2, email = $3, contact_urgence = $4,
         langue = $5, mode_sombre = $6, mode_eco_donnees = $7,
-        avis_avec_nom = $8,
+        avis_avec_nom = $8, telephone = $9, email_verifie = $10,
         dernier_changement_nom = ${nomChange ? 'NOW()' : 'dernier_changement_nom'},
         mis_a_jour_le = NOW()
-       WHERE id = $9
-       RETURNING id, nom, prenom, email, contact_urgence, langue, mode_sombre, mode_eco_donnees, avis_avec_nom, points_fidelite`,
-      [nouveauNom, nouveauPrenom, nouvelEmail, nouveauContact, nouvelleLangue, nouveauModeSombre, nouveauModeEco, nouveauAvisAvecNom, voyageurId]
+       WHERE id = $11
+       RETURNING id, nom, prenom, email, telephone, email_verifie, contact_urgence, langue, mode_sombre, mode_eco_donnees, avis_avec_nom, points_fidelite`,
+      [nouveauNom, nouveauPrenom, nouvelEmail, nouveauContact, nouvelleLangue, nouveauModeSombre, nouveauModeEco, nouveauAvisAvecNom, nouveauTelephone, nouveauEmailVerifie, voyageurId]
     );
 
     res.json({
       message: 'Profil mis à jour',
       voyageur: resultat.rows[0]
     });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// CHANGER SON MOT DE PASSE (route protégée)
+//
+// Distinct de la réinitialisation par code : ici la personne est déjà
+// connectée et prouve son identité par son mot de passe actuel. Cette
+// vérification appartient au serveur — l'application ne détient pas le
+// mot de passe en clair, et si elle le détenait, un client modifié
+// contournerait le contrôle.
+// ═══════════════════════════════════════════════════
+async function changerMotDePasse(req, res) {
+  try {
+    const voyageurId = req.utilisateur.id;
+    const { ancien_mot_de_passe, nouveau_mot_de_passe } = req.body;
+
+    if (!ancien_mot_de_passe || !nouveau_mot_de_passe) {
+      return res.status(400).json({
+        error: 'Ancien et nouveau mot de passe sont obligatoires'
+      });
+    }
+    const nouveau = String(nouveau_mot_de_passe);
+    if (nouveau.length < 8 || !/[A-Za-z]/.test(nouveau) || !/[0-9]/.test(nouveau)) {
+      return res.status(400).json({
+        error: 'Le mot de passe doit faire 8 caractères minimum, avec au moins une lettre et un chiffre'
+      });
+    }
+
+    const actuel = await pool.query(
+      'SELECT mot_de_passe FROM voyageurs WHERE id = $1', [voyageurId]
+    );
+    if (actuel.rows.length === 0) {
+      return res.status(404).json({ error: 'Voyageur introuvable' });
+    }
+
+    // Compte créé via Google : aucun mot de passe à comparer. On refuse
+    // plutôt que de laisser bcrypt échouer sur une valeur nulle.
+    if (!actuel.rows[0].mot_de_passe) {
+      return res.status(409).json({
+        error: 'Ce compte se connecte avec Google et n\'a pas de mot de passe.'
+      });
+    }
+
+    const bon = await bcrypt.compare(
+      String(ancien_mot_de_passe), actuel.rows[0].mot_de_passe);
+    if (!bon) {
+      return res.status(403).json({ error: 'Mot de passe actuel incorrect' });
+    }
+
+    await pool.query(
+      'UPDATE voyageurs SET mot_de_passe = $1, mis_a_jour_le = NOW() WHERE id = $2',
+      [await bcrypt.hash(nouveau, 10), voyageurId]
+    );
+
+    res.json({ message: 'Mot de passe modifié' });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -448,11 +532,13 @@ async function connexionGoogle(req, res) {
       });
     }
 
+    // numero omis volontairement : rempli par le DEFAULT generer_identifiant('CLI')
+    // en base (source unique), comme l'inscription classique plus haut.
     const cree = await pool.query(
-      `INSERT INTO voyageurs (numero, nom, prenom, telephone, email, google_id, email_verifie)
-       VALUES ($1, $2, $3, $4, $5, $6, true)
+      `INSERT INTO voyageurs (nom, prenom, telephone, email, google_id, email_verifie)
+       VALUES ($1, $2, $3, $4, $5, true)
        RETURNING *`,
-      [genererIdentifiant('CLI'), identite.nom || '-', identite.prenom || '-',
+      [identite.nom || '-', identite.prenom || '-',
        telNormalise, identite.email, identite.google_id]
     );
     return ouvrirSession(cree.rows[0]);
@@ -811,4 +897,5 @@ async function monPortefeuille(req, res) {
   }
 }
 
-module.exports = { inscription, connexion, connexionGoogle, mesNotifications, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil, historiqueVoyages, monPortefeuille, recupererBillet, deconnexion };
+module.exports = { inscription, connexion, connexionGoogle, mesNotifications, marquerNotificationsLues, supprimerNotifications, demanderReinitialisation, reinitialiserMotDePasse, monProfil, modifierProfil,
+  changerMotDePasse, historiqueVoyages, monPortefeuille, recupererBillet, deconnexion };

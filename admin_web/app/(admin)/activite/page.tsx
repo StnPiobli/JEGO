@@ -11,10 +11,10 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { formatTelephone } from "@/lib/format";
+import { formatTelephone, dateISOLocale } from "@/lib/format";
 import { Panel, StatCard, Badge } from "@/components/ui";
+import Calendrier from "@/components/Calendrier";
 import DateNav from "@/components/DateNav";
-import HistoriqueButton from "@/components/HistoriqueButton";
 
 type Periode = "24h" | "7j" | "30j";
 
@@ -49,6 +49,7 @@ export default function ActivitePage() {
   const [detailRecherche, setDetailRecherche] = useState("");
   const [detailTriDate, setDetailTriDate] = useState<"desc" | "asc" | null>(null);
   const [detailDate, setDetailDate] = useState("");
+  const [dateFiltreOuvert, setDateFiltreOuvert] = useState(false);
   const [toutVoir, setToutVoir] = useState(false);
 
   async function ouvrirDetail(type: string, titre: string) {
@@ -74,7 +75,7 @@ export default function ActivitePage() {
       try {
         const res = await apiFetch(`/api/admin/activite?periode=${periode}`);
         if (!annule) setStats({ ...statsVides, ...res });
-        const ev = await apiFetch(`/api/admin/activite/evenements?date=${date.toISOString().slice(0, 10)}`);
+        const ev = await apiFetch(`/api/admin/activite/evenements?date=${dateISOLocale(date)}`);
         if (!annule) { setEvenements(ev.evenements || []); setErreur(null); }
       } catch (e) {
         if (!annule) setErreur(e instanceof Error ? e.message : "Impossible de charger les statistiques.");
@@ -112,7 +113,6 @@ export default function ActivitePage() {
           <h1 className="font-display text-[22px] tracking-tight">Utilisateurs &amp; activité</h1>
           <div className="text-ink-soft text-[13px] mt-0.5">Connexions, inscriptions et taux de retour</div>
         </div>
-        <HistoriqueButton entrees={[]} />
       </div>
 
       <div className="flex items-center justify-between mb-4">
@@ -142,21 +142,23 @@ export default function ActivitePage() {
       <Panel
         title="Derniers événements"
         action={
-          <button
-            onClick={() => setToutVoir((v) => !v)}
-            className="text-[12px] font-semibold text-green-700 hover:underline"
-          >
-            {toutVoir ? "Voir moins" : "Voir plus"}
-          </button>
+          evenements.length > 12 ? (
+            <button
+              onClick={() => setToutVoir((v) => !v)}
+              className="text-[12px] font-semibold text-green-700 hover:underline"
+            >
+              {toutVoir ? "Voir moins" : `Voir tout (${evenements.length})`}
+            </button>
+          ) : undefined
         }
       >
-        <div className={(toutVoir ? "max-h-[75vh]" : "max-h-[420px]") + " overflow-y-auto"}>
+        <div>
 <table className="w-full">
           <thead>
             <tr>{["Heure", "Événement", "Inscription via", "Utilisateur", "Téléphone", "Email", "Lieu"].map((h) => <th key={h} className="text-left text-[10.5px] uppercase tracking-wide text-ink-soft px-[18px] py-2.5 font-semibold">{h}</th>)}</tr>
           </thead>
           <tbody>
-            {evenements.map((e) => (
+            {(toutVoir ? evenements : evenements.slice(0, 12)).map((e) => (
               <tr key={e.id} className="border-t border-line">
                 <td className="px-[18px] py-2.5 text-[13px] font-mono">{date.toLocaleDateString("fr-FR")} {e.heure}</td>
                 <td className="px-[18px] py-2.5"><Badge color={e.evenement === "Inscription" ? "green" : e.evenement === "Connexion" ? "amber" : "grey"}>{e.evenement}</Badge></td>
@@ -195,12 +197,24 @@ export default function ActivitePage() {
                   className="flex-1 text-[12.5px] outline-none bg-transparent"
                 />
               </div>
-              <input
-                type="date"
-                value={detailDate}
-                onChange={(e) => setDetailDate(e.target.value)}
-                className="text-[12.5px] rounded-lg border border-line px-2.5 py-1.5 text-ink-soft"
-              />
+              <div className="relative">
+                <button
+                  onClick={() => setDateFiltreOuvert((o) => !o)}
+                  className="text-[12.5px] rounded-lg border border-line px-3 py-1.5 text-ink-soft hover:border-green-700/40"
+                >
+                  {detailDate ? detailDate.split("-").reverse().join("/") : "Filtrer par date"}
+                </button>
+                {dateFiltreOuvert && (
+                  <Calendrier
+                    mode="jour"
+                    value={detailDate ? new Date(Number(detailDate.slice(0, 4)), Number(detailDate.slice(5, 7)) - 1, Number(detailDate.slice(8, 10))) : null}
+                    onChange={(d) => { setDetailDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); setDateFiltreOuvert(false); }}
+                    onEffacer={() => { setDetailDate(""); setDateFiltreOuvert(false); }}
+                    onFermer={() => setDateFiltreOuvert(false)}
+                    align="right"
+                  />
+                )}
+              </div>
               {(detailRecherche || detailDate) && (
                 <button onClick={() => { setDetailRecherche(""); setDetailDate(""); }} className="text-[12px] text-ink-soft underline">Effacer</button>
               )}

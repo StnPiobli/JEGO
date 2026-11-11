@@ -34,7 +34,7 @@ class SurveillanceArrivee {
     } catch (_) {
       _vus = {};
     }
-    BilletsStore.billets.addListener(_verifier);
+    BilletsStore.billets.addListener(() => _verifier());
     _verifier();
   }
 
@@ -46,7 +46,25 @@ class SurveillanceArrivee {
     } catch (_) {}
   }
 
-  static void _verifier() {
+  /// Au-dela de ce delai, une arrivee n'est plus une nouvelle : la
+  /// popup sert a reagir a chaud, pas a rejouer l'historique. Sans
+  /// cette borne, une memoire videe (navigation privee, donnees de
+  /// site effacees, reinstallation) faisait resurgir la boite pour
+  /// TOUS les anciens voyages a la connexion suivante.
+  static const _fraicheur = Duration(days: 2);
+
+  static bool _recent(Map<String, dynamic> billet) {
+    try {
+      final d = DateTime.parse('${billet['date']}');
+      return DateTime.now().difference(d) <= _fraicheur;
+    } catch (_) {
+      // Date illisible : on s'abstient plutot que d'ouvrir une boite
+      // sur un voyage dont on ignore l'anciennete.
+      return false;
+    }
+  }
+
+  static Future<void> _verifier() async {
     if (_enCours) return;
     // Un chauffeur connecte n'a pas a recevoir les popups d'arrivee de
     // ses billets voyageur.
@@ -58,12 +76,20 @@ class SurveillanceArrivee {
       final arrive = statut == 'termine' || statut == 'arrive';
       if (!arrive) continue;
       if (_vus.contains(id)) continue;
+      // Deja note : la question a recu sa reponse, la reposer est du
+      // harcelement.
+      if (billet['deja_note'] == true) continue;
+      if (!_recent(billet)) continue;
 
       // On marque avant d'afficher : la liste peut se recharger pendant
       // que la popup est ouverte, il ne faut pas l'empiler deux fois.
       _enCours = true;
-      _marquerVu(id);
-      afficherPopupArrivee(
+      await _marquerVu(id);
+      // On ATTEND la fermeture. Auparavant `_enCours` retombait a faux
+      // dans la foulee, si bien qu'un rechargement de la liste ouvrait
+      // une seconde boite par-dessus la premiere : avec trois trajets
+      // termines, il fallait fermer trois fois.
+      await afficherPopupArrivee(
         billet: billet,
         onNoter: () {
           SoftLock.navKey.currentState?.push(

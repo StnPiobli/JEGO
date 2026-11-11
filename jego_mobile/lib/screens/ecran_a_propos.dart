@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 class EcranAPropos extends StatelessWidget {
   const EcranAPropos({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('a_propos'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: ListView(
+    return EcranJego(
+             titre: Strings.t('a_propos'),
+             corps: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           Center(
@@ -70,7 +64,7 @@ class EcranAPropos extends StatelessWidget {
           ),
         ],
       ),
-    );
+           );
   }
 
   Widget _ligneLien(IconData icone, String libelle, String valeur) {

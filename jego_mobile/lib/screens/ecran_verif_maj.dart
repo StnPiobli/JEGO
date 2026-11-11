@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/theme_jego.dart';
 import '../l10n/strings.dart';
+import '../widgets/style_jego.dart';
 
 /// DEMO : ne verifie rien reellement, aucun serveur de mise a jour
 /// n'existe encore -- simule juste un court delai puis affiche "a jour".
@@ -27,16 +28,9 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: JegoTheme.fond,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: JegoTheme.texte),
-        title: Text(Strings.t('mises_a_jour'),
-            style: TextStyle(color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-      ),
-      body: Center(
+    return EcranJego(
+             titre: Strings.t('mises_a_jour'),
+             corps: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -90,6 +84,6 @@ class _EcranVerifMajState extends State<EcranVerifMaj> {
           ],
         ),
       ),
-    );
+           );
   }
 }

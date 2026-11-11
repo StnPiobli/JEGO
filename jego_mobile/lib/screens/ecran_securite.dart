@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../config/theme_jego.dart';
 import '../config/verrou_biometrique.dart';
 import '../l10n/strings.dart';
 import '../widgets/ecran_toggles_generique.dart';
+import '../widgets/style_jego.dart';
 
 /// Sécurité. Le déverrouillage biométrique n'apparaît que si l'appareil
 /// sait réellement le faire — sur un navigateur, il n'y a rien à
@@ -39,18 +39,10 @@ class _EcranSecuriteState extends State<EcranSecurite> {
   @override
   Widget build(BuildContext context) {
     if (_disponible == null) {
-      return Scaffold(
-        backgroundColor: JegoTheme.fond,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          iconTheme: IconThemeData(color: JegoTheme.texte),
-          title: Text(Strings.t('securite'),
-              style: TextStyle(
-                  color: JegoTheme.texte, fontWeight: FontWeight.w800)),
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return EcranJego(
+               titre: Strings.t('securite'),
+               corps: const Center(child: CircularProgressIndicator()),
+             );
     }
 
     return EcranTogglesGenerique(

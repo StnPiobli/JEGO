@@ -17,7 +17,7 @@ const liens = [
   { href: '/reservations', key: 'reservations', icone: 'reservations' },
   { href: '/paiements', key: 'paiements', icone: 'paiements' },
   { href: '/statistiques', key: 'statistiques', icone: 'statistiques' },
-  { href: '/incidents', key: 'incidents', icone: 'incidents' },
+  { href: '/signalements', key: 'incidents', icone: 'incidents' },
   { href: '/litiges', key: 'litiges', icone: 'litiges' },
   { href: '/discussion', key: 'discussion', icone: 'discussion' },
   { href: '/avis', key: 'avis', icone: 'avis' },

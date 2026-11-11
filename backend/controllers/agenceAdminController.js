@@ -33,13 +33,26 @@ async function listerAgencesAdmin(req, res) {
       filtre = 'WHERE a.statut = $1';
     }
 
+    // Seuil d'alerte configurable (ecran Reglages). Il etait ecrit en dur
+    // a 14 jours ici : une agence pouvait etre signalee « pas a jour »
+    // alors que le seuil regle valait tout autre chose.
+    const p = await pool.query(
+      `SELECT valeur FROM parametres_systeme WHERE cle = 'programmation_seuil_alerte_jours'`
+    );
+    const seuilAlerte = Number.isInteger(parseInt(p.rows[0]?.valeur))
+      ? parseInt(p.rows[0].valeur)
+      : 14;
+    params.push(seuilAlerte);
+    const positionSeuil = params.length;
+
     const resultat = await pool.query(
       `SELECT a.id, a.numero, a.nom, a.email, a.telephone, a.adresse, a.ville,
               a.registre_commerce, a.statut, a.cree_le,
               a.desactivee_le, a.motif_desactivation, a.refuse_le,
               TO_CHAR(COALESCE(a.refuse_le, a.desactivee_le), 'DD/MM/YYYY') AS date_fin,
               MAX(t.date_depart) AS dernier_trajet,
-              (MAX(t.date_depart) >= CURRENT_DATE + INTERVAL '14 days') AS a_jour,
+              (MAX(t.date_depart) >= CURRENT_DATE + ($${positionSeuil} || ' days')::interval) AS a_jour,
+              $${positionSeuil}::int AS seuil_alerte_jours,
               (SELECT COUNT(*) FROM documents_agence d WHERE d.agence_id = a.id) AS nb_documents,
               (SELECT COUNT(*) FROM demandes_pieces dp
                 WHERE dp.agence_id = a.id AND dp.statut = 'ouverte') AS demandes_ouvertes

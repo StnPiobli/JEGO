@@ -5,7 +5,8 @@ const {
   mesTrajets, declarerDepart, declarerArriveeChauffeur,
   desactiverUrgence, reactiverChauffeur,
   changerMotDePasseChauffeur, renvoyerIdentifiantsChauffeur,
-  declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur
+  declarerArriveeArret, declarerDepartArret, arretsTrajet, supprimerChauffeur,
+  mesAvertissements, accuserReceptionAvertissements
 } = require('../controllers/chauffeurController');
 const { authentifier, verifierChauffeurActif, verifierAgenceActive } = require('../middleware/auth');
 
@@ -23,6 +24,9 @@ router.post('/connexion', connexionChauffeur);
 
 // Routes pour le CHAUFFEUR connecté (actions sensibles → vérif désactivation)
 router.get('/mes-trajets', authentifier, mesTrajets);
+// Avertissements a afficher en grand tant qu'ils ne sont pas acquittes
+router.get('/mes-avertissements', authentifier, mesAvertissements);
+router.put('/mes-avertissements/lus', authentifier, accuserReceptionAvertissements);
 // Changement de mot de passe : uniquement par le chauffeur lui-même
 router.put('/mon-mot-de-passe', authentifier, verifierChauffeurActif, changerMotDePasseChauffeur);
 router.put('/trajets/:id/depart', authentifier, verifierChauffeurActif, declarerDepart);

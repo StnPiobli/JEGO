@@ -1,7 +1,7 @@
 "use client";
 // Petits composants réutilisés sur toutes les pages admin.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export function Topbar({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -190,13 +190,26 @@ export function ExpandableCard({
   delta?: { text: string; up: boolean };
   children: React.ReactNode;
 }) {
+  // Carte cliquable, pas depliable : le detail s'ouvre en grand, comme
+  // partout ailleurs, et la rangee de cartes garde sa hauteur.
   const [ouvert, setOuvert] = useState(false);
+
+  useEffect(() => {
+    if (!ouvert) return;
+    const surTouche = (e: KeyboardEvent) => { if (e.key === "Escape") setOuvert(false); };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, [ouvert]);
+
   return (
-    <div className="bg-paper border border-line rounded-2xl shadow-card overflow-hidden">
-      <button onClick={() => setOuvert((v) => !v)} className="w-full text-left px-[18px] py-4">
+    <>
+      <button
+        onClick={() => setOuvert(true)}
+        className="bg-green-700/8 border border-green-700/25 rounded-2xl overflow-hidden w-full text-left px-[18px] py-4 hover:border-green-700/50 transition-colors"
+      >
         <div className="flex items-center justify-between">
           <div className="font-display text-2xl font-bold">{num}</div>
-          <span className="text-ink-soft text-xs">{ouvert ? "▲" : "▼"}</span>
+          <span className="text-[11px] font-semibold text-green-600">Voir →</span>
         </div>
         <div className="text-[11.5px] text-ink-soft mt-1">{label}</div>
         {delta && (
@@ -205,7 +218,21 @@ export function ExpandableCard({
           </div>
         )}
       </button>
-      {ouvert && <div className="border-t border-dashed border-line px-[18px] py-3">{children}</div>}
-    </div>
+
+      {ouvert && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center p-6 z-50" onClick={() => setOuvert(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-paper border border-line rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-xl">
+            <div className="bg-gradient-to-br from-green-700 to-green-900 px-7 pt-7 pb-5 rounded-t-3xl sticky top-0 z-10 flex items-start gap-3.5">
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-[26px] font-bold text-white leading-none">{num}</p>
+                <p className="text-[12px] text-white/80 mt-1">{label}</p>
+              </div>
+              <button onClick={() => setOuvert(false)} className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center text-sm shrink-0" aria-label="Fermer">✕</button>
+            </div>
+            <div className="px-7 py-5">{children}</div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

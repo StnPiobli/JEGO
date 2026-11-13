@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import LayoutAgence from '../../components/LayoutAgence';
@@ -44,7 +44,17 @@ const couleurs: Record<StatutVente, { bg: string; text: string; label: string }>
   indisponible: { bg: 'bg-line', text: 'text-ink-soft', label: 'Indisponible' },
 };
 
+// useSearchParams doit vivre sous un <Suspense> : sans lui, la
+// construction de production (next build) échoue sur cette page.
 export default function PlanSieges() {
+  return (
+    <Suspense fallback={null}>
+      <ContenuPlanSieges />
+    </Suspense>
+  );
+}
+
+function ContenuPlanSieges() {
   const params = useSearchParams();
   const trajetId = params.get('id');
 

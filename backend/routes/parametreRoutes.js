@@ -22,7 +22,11 @@ router.get('/tarifs', async (req, res) => {
       points_par_1000_fcfa: await lire('points_par_1000_fcfa', 10),
       points_palier_reduction_points: await lire('points_palier_reduction_points', 500),
       points_palier_reduction_fcfa: await lire('points_palier_reduction_fcfa', 500),
-      points_palier_gratuit_points: await lire('points_palier_gratuit_points', 1000)
+      points_palier_gratuit_points: await lire('points_palier_gratuit_points', 1000),
+      // Tant que MTN MoMo / Orange Money ne sont pas branchés, aucun
+      // argent ne bouge : l'appli l'affiche clairement. Mettre
+      // PAIEMENTS_REELS=true dans .env le jour où la vraie API est en place.
+      paiements_simules: process.env.PAIEMENTS_REELS !== 'true'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

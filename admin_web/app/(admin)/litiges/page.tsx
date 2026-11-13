@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { Panel, Badge, BtnMini } from "@/components/ui";
-import { API_BASE, apiFetch } from "@/lib/api";
+import { apiFetch, urlFichier } from "@/lib/api";
 import TypeToConfirm from "@/components/TypeToConfirm";
 
 type Litige = {
@@ -447,7 +447,7 @@ export default function LitigesPage() {
                       {l.pieces.map((p) => (
                         <li key={p.id} className="text-[13px]">
                           <a
-                            href={p.genre === "lien" ? p.url : `${API_BASE}${p.url}`}
+                            href={p.genre === "lien" ? p.url : urlFichier(p.url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-green-600 hover:underline"

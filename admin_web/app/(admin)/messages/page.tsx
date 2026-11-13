@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/ui";
-import { API_BASE, apiFetch, getToken } from "@/lib/api";
+import { API_BASE, apiFetch, getToken, urlFichier } from "@/lib/api";
 
 
 type Conversation = {
@@ -51,9 +51,9 @@ function formatDateCourte(iso: string): string {
 function BullePieceJointe({ nom, url, type }: { nom: string; url: string; type: string | null }) {
   const estImage = type?.startsWith("image/");
   return (
-    <a href={`${API_BASE}${url}`} target="_blank" rel="noopener noreferrer" className="block mt-2 rounded-xl overflow-hidden border border-black/10 bg-white/20">
+    <a href={urlFichier(url)} target="_blank" rel="noopener noreferrer" className="block mt-2 rounded-xl overflow-hidden border border-black/10 bg-white/20">
       {estImage ? (
-        <img src={`${API_BASE}${url}`} alt={nom} className="w-full max-h-48 object-cover" />
+        <img src={urlFichier(url)} alt={nom} className="w-full max-h-48 object-cover" />
       ) : (
         <div className="flex items-center gap-2 px-3 py-2.5">
           <span className="text-lg">📄</span>

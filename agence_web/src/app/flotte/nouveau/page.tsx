@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../../components/LayoutAgence';
 import { useLangue } from '../../lib/langue';
 import { apiFetch } from '../../lib/api';
@@ -37,7 +37,17 @@ const dispositions = ['1+1', '1+2', '2+1', '2+2', '2+3', '3+2', '3+3'] as const;
 
 type SiegeApi = { numero: string; rangee: number; position: number; type_position: string; est_premium: boolean; statut: string };
 
+// useSearchParams doit vivre sous un <Suspense> : sans lui, la
+// construction de production (next build) échoue sur cette page.
 export default function NouveauBus() {
+  return (
+    <Suspense fallback={null}>
+      <FormulaireNouveauBus />
+    </Suspense>
+  );
+}
+
+function FormulaireNouveauBus() {
   const langue = useLangue();
   const t = langue === 'en' ? {
     editBus: 'Edit bus', newBus: 'New bus', config: 'Bus configuration and seat layout preview shown clearly on the right.', backFleet: 'Back to fleet',

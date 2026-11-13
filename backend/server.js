@@ -2,25 +2,35 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
+require('./config/secrets').verifierSecrets();
 
-const pool = require('./config/database');
 const { demarrerNettoyageVerrous } = require('./jobs/nettoyageVerrous');
 const { demarrerVersementEscrow } = require('./jobs/versementEscrow');
 
 const app = express();
 
-// Derrière le proxy HTTPS / le tunnel Cloudflare : faire confiance à
-// l'en-tête X-Forwarded-For pour que req.ip soit la VRAIE adresse du
-// visiteur (et non celle du proxy). En local, req.ip vaut ::1 (localhost).
-app.set('trust proxy', true);
+// Derrière le proxy HTTPS / le tunnel Cloudflare, req.ip doit être la
+// VRAIE adresse du visiteur. On ne croit l'en-tête X-Forwarded-For que
+// s'il vient d'un relais de confiance (par défaut : cette machine même,
+// où tournent le tunnel et le relais de l'appli web). Faire confiance à
+// tout le monde laisserait chacun s'inventer une adresse, et contourner
+// la limite des tentatives de connexion.
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback');
 
-// Middleware
-app.use(cors());
+// Qui peut appeler l'API depuis un navigateur. L'appli mobile installée
+// n'est pas concernée (pas de navigateur, donc pas de contrôle CORS).
+app.use(cors({ origin: require('./config/origines').origineAutorisee }));
+app.disable('x-powered-by');
+
+// Pièces jointes des messages et des litiges : réservées à l'agence
+// concernée et à JEGO (avant, l'adresse seule suffisait pour les ouvrir).
+const { authentifierFichier } = require('./middleware/auth');
+const { servirPieceJointe } = require('./controllers/fichierController');
+app.get('/uploads/messages/:nom', authentifierFichier, servirPieceJointe('messages'));
+app.get('/uploads/litiges/:nom', authentifierFichier, servirPieceJointe('litiges'));
 // Fichiers publics (logos d'agence) — pas les documents officiels,
 // ceux-là restent servis via une route API authentifiée séparée.
 app.use('/uploads/agences/logos', express.static(path.join(__dirname, 'uploads', 'agences', 'logos')));
-app.use('/uploads/messages', express.static(path.join(__dirname, 'uploads', 'messages')));
-app.use('/uploads/litiges', express.static(path.join(__dirname, 'uploads', 'litiges')));
 app.use('/uploads/voyageurs/photos', express.static(path.join(__dirname, 'uploads', 'voyageurs', 'photos')));
 // express.json() doit laisser passer les envois de fichiers : la route
 // de téléversement lit le flux multipart brut elle-même.
@@ -55,21 +65,9 @@ app.get('/', (req, res) => {
   res.json({ message: 'API JEGO opérationnelle 🚀' });
 });
 
-// Route de test base de données
-app.get('/test-db', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT COUNT(*) FROM voyageurs');
-    res.json({
-      message: 'Connexion base de données réussie',
-      voyageurs: result.rows[0].count
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Démarrage du serveur
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Serveur JEGO démarré sur le port ${PORT}`);
   demarrerNettoyageVerrous();

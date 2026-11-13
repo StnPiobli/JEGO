@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../config/api.dart';
 import '../config/billets_store.dart'; // SoftLock (verrou de siège)
 import '../config/reservation.dart';
+import '../config/tarifs.dart';
 import '../config/theme_jego.dart';
 import '../config/wallet_store.dart';
 import '../l10n/strings.dart';
@@ -269,6 +270,32 @@ class _EcranPaiementState extends State<EcranPaiement> {
     );
   }
 
+  /// Bandeau affiché tant que le vrai Mobile Money n'est pas branché :
+  /// personne ne doit croire avoir été débité.
+  Widget _bandeauDemonstration() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E0),
+        borderRadius: BorderRadius.circular(JegoTheme.rPetit),
+        border: Border.all(color: const Color(0xFFF0B45A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.science_outlined, size: 18, color: Color(0xFF9A5B00)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              Strings.t('paiement_demonstration'),
+              style: const TextStyle(
+                  color: Color(0xFF6B3F00), fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _vueChoixContenu() {
     final r = widget.reservation;
     final soldeUtilise = _soldeUtilise;
@@ -314,6 +341,10 @@ class _EcranPaiementState extends State<EcranPaiement> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
                 children: [
+                  if (Tarifs.paiementsSimules) ...[
+                    _bandeauDemonstration(),
+                    const SizedBox(height: 12),
+                  ],
                   // Montant a payer
                   Container(
                     padding: const EdgeInsets.all(18),

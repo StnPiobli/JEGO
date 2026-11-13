@@ -807,7 +807,9 @@ async function recupererBillet(req, res) {
           t.distribution_nourriture,
           s.numero AS siege,
           vp.prenom AS passager_prenom, vp.nom AS passager_nom,
-          vp.telephone AS passager_tel, vp.email AS passager_email,
+          -- Ni telephone ni email : quiconque a vu le numero (photo du
+          -- billet, capture partagee) ne doit pas obtenir les coordonnees
+          -- du voyageur. Le nom suffit au controle a l'embarquement.
           (SELECT COUNT(*) FROM ligne_points lp
             WHERE lp.ligne_id = l.id
               AND lp.ordre > COALESCE(b.point_embarquement_ordre, 0)

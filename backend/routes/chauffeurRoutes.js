@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { limiteConnexion } = require('../middleware/limiteur');
 const { billetsTrajet,
   creerChauffeur, listerChauffeurs, connexionChauffeur,
   mesTrajets, declarerDepart, declarerArriveeChauffeur,
@@ -20,7 +21,7 @@ router.delete('/:id', authentifier, supprimerChauffeur);
 router.post('/:id/renvoyer-identifiants', authentifier, verifierAgenceActive, renvoyerIdentifiantsChauffeur);
 
 // Route pour le CHAUFFEUR (connexion, publique)
-router.post('/connexion', connexionChauffeur);
+router.post('/connexion', limiteConnexion, connexionChauffeur);
 
 // Routes pour le CHAUFFEUR connecté (actions sensibles → vérif désactivation)
 router.get('/mes-trajets', authentifier, mesTrajets);

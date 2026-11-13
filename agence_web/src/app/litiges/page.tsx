@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import LayoutAgence from '../components/LayoutAgence';
 import { Panel, Badge, BtnMini, ToastDemo } from '../components/ui';
-import { apiFetch, API_BASE, getToken } from '../lib/api';
+import { apiFetch, API_BASE, getToken, urlFichier } from '../lib/api';
 
 type Litige = {
   id: string;
@@ -271,7 +271,7 @@ export default function LitigesPage() {
           {pieces.map((p) => (
             <li key={p.id} className="text-[13px]">
               <a
-                href={p.genre === 'lien' ? p.url : `${API_BASE}${p.url}`}
+                href={p.genre === 'lien' ? p.url : urlFichier(p.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-green-700 hover:underline"
@@ -286,7 +286,7 @@ export default function LitigesPage() {
     );
   }
 
-  function BoutonVoirPlus() {
+  function boutonVoirPlus() {
     if (resolus.length <= limiteResolus) return null;
     const restants = resolus.length - limiteResolus;
     return (
@@ -417,7 +417,7 @@ export default function LitigesPage() {
                     ) : (
                       <>
                         <div className="space-y-3">{resolus.slice(0, limiteResolus).map((l) => <CarteLitige key={l.id} litige={l} />)}</div>
-                        <BoutonVoirPlus />
+                        {boutonVoirPlus()}
                       </>
                     )}
                   </div>
@@ -427,7 +427,7 @@ export default function LitigesPage() {
                   {listeFiltree.length === 0 ? (
                     <Panel><div className="p-8 text-center text-[13px] text-ink-soft">Aucun litige dans ce filtre</div></Panel>
                   ) : listeFiltree.map((l) => <CarteLitige key={l.id} litige={l} />)}
-                  {filtre === 'resolus' && <BoutonVoirPlus />}
+                  {filtre === 'resolus' && boutonVoirPlus()}
                 </div>
               )
             )}

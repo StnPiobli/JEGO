@@ -12,6 +12,13 @@ export function getToken(): string | null {
   return localStorage.getItem("jego_agence_token");
 }
 
+// Adresse d'un fichier protégé (pièce jointe d'un message ou d'un litige) :
+// un onglet ou une balise <img> n'envoie pas d'en-tête, le jeton passe
+// donc dans l'adresse. Le serveur ne l'accepte que pour les fichiers.
+export function urlFichier(chemin: string): string {
+  return `${API_BASE}${chemin}?token=${encodeURIComponent(getToken() || "")}`;
+}
+
 export function setSession(token: string, agence: unknown) {
   localStorage.setItem("jego_agence_token", token);
   localStorage.setItem("jego_agence_profil", JSON.stringify(agence));

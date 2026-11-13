@@ -2,9 +2,9 @@
 const path = require('path');
 const pool = require('../config/database');
 const { lireMultipart } = require('../utils/multipart');
+const { preparerFichier } = require('../utils/fichierSur');
 
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'messages');
-const TYPES_MIME_AUTORISES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const TAILLE_MAX_OCTETS = 8 * 1024 * 1024; // 8 Mo
 
 // Lit le corps de la requête, qu'il soit multipart (avec pièce jointe)
@@ -24,13 +24,14 @@ async function lireCorpsMessage(req) {
     const { champs, fichier } = resultat;
     let pieceJointe = null;
     if (fichier && fichier.donnees && fichier.donnees.length > 0) {
-      if (!TYPES_MIME_AUTORISES.includes(fichier.type)) {
+      // Type reconnu au contenu, nom de stockage choisi par le serveur.
+      const prepare = preparerFichier(fichier.donnees);
+      if (!prepare) {
         throw new Error('Format non accepté. Envoie un PDF ou une image (JPEG, PNG, WebP).');
       }
       fs.mkdirSync(DOSSIER_UPLOADS, { recursive: true });
-      const nomSurDisque = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fichier.nom.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      fs.writeFileSync(path.join(DOSSIER_UPLOADS, nomSurDisque), fichier.donnees);
-      pieceJointe = { nom: fichier.nom, url: `/uploads/messages/${nomSurDisque}`, type: fichier.type };
+      fs.writeFileSync(path.join(DOSSIER_UPLOADS, prepare.nomStocke), fichier.donnees);
+      pieceJointe = { nom: fichier.nom.slice(0, 255), url: `/uploads/messages/${prepare.nomStocke}`, type: prepare.type };
     }
     return { texte: (champs.texte || '').trim(), pieceJointe };
   }

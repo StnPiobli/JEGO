@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
 const { lireMultipart } = require('../utils/multipart');
+const { preparerFichier } = require('../utils/fichierSur');
 const { creerNotification } = require('../services/notificationService');
 const { journaliser } = require('../services/logService');
 const { genererIdentifiant } = require('../utils/identifiant');
@@ -9,7 +10,6 @@ const { rembourserBillet } = require('../services/portefeuilleService');
 const { lireParametreEntier } = require('../services/parametreService');
 
 const DOSSIER_PIECES = path.join(__dirname, '..', 'uploads', 'litiges');
-const TYPES_MIME_AUTORISES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const TAILLE_MAX_OCTETS = 8 * 1024 * 1024; // 8 Mo
 
 // ═══════════════════════════════════════════════════
@@ -66,18 +66,20 @@ async function ajouterPieceLitige(req, res) {
     if (!fichier || !fichier.donnees || fichier.donnees.length === 0) {
       return res.status(400).json({ error: 'Aucun fichier reçu' });
     }
-    if (!TYPES_MIME_AUTORISES.includes(fichier.type)) {
+    // Type reconnu au contenu, nom de stockage choisi par le serveur.
+    const prepare = preparerFichier(fichier.donnees);
+    if (!prepare) {
       return res.status(400).json({ error: 'Format non accepté. Envoie un PDF ou une image (JPEG, PNG, WebP).' });
     }
     fs.mkdirSync(DOSSIER_PIECES, { recursive: true });
-    const nomSurDisque = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fichier.nom.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const nomSurDisque = prepare.nomStocke;
     fs.writeFileSync(path.join(DOSSIER_PIECES, nomSurDisque), fichier.donnees);
 
     const ligne = await pool.query(
       `INSERT INTO pieces_litige (litige_id, auteur_type, genre, nom, url, type)
        VALUES ($1, 'agence', 'fichier', $2, $3, $4)
        RETURNING id, genre, nom, url, type, to_char(cree_le, 'DD/MM/YYYY HH24:MI') AS ajoute_le`,
-      [litigeId, fichier.nom.slice(0, 255), `/uploads/litiges/${nomSurDisque}`, fichier.type]
+      [litigeId, fichier.nom.slice(0, 255), `/uploads/litiges/${nomSurDisque}`, prepare.type]
     );
     res.status(201).json({ piece: ligne.rows[0] });
 

@@ -6,15 +6,24 @@ const { verifierToken } = require('../utils/jwt');
 // Vérifie que l'utilisateur a un token valide
 // ═══════════════════════════════════════════════════
 function authentifier(req, res, next) {
-  const authHeader = req.headers.authorization;
+  return verifierJeton(req, res, next, false);
+}
 
-  // Le token arrive normalement dans l'en-tête Authorization. Exception :
-  // l'affichage d'un fichier dans un <iframe> ou un onglet ne permet pas
-  // d'envoyer d'en-tête, le token passe alors en paramètre d'URL.
+// Variante pour OUVRIR UN FICHIER dans un onglet ou une balise <img> :
+// le navigateur n'y envoie pas d'en-tête, le token passe donc dans
+// l'adresse (?token=…). Réservé aux routes de fichiers : partout
+// ailleurs, un token dans l'adresse finirait dans les journaux et
+// l'historique du navigateur.
+function authentifierFichier(req, res, next) {
+  return verifierJeton(req, res, next, true);
+}
+
+function verifierJeton(req, res, next, accepterAdresse) {
+  const authHeader = req.headers.authorization;
   let token = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.split(' ')[1];
-  } else if (req.query && req.query.token) {
+  } else if (accepterAdresse && req.query && req.query.token) {
     token = String(req.query.token);
   }
 
@@ -141,4 +150,4 @@ async function verifierAgenceActive(req, res, next) {
   }
 }
 
-module.exports = { authentifier, verifierChauffeurActif, verifierAgenceActive, verifierPermission };
+module.exports = { authentifier, authentifierFichier, verifierChauffeurActif, verifierAgenceActive, verifierPermission };

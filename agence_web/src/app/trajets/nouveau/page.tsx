@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import LayoutAgence from '../../components/LayoutAgence';
@@ -29,7 +29,17 @@ type Chauffeur = { id: string; nom: string; prenom: string; statut: string };
 
 type Arret = { ville: string; heure: string; lieuPriseEnCharge: string };
 
+// useSearchParams doit vivre sous un <Suspense> : sans lui, la
+// construction de production (next build) échoue sur cette page.
 export default function NouveauTrajet() {
+  return (
+    <Suspense fallback={null}>
+      <ContenuNouveauTrajet />
+    </Suspense>
+  );
+}
+
+function ContenuNouveauTrajet() {
   const params = useSearchParams();
   const router = useRouter();
   const dupliquer = params.get('dupliquer') === '1';
@@ -45,6 +55,8 @@ export default function NouveauTrajet() {
   const [busListe, setBusListe] = useState<Bus[]>([]);
   const [chauffeursListe, setChauffeursListe] = useState<Chauffeur[]>([]);
   const [chargementListes, setChargementListes] = useState(true);
+
+  const [erreur, setErreur] = useState<string | null>(null);
 
   useEffect(() => {
     async function charger() {
@@ -125,7 +137,6 @@ export default function NouveauTrajet() {
   // (flotte), pas ici -- pas de duplication.
   const [prixBagage, setPrixBagage] = useState('1000');
 
-  const [erreur, setErreur] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
 
   // Prefill si on arrive depuis "Dupliquer" (voir /trajets, bouton Dupliquer).

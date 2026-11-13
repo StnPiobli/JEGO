@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { limiteConnexion } = require('../middleware/limiteur');
 const { mesNotificationsAdmin, marquerNotificationsLuesAdmin,
   connexion, agencesEnAttente, validerAgence, refuserAgence,
   listerParametres, modifierParametre,
@@ -25,10 +26,10 @@ const {
   demanderPieces, listerDemandesPieces, cloreDemandePieces,
   envoyerMessageAgence, rappelProgrammation, desactiverAgence
 } = require('../controllers/agenceAdminController');
-const { authentifier, verifierPermission } = require('../middleware/auth');
+const { authentifier, verifierPermission, authentifierFichier } = require('../middleware/auth');
 const { rapportAdminDetaille } = require('../controllers/rapportController');
 
-router.post('/connexion', connexion);
+router.post('/connexion', limiteConnexion, connexion);
 router.get('/agences-en-attente', authentifier, verifierPermission('valider_agence'), agencesEnAttente);
 router.put('/agences/:id/valider', authentifier, verifierPermission('valider_agence'), validerAgence);
 router.put('/agences/:id/refuser', authentifier, verifierPermission('refuser_agence'), refuserAgence);
@@ -46,7 +47,7 @@ router.put('/voyageurs/:id/statut', authentifier, adminSeul, modifierStatutVoyag
 // Agences — liste filtrable, distincte de la file de validation
 router.get('/agences', authentifier, adminSeul, listerAgencesAdmin);
 router.get('/agences/:id/documents', authentifier, adminSeul, documentsAgence);
-router.get('/agences/:id/documents/:docId/fichier', authentifier, adminSeul, telechargerDocument);
+router.get('/agences/:id/documents/:docId/fichier', authentifierFichier, adminSeul, telechargerDocument);
 router.put('/agences/:id/documents/:docId', authentifier, adminSeul, statuerDocument);
 router.post('/agences/:id/demande-pieces', authentifier, adminSeul, demanderPieces);
 router.get('/agences/:id/demandes-pieces', authentifier, adminSeul, listerDemandesPieces);

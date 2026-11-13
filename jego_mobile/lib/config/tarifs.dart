@@ -17,6 +17,10 @@ class Tarifs {
   static int palierReductionFcfa = 500;
   static int palierGratuitPoints = 1000;
 
+  /// Vrai tant que le serveur n'est pas branché sur MTN MoMo / Orange
+  /// Money : l'écran de paiement le dit, aucun argent ne bouge.
+  static bool paiementsSimules = true;
+
   static Future<void> charger() async {
     try {
       final t = await ApiService.tarifs();
@@ -34,6 +38,7 @@ class Tarifs {
       palierReductionPoints = lire('points_palier_reduction_points', palierReductionPoints);
       palierReductionFcfa = lire('points_palier_reduction_fcfa', palierReductionFcfa);
       palierGratuitPoints = lire('points_palier_gratuit_points', palierGratuitPoints);
+      paiementsSimules = t['paiements_simules'] != false;
     } catch (_) {
       // Hors ligne : les valeurs par défaut, le serveur fera foi au paiement.
     }

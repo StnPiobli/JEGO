@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { lireMultipart } = require('../utils/multipart');
+const { preparerFichier } = require('../utils/fichierSur');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
 const { envoyerEmailDirect } = require('../services/notificationService');
@@ -143,7 +144,6 @@ async function monProfil(req, res) {
 // ensuite sur la fiche de l'agence.
 // ═══════════════════════════════════════════════════
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'agences');
-const TYPES_MIME_AUTORISES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const TAILLE_MAX_OCTETS = 8 * 1024 * 1024; // 8 Mo
 
 async function televerserDocument(req, res) {
@@ -167,7 +167,9 @@ async function televerserDocument(req, res) {
     if (!fichier || !fichier.donnees || fichier.donnees.length === 0) {
       return res.status(400).json({ error: 'Aucun fichier reçu' });
     }
-    if (!TYPES_MIME_AUTORISES.includes(fichier.type)) {
+    // Type reconnu au contenu du fichier, pas à ce que le navigateur annonce.
+    const prepare = preparerFichier(fichier.donnees);
+    if (!prepare) {
       return res.status(400).json({
         error: 'Format non accepté. Envoie un PDF ou une image (JPEG, PNG, WebP).'
       });
@@ -179,11 +181,7 @@ async function televerserDocument(req, res) {
 
     // Nom de stockage aléatoire : le nom d'origine n'est jamais utilisé
     // pour construire un chemin, ce qui évite toute remontée d'arborescence.
-    const extensions = {
-      'application/pdf': '.pdf', 'image/jpeg': '.jpg',
-      'image/png': '.png', 'image/webp': '.webp'
-    };
-    const nomStocke = crypto.randomBytes(16).toString('hex') + extensions[fichier.type];
+    const nomStocke = prepare.nomStocke;
 
     fs.mkdirSync(DOSSIER_UPLOADS, { recursive: true });
     fs.writeFileSync(path.join(DOSSIER_UPLOADS, nomStocke), fichier.donnees);
@@ -193,7 +191,7 @@ async function televerserDocument(req, res) {
         (agence_id, type_document, nom_fichier, fichier_stocke, taille_octets, type_mime)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, type_document, nom_fichier, taille_octets, statut, televerse_le`,
-      [agenceId, typeDocument, fichier.nom, nomStocke, fichier.donnees.length, fichier.type]
+      [agenceId, typeDocument, fichier.nom.slice(0, 255), nomStocke, fichier.donnees.length, prepare.type]
     );
 
     res.status(201).json({ message: 'Document envoyé', document: enregistre.rows[0] });
@@ -622,12 +620,11 @@ async function televerserLogo(req, res) {
     if (!fichier || !fichier.donnees || fichier.donnees.length === 0) {
       return res.status(400).json({ error: 'Aucune image reçue' });
     }
-    if (!TYPES_MIME_LOGO.includes(fichier.type)) {
+    const prepare = preparerFichier(fichier.donnees, TYPES_MIME_LOGO);
+    if (!prepare) {
       return res.status(400).json({ error: 'Format non accepté. Envoie une image JPEG, PNG ou WebP.' });
     }
-
-    const extensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
-    const nomStocke = crypto.randomBytes(16).toString('hex') + extensions[fichier.type];
+    const nomStocke = prepare.nomStocke;
 
     fs.mkdirSync(DOSSIER_LOGOS, { recursive: true });
     fs.writeFileSync(path.join(DOSSIER_LOGOS, nomStocke), fichier.donnees);

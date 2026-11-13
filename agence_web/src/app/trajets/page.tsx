@@ -14,7 +14,7 @@ import Link from 'next/link';
 import LayoutAgence from '../components/LayoutAgence';
 import DateNavigator from '../components/DateNavigator';
 import { Panel, Badge, BtnMini, ToastDemo } from '../components/ui';
-import { addDaysToInput, todayInputDate } from '../lib/date';
+import { todayInputDate } from '../lib/date';
 import { apiFetch } from '../lib/api';
 import { formatTelephone } from '../lib/format';
 

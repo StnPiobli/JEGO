@@ -493,7 +493,7 @@ export default function ChauffeursPage() {
               <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left space-y-1.5">
                 <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Son accès est <strong>coupé immédiatement</strong> (y compris une session en cours) : il ne peut plus se connecter ni conduire.</p>
                 <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Il ne pourra plus être <strong>assigné</strong> à de nouveaux trajets.</p>
-                <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s'il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d'abord (Trajets → « Changer de chauffeur »).</p>
+                <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s&apos;il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d&apos;abord (Trajets → « Changer de chauffeur »).</p>
                 <p className="text-[11px] text-ink-soft pt-0.5">Réversible à tout moment via « Réactiver ».</p>
               </div>
             ) : (
@@ -542,7 +542,7 @@ export default function ChauffeursPage() {
             <div className="rounded-xl bg-off-white border border-line px-4 py-3 mb-4 text-left space-y-1.5">
               <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Le chauffeur <strong>disparaît des listes</strong> : il ne peut plus se connecter ni être assigné.</p>
               <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> Son <strong>historique</strong> (trajets terminés, avis reçus) est <strong>conservé</strong>.</p>
-              <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s'il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d'abord (Trajets → « Changer de chauffeur »).</p>
+              <p className="text-[11.5px] text-ink"><span className="text-red font-bold">•</span> <strong>Impossible</strong> s&apos;il a des trajets <strong>à venir ou en cours</strong> : réassigne-les d&apos;abord (Trajets → « Changer de chauffeur »).</p>
               <p className="text-[11px] text-ink-soft pt-0.5">Non réversible depuis l&apos;interface — pour une coupure temporaire, préfère « Désactiver ».</p>
             </div>
             <p className="text-center text-xs text-ink-soft mb-4">

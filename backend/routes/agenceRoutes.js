@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { limiteConnexion } = require('../middleware/limiteur');
 const { marquerNotificationsLuesAgence,
   inscription, connexion, monProfil,
   televerserDocument, mesDocuments, supprimerMonDocument,
@@ -9,7 +10,7 @@ const { authentifier } = require('../middleware/auth');
 
 // Routes publiques
 router.post('/inscription', inscription);
-router.post('/connexion', connexion);
+router.post('/connexion', limiteConnexion, connexion);
 
 // Routes protégées (nécessitent un token)
 router.get('/profil', authentifier, monProfil);

@@ -1,6 +1,12 @@
 const crypto = require('crypto');
 
-const QR_SECRET = process.env.QR_SECRET || 'secret_par_defaut';
+require('dotenv').config();
+
+// Aucune valeur par defaut : une cle ecrite dans le code (public) permettrait
+// a n'importe qui de fabriquer de faux billets. Le serveur refuse de
+// demarrer sans elle (voir config/secrets.js).
+const QR_SECRET = process.env.QR_SECRET;
+if (!QR_SECRET) throw new Error('QR_SECRET manquant dans .env');
 
 // ═══════════════════════════════════════════════════
 // GÉNÉRER LA SIGNATURE d'un billet

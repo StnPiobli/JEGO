@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const pool = require('../config/database');
+const { typeDepuisNom } = require('../utils/fichierSur');
 const { creerNotification } = require('../services/notificationService');
 const { rembourserBillet } = require('../services/portefeuilleService');
 const { rendrePointsDepenses } = require('../services/pointsService');
@@ -115,7 +116,10 @@ async function telechargerDocument(req, res) {
       return res.status(404).json({ error: 'Fichier absent du serveur' });
     }
 
-    res.setHeader('Content-Type', type_mime);
+    // Type déduit du nom stocké (extension choisie par le serveur), pas
+    // de ce que le navigateur avait annoncé à l'envoi.
+    res.setHeader('Content-Type', typeDepuisNom(fichier_stocke) || type_mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(nom_fichier)}"`);
     fs.createReadStream(chemin).pipe(res);
 

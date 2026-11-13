@@ -136,7 +136,7 @@ export default function DashboardPage() {
         <div className="flex justify-between items-center px-[22px] pt-4 pb-3">
           <div>
             <div className="text-[11px] uppercase tracking-widest text-ink-soft">Journal de bord</div>
-            <div className="font-display font-semibold text-[15px]">Aujourd'hui, en direct</div>
+            <div className="font-display font-semibold text-[15px]">Aujourd&apos;hui, en direct</div>
           </div>
           <div className="text-[11px] text-ink-soft">{journal.genereLe ?? "-"}</div>
         </div>
@@ -160,7 +160,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="font-display text-[13.5px] font-semibold uppercase tracking-wide text-ink-soft mt-6 mb-3">
-        À traiter aujourd'hui
+        À traiter aujourd&apos;hui
       </div>
       <div className="grid grid-cols-3 gap-4">
         <ColonneTaches titre="🔴 Urgent" couleurFond="bg-red-bg" couleurTexte="text-red" taches={urgent} chargement={chargement} />

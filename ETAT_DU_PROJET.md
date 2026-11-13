@@ -1,6 +1,6 @@
 # JEGO — État réel du projet
 
-13 novembre 2026. Ce document dit ce qui marche, comment c'est vérifié,
+13 novembre 2026 (mis à jour après le second audit). Ce document dit ce qui marche, comment c'est vérifié,
 et ce qui ne marche pas encore. Sans arrondir.
 
 ---
@@ -63,6 +63,7 @@ migration_2026-11-11_photo_voyageur.sql
 migration_2026-11-11_reglages_argent.sql
 migration_2026-11-11_notes_recalculees.sql
 migration_2026-11-13_rattrapage_schema.sql
+migration_2026-11-13_garde_fous.sql
 ```
 
 Chaque fichier se lance avec `psql -U postgres -d jego -v ON_ERROR_STOP=1 -f <fichier>`.
@@ -99,6 +100,17 @@ de passe dès la première connexion.**
   connues (`CORS_ORIGINES` en production) ; `trust proxy` limité à cette
   machine ; port par défaut 3000 ; jeton dans l'adresse accepté
   seulement pour ouvrir un fichier.
+- **Billets et trajets (audit du 13/11).** Un billet scanné, ou dont le
+  bus est parti, ne peut plus être annulé ; deux annulations ou deux
+  scans simultanés ne passent qu'une fois ; l'arrivée ne se déclare
+  qu'après le départ ; prix, bagage, supplément premium et nombre de
+  rangées sont bornés dans le serveur et dans la base.
+- **Erreurs.** Une erreur interne renvoie un message générique et un
+  numéro de suivi ; le détail reste dans le journal du serveur.
+- **Fichiers déposés** (`backend/uploads/`) exclus du dépôt Git et retirés
+  de son historique.
+- **Tests.** `npm test` refuse de tourner en production ou sur une base
+  hors de la liste `TEST_BASES_AUTORISEES` (par défaut `jego,jego_test`).
 - **Tentatives limitées** (en mémoire, un seul serveur) : 10 connexions
   ratées par compte et par adresse en 15 min, 5 demandes de code de mot
   de passe par heure, 5 messages « Nous contacter » par heure.

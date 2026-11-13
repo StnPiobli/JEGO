@@ -5,6 +5,7 @@ const { genererToken } = require('../utils/jwt');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
 const { normaliserTelephone } = require('../utils/telephone');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN COMPTE CHAUFFEUR (par l'agence uniquement)
@@ -57,7 +58,7 @@ async function creerChauffeur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -84,7 +85,7 @@ async function listerChauffeurs(req, res) {
     res.json({ chauffeurs: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -148,7 +149,7 @@ async function connexionChauffeur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -295,7 +296,7 @@ async function mesTrajets(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -368,7 +369,7 @@ async function declarerDepart(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -461,7 +462,7 @@ async function declarerArriveeChauffeur(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -522,7 +523,7 @@ async function desactiverUrgence(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -554,7 +555,7 @@ async function reactiverChauffeur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -603,7 +604,7 @@ async function changerMotDePasseChauffeur(req, res) {
     res.json({ message: 'Mot de passe modifié avec succès' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -657,7 +658,7 @@ async function renvoyerIdentifiantsChauffeur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -803,7 +804,7 @@ async function declarerArriveeArret(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -866,7 +867,7 @@ async function declarerDepartArret(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -916,7 +917,7 @@ async function arretsTrajet(req, res) {
     res.json({ nombre: resultat.rows.length, arrets: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -954,7 +955,7 @@ async function supprimerChauffeur(req, res) {
     res.json({ message: 'Chauffeur supprimé' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -988,7 +989,7 @@ async function mesAvertissements(req, res) {
     );
     res.json({ nombre: resultat.rows.length, avertissements: resultat.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1009,7 +1010,7 @@ async function accuserReceptionAvertissements(req, res) {
     );
     res.json({ message: 'Avertissements acquittés', nombre: resultat.rowCount });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1054,7 +1055,7 @@ async function billetsTrajet(req, res) {
       }))
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

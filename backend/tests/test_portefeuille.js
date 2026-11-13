@@ -149,7 +149,16 @@ async function main() {
   ok('Billet flexible payé par MoMo', flex.statut === 201, JSON.stringify(flex.donnees));
   ok('Rien pris sur un solde vide', flex.donnees?.billet?.paye_avec_solde === 0);
 
-  const annul = await appel('PUT', `/api/annulations/billets/${flex.donnees?.billet?.id}/annuler`, { token: acheteur.token });
+  // Deux annulations envoyées EN MÊME TEMPS (double appui) : une seule
+  // passe, le solde n'est crédité qu'une fois.
+  const urlAnnul = `/api/annulations/billets/${flex.donnees?.billet?.id}/annuler`;
+  const [annA, annB] = await Promise.all([
+    appel('PUT', urlAnnul, { token: acheteur.token }),
+    appel('PUT', urlAnnul, { token: acheteur.token }),
+  ]);
+  ok('Deux annulations simultanées : une seule acceptée',
+     [annA.statut, annB.statut].sort().join(',') === '200,400', `${annA.statut} / ${annB.statut}`);
+  const annul = annA.statut === 200 ? annA : annB;
   const credit = annul.donnees?.annulation?.montant_rembourse;
   const escFlex = await pool.query(
     `SELECT e.statut, e.montant_agence, e.montant_jego, e.frais_momo, b.prix_total_client, b.prix_agence

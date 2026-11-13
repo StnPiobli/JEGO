@@ -1,3 +1,6 @@
+> **Historique (8 août 2026), périmé.** Ordre d'installation, nombre de tests
+> et état actuel : voir [ETAT_DU_PROJET.md](ETAT_DU_PROJET.md).
+
 # JEGO — Mise à jour du 8 août 2026
 
 Ce document explique quoi installer, dans quel ordre, et ce qui a changé.

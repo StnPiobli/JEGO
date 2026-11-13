@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { verifierToken } = require('../utils/jwt');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // MIDDLEWARE D'AUTHENTIFICATION
@@ -71,7 +72,7 @@ async function verifierChauffeurActif(req, res, next) {
 
     next();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -102,7 +103,7 @@ function verifierPermission(codePermission) {
 
       next();
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      erreurServeur(res, err);
     }
   };
 }
@@ -146,7 +147,7 @@ async function verifierAgenceActive(req, res, next) {
 
     next();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

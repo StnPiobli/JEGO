@@ -3,6 +3,7 @@ const { creerNotification } = require('../services/notificationService');
 const { genererIdentifiant } = require('../utils/identifiant');
 const { beneficiaireRemboursement, rembourserBillet } = require('../services/portefeuilleService');
 const { lireParametreEntier } = require('../services/parametreService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // ANNULER SON BILLET (route protégée — voyageur)
@@ -20,11 +21,15 @@ async function annulerBillet(req, res) {
     const billetResult = await client.query(
       `SELECT b.id, b.statut, b.type_billet, b.est_flexible,
               b.prix_total_client, b.prix_agence, b.marge_jego, b.frais_momo,
-              b.siege_id, b.trajet_id,
-              t.date_depart, t.heure_depart
+              b.siege_id, b.trajet_id, b.qr_scanne,
+              t.date_depart, t.heure_depart, t.statut AS statut_trajet
        FROM billets b
        JOIN trajets t ON t.id = b.trajet_id
-       WHERE b.id = $1 AND b.voyageur_id = $2`,
+       WHERE b.id = $1 AND b.voyageur_id = $2
+       -- Verrou : deux demandes d'annulation envoyees en meme temps
+       -- (double appui, reseau qui renvoie) s'executent l'une apres
+       -- l'autre ; la seconde voit le billet deja annule.
+       FOR UPDATE OF b`,
       [billetId, voyageurId]
     );
 
@@ -39,6 +44,17 @@ async function annulerBillet(req, res) {
     if (billet.statut !== 'confirme') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Ce billet ne peut pas être annulé (statut : ${billet.statut})` });
+    }
+
+    // Billet deja scanne : le voyageur est monte. L'annuler remettrait
+    // son siege en vente pendant qu'il est assis dessus.
+    if (billet.qr_scanne) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ce billet a déjà été scanné à l\'embarquement : il ne peut plus être annulé.' });
+    }
+    if (billet.statut_trajet === 'en_cours' || billet.statut_trajet === 'termine') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Le bus est déjà parti : ce billet ne peut plus être annulé.' });
     }
 
     // 3. Calculer le délai avant le départ (en heures)
@@ -132,7 +148,7 @@ async function annulerBillet(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -258,7 +274,7 @@ async function annulerBilletGuichet(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }

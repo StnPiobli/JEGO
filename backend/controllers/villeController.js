@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // AUTOCOMPLÉTION DES VILLES (route publique)
@@ -42,7 +43,7 @@ async function autocompletion(req, res) {
     res.json({ villes: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

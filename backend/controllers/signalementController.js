@@ -2,6 +2,7 @@ const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
 const { genererIdentifiant } = require('../utils/identifiant');
 const { lireParametreEntier } = require('../services/parametreService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // Catégories de signalement autorisées (doivent correspondre à la contrainte BDD)
 const CATEGORIES = [
@@ -301,7 +302,7 @@ async function signaler(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -383,7 +384,7 @@ async function signalementsAgence(req, res) {
     res.json({ nombre: resultat.rows.length, signalements: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

@@ -1,4 +1,6 @@
 const pool = require('../config/database');
+const { verifierBorne } = require('../utils/bornes');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // CORRESPONDANCE DISPOSITION → TYPES DE PLACES
@@ -34,6 +36,11 @@ async function creerBus(req, res) {
     if (!nom || !type_bus || !disposition || !nombre_rangees) {
       return res.status(400).json({ error: 'Nom, type, disposition et nombre de rangées sont obligatoires' });
     }
+    // Vérifié AVANT d'ouvrir la transaction : 100 000 rangées lançaient
+    // une requête par siège et bloquaient la base.
+    const erreurBornes = verifierBorne('nombre_rangees', nombre_rangees)
+      || verifierBorne('supplement_premium', supplement_premium, true);
+    if (erreurBornes) return res.status(400).json({ error: erreurBornes });
 
     // Vérifier que la disposition est connue
     if (!DISPOSITIONS[disposition]) {
@@ -100,7 +107,7 @@ async function creerBus(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -129,7 +136,7 @@ async function listerBus(req, res) {
     res.json({ bus: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -147,7 +154,7 @@ async function desactiverBus(req, res) {
     res.json({ message: 'Bus désactivé' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -182,7 +189,7 @@ async function voirPlanBus(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -222,7 +229,7 @@ async function marquerToilettes(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -261,7 +268,7 @@ async function marquerAbime(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -300,7 +307,7 @@ async function reactiverSieges(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -312,6 +319,8 @@ async function marquerPremium(req, res) {
     const agenceId = req.utilisateur.id;
     const busId = req.params.id;
     const { sieges, supplement_premium } = req.body;
+    const erreurSupplement = verifierBorne('supplement_premium', supplement_premium, true);
+    if (erreurSupplement) return res.status(400).json({ error: erreurSupplement });
 
     if (!sieges || !Array.isArray(sieges) || sieges.length === 0) {
       return res.status(400).json({ error: 'Fournir une liste de sièges à marquer' });
@@ -355,7 +364,7 @@ async function marquerPremium(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -388,7 +397,7 @@ async function voirBus(req, res) {
     res.json({ bus: bus.rows[0], sieges: sieges.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -411,6 +420,9 @@ async function modifierBus(req, res) {
       nom, toilettes, climatisation, prises_usb, wifi, sieges_inclinables,
       type_bus, supplement_premium, sieges_premium
     } = req.body;
+
+    const erreurSupp = verifierBorne('supplement_premium', supplement_premium, true);
+    if (erreurSupp) return res.status(400).json({ error: erreurSupp });
 
     const busCheck = await pool.query('SELECT id FROM bus WHERE id = $1 AND agence_id = $2', [id, agenceId]);
     if (busCheck.rows.length === 0) {
@@ -445,7 +457,7 @@ async function modifierBus(req, res) {
     res.json({ message: 'Bus mis à jour' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

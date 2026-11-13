@@ -564,7 +564,7 @@ CREATE TABLE taches (
                   )),
   titre           VARCHAR(200) NOT NULL,
   description     TEXT,
-  priorite        VARCHAR(20) DEFAULT 'normale' CHECK (priorite IN (
+  priorite        VARCHAR(20) DEFAULT 'verte' CHECK (priorite IN (
                     'rouge', 'orange', 'verte'
                   )),
   statut          VARCHAR(20) DEFAULT 'en_attente' CHECK (statut IN (

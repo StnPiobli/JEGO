@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // RECHERCHER DES TRAJETS (route publique)
@@ -127,7 +128,7 @@ async function rechercherTrajets(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

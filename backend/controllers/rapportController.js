@@ -1,5 +1,6 @@
 ﻿const pool = require('../config/database');
 const { genererPdfRapportAgence, genererPdfRapportJego } = require('../utils/pdfRapport');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // RAPPORT AGENCE (agence connectÃ©e, pÃ©riode libre)
@@ -343,7 +344,7 @@ async function rapportAgenceDetaille(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -356,7 +357,7 @@ async function rapportAgence(req, res) {
     const donnees = await calculerRapportAgence(req.utilisateur.id, date_debut, date_fin);
     res.json(donnees);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -388,7 +389,7 @@ async function rapportAgencePdf(req, res) {
     doc.end();
 
   } catch (err) {
-    if (!res.headersSent) res.status(500).json({ error: err.message });
+    if (!res.headersSent) erreurServeur(res, err);
   }
 }
 
@@ -515,7 +516,7 @@ async function rapportJego(req, res) {
     const donnees = await calculerRapportJego(date_debut, date_fin);
     res.json(donnees);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -543,7 +544,7 @@ async function rapportJegoPdf(req, res) {
     doc.end();
 
   } catch (err) {
-    if (!res.headersSent) res.status(500).json({ error: err.message });
+    if (!res.headersSent) erreurServeur(res, err);
   }
 }
 
@@ -732,7 +733,7 @@ async function rapportAdminDetaille(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

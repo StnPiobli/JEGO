@@ -3,6 +3,7 @@ const path = require('path');
 const pool = require('../config/database');
 const { lireMultipart } = require('../utils/multipart');
 const { preparerFichier } = require('../utils/fichierSur');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'messages');
 const TAILLE_MAX_OCTETS = 8 * 1024 * 1024; // 8 Mo
@@ -67,7 +68,7 @@ async function listerMessagesAgence(req, res) {
     res.json({ messages: messages.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -100,7 +101,7 @@ async function envoyerMessageAgence(req, res) {
     res.status(201).json({ message: resultat.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -136,7 +137,7 @@ async function listerConversationsAdmin(req, res) {
     res.json({ conversations: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -170,7 +171,7 @@ async function voirConversationAdmin(req, res) {
     res.json({ agence: agence.rows[0], messages: messages.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -208,7 +209,7 @@ async function envoyerMessageAdmin(req, res) {
     res.status(201).json({ message: resultat.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -231,7 +232,7 @@ async function compterMessagesNonLusAgence(req, res) {
     res.json({ non_lus: parseInt(resultat.rows[0].nb) || 0 });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

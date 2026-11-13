@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { recalculerNotes } = require('../services/noteService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // NOTER UN VOYAGE (voyageur avec billet utilisé)
@@ -79,7 +80,7 @@ async function noterVoyage(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -125,7 +126,7 @@ async function avisAgence(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -169,7 +170,7 @@ async function avisTrajet(req, res) {
 
     res.json({ nombre: resultat.rows.length, moyenne, avis: resultat.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -202,7 +203,7 @@ async function mesAvis(req, res) {
     );
     res.json({ avis: r.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

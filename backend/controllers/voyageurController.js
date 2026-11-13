@@ -10,6 +10,7 @@ const path = require('path');
 const { lireMultipart } = require('../utils/multipart');
 const { envoyerEmailDirect, creerNotification } = require('../services/notificationService');
 const { soldeDisponible } = require('../services/portefeuilleService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 /// Écritures possibles d'un même numéro. Les comptes anciens ont été
 /// enregistrés tels que tapés — avec ou sans indicatif, avec ou sans
@@ -90,7 +91,7 @@ async function inscription(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -164,7 +165,7 @@ async function connexion(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -198,7 +199,7 @@ async function monProfil(req, res) {
     res.json({ voyageur: resultat.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -286,7 +287,7 @@ async function modifierProfil(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -345,7 +346,7 @@ async function changerMotDePasse(req, res) {
     res.json({ message: 'Mot de passe modifié' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -437,7 +438,7 @@ async function historiqueVoyages(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -554,7 +555,7 @@ async function connexionGoogle(req, res) {
     return ouvrirSession(cree.rows[0]);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -625,7 +626,7 @@ JEGO`
 
     return res.json(reponseNeutre);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -689,7 +690,7 @@ async function reinitialiserMotDePasse(req, res) {
 
     res.json({ message: 'Mot de passe modifié. Vous pouvez vous connecter.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -719,7 +720,7 @@ async function mesNotifications(req, res) {
       non_lues: resultat.rows.filter((n) => !n.lu).length
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -739,7 +740,7 @@ async function marquerNotificationsLues(req, res) {
     );
     res.json({ message: 'Notifications marquées comme lues' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -760,7 +761,7 @@ async function supprimerNotifications(req, res) {
     );
     res.json({ message: `${r.rows.length} notification(s) supprimée(s)` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -847,7 +848,7 @@ async function recupererBillet(req, res) {
 
     res.json({ billet: resultat.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -923,7 +924,7 @@ async function monPortefeuille(req, res) {
 
     res.json({ solde: await soldeDisponible(voyageurId), mouvements });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -963,7 +964,7 @@ async function contacterSupport(req, res) {
 
     res.status(201).json({ message: 'Message envoyé. JEGO vous répondra par email.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1015,7 +1016,7 @@ async function televerserPhoto(req, res) {
 
     res.json({ message: 'Photo mise à jour', photo_url: photoUrl });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1027,7 +1028,7 @@ async function supprimerPhoto(req, res) {
     supprimerAnciennePhoto(ancienne.rows[0]?.photo_url);
     res.json({ message: 'Photo retirée' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

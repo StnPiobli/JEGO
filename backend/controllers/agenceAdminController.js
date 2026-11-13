@@ -7,6 +7,7 @@ const { creerNotification } = require('../services/notificationService');
 const { rembourserBillet } = require('../services/portefeuilleService');
 const { rendrePointsDepenses } = require('../services/pointsService');
 const { journaliser } = require('../services/logService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 const DOSSIER_UPLOADS = path.join(__dirname, '..', 'uploads', 'agences');
 
@@ -70,7 +71,7 @@ async function listerAgencesAdmin(req, res) {
     res.json({ nombre: resultat.rows.length, agences: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -89,7 +90,7 @@ async function documentsAgence(req, res) {
     );
     res.json({ documents: resultat.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -124,7 +125,7 @@ async function telechargerDocument(req, res) {
     fs.createReadStream(chemin).pipe(res);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -148,7 +149,7 @@ async function statuerDocument(req, res) {
     }
     res.json({ message: 'Document mis à jour', document: resultat.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -188,7 +189,7 @@ async function demanderPieces(req, res) {
     res.status(201).json({ message: 'Demande envoyée', demande: demande.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -204,7 +205,7 @@ async function listerDemandesPieces(req, res) {
     );
     res.json({ demandes: resultat.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -223,7 +224,7 @@ async function cloreDemandePieces(req, res) {
     }
     res.json({ message: 'Demande close' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -254,7 +255,7 @@ async function envoyerMessageAgence(req, res) {
     res.json({ message: 'Message envoyé' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -293,7 +294,7 @@ async function rappelProgrammation(req, res) {
     res.json({ message: `Rappel envoyé à ${agence.rows[0].nom}` });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -424,7 +425,7 @@ async function desactiverAgence(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }

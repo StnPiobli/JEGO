@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { creerNotification } = require('../services/notificationService');
 const { genererIdentifiant } = require('../utils/identifiant');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // ESPACE DÉNONCIATION VOYAGEUR
@@ -75,7 +76,7 @@ async function billetsDenoncables(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -190,7 +191,7 @@ async function ouvrirDenonciation(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -228,7 +229,7 @@ async function mesDenonciations(req, res) {
     res.json({ nombre: resultat.rows.length, denonciations: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -272,7 +273,7 @@ async function observerDenonciation(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -313,7 +314,7 @@ async function denonciationsAdmin(req, res) {
     res.json({ nombre: resultat.rows.length, denonciations: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -374,7 +375,7 @@ async function trancherDenonciation(req, res) {
     res.json({ message: 'Décision enregistrée', denonciation_id: req.params.id, statut });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

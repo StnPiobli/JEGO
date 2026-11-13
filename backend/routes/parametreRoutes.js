@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { lireParametreEntier } = require('../services/parametreService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // TARIFS PUBLICS (route publique)
@@ -29,7 +30,7 @@ router.get('/tarifs', async (req, res) => {
       paiements_simules: process.env.PAIEMENTS_REELS !== 'true'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 });
 

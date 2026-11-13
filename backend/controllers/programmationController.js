@@ -1,4 +1,5 @@
 const { calculerHorizon } = require('../services/programmationService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // VOIR SON HORIZON DE PROGRAMMATION (agence connectée)
@@ -15,7 +16,7 @@ async function monHorizon(req, res) {
     res.json(resultat);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

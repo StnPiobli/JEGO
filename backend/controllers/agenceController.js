@@ -7,6 +7,7 @@ const { preparerFichier } = require('../utils/fichierSur');
 const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
 const { envoyerEmailDirect } = require('../services/notificationService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // INSCRIPTION D'UNE AGENCE
@@ -55,7 +56,7 @@ async function inscription(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -105,7 +106,7 @@ async function connexion(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -133,7 +134,7 @@ async function monProfil(req, res) {
     res.json({ agence: resultat.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -197,7 +198,7 @@ async function televerserDocument(req, res) {
     res.status(201).json({ message: 'Document envoyé', document: enregistre.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -221,7 +222,7 @@ async function mesDocuments(req, res) {
     );
     res.json({ documents: documents.rows, demandes_ouvertes: demandes.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -253,7 +254,7 @@ async function supprimerMonDocument(req, res) {
 
     res.json({ message: 'Document retiré' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -355,7 +356,7 @@ async function mesNotifications(req, res) {
     res.json({ notifications });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -369,7 +370,7 @@ async function marquerNotificationsLuesAgence(req, res) {
     );
     res.json({ message: 'Notifications lues' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -421,7 +422,7 @@ async function tableauDeBord(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -469,7 +470,7 @@ async function modifierProfil(req, res) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Cet email ou ce téléphone est déjà utilisé par une autre agence.' });
     }
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -511,7 +512,7 @@ async function envoyerCodeAcces(req, res) {
     res.json({ message: `Code envoyé à ${emailDirecteur}` });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -551,7 +552,7 @@ async function verifierCodeAcces(req, res) {
     res.json({ valide: true });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -590,7 +591,7 @@ async function changerMotDePasseAgence(req, res) {
     res.json({ message: 'Mot de passe mis à jour' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -635,7 +636,7 @@ async function televerserLogo(req, res) {
     res.json({ message: 'Logo mis à jour', logo_url: logoUrl });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

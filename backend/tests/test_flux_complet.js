@@ -132,6 +132,13 @@ async function main() {
   ok('Création bus', bus.statut === 201, JSON.stringify(bus.donnees));
   const busId = bus.donnees?.bus?.id;
 
+  // Bornes : un bus de 100 000 rangées est refusé avant toute écriture
+  const busGeant = await appel('POST', '/api/bus', {
+    token: tokenAgence,
+    body: { nom: `Geant ${U}`, type_bus: 'standard', disposition: '2+2', nombre_rangees: 100000 }
+  });
+  ok('Bus de 100 000 rangées refusé', busGeant.statut === 400, JSON.stringify(busGeant.donnees));
+
   // Ligne multi-arrêts : Douala(0) -> Loum(1) -> Yaoundé(2)
   const ligne = await appel('POST', '/api/lignes', {
     token: tokenAgence,
@@ -168,6 +175,16 @@ async function main() {
   });
   ok('Création trajet', trajet.statut === 201, JSON.stringify(trajet.donnees));
   const trajetId = trajet.donnees?.trajet?.id;
+
+  // Bornes : un prix négatif est refusé
+  const trajetNegatif = await appel('POST', '/api/trajets', {
+    token: tokenAgence,
+    body: {
+      ligne_id: ligneId, bus_id: busId, date_depart: demain,
+      heure_depart: '09:00', heure_arrivee_estimee: '13:00', prix_base: -5000
+    }
+  });
+  ok('Trajet à prix négatif refusé', trajetNegatif.statut === 400, JSON.stringify(trajetNegatif.donnees));
 
   // ─────────────────────────────────────────────────────
   console.log('\n4. VOYAGEUR — recherche publique (multi-arrêts)');
@@ -339,6 +356,14 @@ async function main() {
     token: tokenCh, body: { contenu_qr: qrCode }
   });
   ok('Double scan refusé', scan2.statut === 409, JSON.stringify(scan2.donnees));
+
+  // Billet scanné = voyageur à bord : il ne peut plus l'annuler
+  const annulApresScan = await appel('PUT', `/api/annulations/billets/${billetId}/annuler`, { token: tokenVoy });
+  ok('Annulation refusée après scan', annulApresScan.statut === 400, JSON.stringify(annulApresScan.donnees));
+
+  // L'agence ne peut pas déclarer l'arrivée d'un bus qui n'est pas parti
+  const arriveeTot = await appel('PUT', `/api/trajets/${trajetId}/arrivee`, { token: tokenAgence });
+  ok('Arrivée refusée avant le départ', arriveeTot.statut === 400, JSON.stringify(arriveeTot.donnees));
 
   // QR falsifié refusé (signature invalide)
   const scanFaux = await appel('POST', '/api/reservations/scanner', {

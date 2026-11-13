@@ -8,6 +8,7 @@ const { journaliser } = require('../services/logService');
 const { genererIdentifiant } = require('../utils/identifiant');
 const { rembourserBillet } = require('../services/portefeuilleService');
 const { lireParametreEntier } = require('../services/parametreService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 const DOSSIER_PIECES = path.join(__dirname, '..', 'uploads', 'litiges');
 const TAILLE_MAX_OCTETS = 8 * 1024 * 1024; // 8 Mo
@@ -84,7 +85,7 @@ async function ajouterPieceLitige(req, res) {
     res.status(201).json({ piece: ligne.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -109,7 +110,7 @@ async function piecesLitige(req, res) {
     );
     res.json({ pieces: r.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -176,7 +177,7 @@ async function ouvrirLitige(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -224,7 +225,7 @@ async function repondreLitige(req, res) {
     res.json({ message: 'Réponse enregistrée', litige_id: litigeId, niveau: 2 });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -377,7 +378,7 @@ async function trancherLitige(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -526,7 +527,7 @@ async function mesLitiges(req, res) {
     res.json({ nombre: resultat.rows.length, litiges: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -644,7 +645,7 @@ async function litigesAdmin(req, res) {
     res.json({ nombre: resultat.rows.length, litiges: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

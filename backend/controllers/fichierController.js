@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
 const { typeDepuisNom } = require('../utils/fichierSur');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 const DOSSIERS = {
   messages: path.join(__dirname, '..', 'uploads', 'messages'),
@@ -55,7 +56,7 @@ function servirPieceJointe(dossier) {
       res.setHeader('Cache-Control', 'private, no-store');
       fs.createReadStream(chemin).pipe(res);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      erreurServeur(res, err);
     }
   };
 }

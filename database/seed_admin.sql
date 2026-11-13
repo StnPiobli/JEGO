@@ -39,11 +39,13 @@ WHERE r.nom = 'super_admin'
 ON CONFLICT DO NOTHING;
 
 -- ─── 4. COMPTE SUPER ADMIN ─────────────────────────────────────
--- Hash bcrypt de "ChangeMoi123!" — à changer au premier accès.
+-- Hash bcrypt de "ChangeMoi123!" (vérifié par bcrypt.compare) — à changer au premier accès.
+-- L'ancien hash ne correspondait à aucun mot de passe connu : sur une base
+-- neuve, personne ne pouvait se connecter à l'administration.
 INSERT INTO membres_admin (nom, prenom, email, mot_de_passe, niveau, branche, statut)
 VALUES (
   'Piobli', 'Stephane', 'admin@jego.cm',
-  '$2b$10$rQ8p3aVYxNXKZ5J.wHqZ8eKvXhPYK3nGf5xLmT2wCdRbNqYvJhSxK',
+  '$2b$10$QI8fDZWXV1ZcTzlI0TUJKu7FhzvPIORnorVKx1QS.S81q7bjCXdmm',
   0, 'direction', 'actif'
 )
 ON CONFLICT (email) DO NOTHING;

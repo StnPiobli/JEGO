@@ -1,9 +1,11 @@
-﻿const pool = require('../config/database');
+const pool = require('../config/database');
 const { verserEscrowTrajet } = require('../services/escrowService');
 const { appliquerBaremeRetard } = require('../services/retardService');
 const { creerNotification } = require('../services/notificationService');
 const { rembourserBillet } = require('../services/portefeuilleService');
 const { rendrePointsDepenses } = require('../services/pointsService');
+const { verifierBorne } = require('../utils/bornes');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UN TRAJET
@@ -22,6 +24,9 @@ async function creerTrajet(req, res) {
         error: 'Ligne, bus, date, heure de départ et prix sont obligatoires'
       });
     }
+    const erreurPrix = verifierBorne('prix_base', prix_base)
+      || verifierBorne('prix_bagage_supplementaire', prix_bagage_supplementaire, true);
+    if (erreurPrix) return res.status(400).json({ error: erreurPrix });
 
     const ligneCheck = await pool.query(
       'SELECT id FROM lignes WHERE id = $1 AND agence_id = $2',
@@ -77,7 +82,7 @@ async function creerTrajet(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -181,7 +186,7 @@ async function listerTrajets(req, res) {
     res.json({ trajets: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -199,7 +204,7 @@ async function declarerArrivee(req, res) {
     await client.query('BEGIN');
 
     const trajetCheck = await client.query(
-      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2`,
+      `SELECT id, statut FROM trajets WHERE id = $1 AND agence_id = $2 FOR UPDATE`,
       [trajetId, agenceId]
     );
     if (trajetCheck.rows.length === 0) {
@@ -216,6 +221,14 @@ async function declarerArrivee(req, res) {
     if (trajet.statut === 'annule') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Ce trajet a été annulé' });
+    }
+    // Arrivée seulement après un départ déclaré par le chauffeur. Sans
+    // cette règle, une agence pouvait cliquer « Arrivé » à 6 h pour un
+    // départ prévu à 8 h : tous les billets passaient « utilisés » et le
+    // versement de l'escrow partait 6 h plus tard.
+    if (trajet.statut !== 'en_cours') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Le bus n\'est pas encore parti : le chauffeur doit d\'abord déclarer le départ.' });
     }
 
     await client.query(
@@ -248,7 +261,7 @@ async function declarerArrivee(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -277,7 +290,7 @@ async function verserEscrow(req, res) {
       ...resultat
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -331,7 +344,7 @@ async function assignerChauffeur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -471,7 +484,7 @@ async function annulerTrajet(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -539,7 +552,7 @@ async function declarerRetard(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -596,7 +609,7 @@ async function passagersTrajet(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -662,7 +675,7 @@ async function versementsAgence(req, res) {
     res.json({ resume: resume.rows[0], versements: parVente.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -739,7 +752,7 @@ async function supprimerTrajet(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }

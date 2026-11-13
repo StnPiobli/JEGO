@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const { genererToken } = require('../utils/jwt');
 const { creerNotification } = require('../services/notificationService');
 const { journaliser } = require('../services/logService');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // CONNEXION ADMIN
@@ -42,7 +43,7 @@ async function connexion(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -64,7 +65,7 @@ async function agencesEnAttente(req, res) {
     res.json({ nombre: resultat.rows.length, agences: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -106,7 +107,7 @@ async function validerAgence(req, res) {
     res.json({ message: `Agence ${check.rows[0].nom} validée avec succès`, agence_id: agenceId });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -150,7 +151,7 @@ async function refuserAgence(req, res) {
     res.json({ message: `Agence ${check.rows[0].nom} refusée`, motif });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -176,7 +177,7 @@ async function listerParametres(req, res) {
     res.json({ parametres: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -215,7 +216,7 @@ async function modifierParametre(req, res) {
     res.json({ message: `Paramètre ${cle} mis à jour`, cle, nouvelle_valeur: valeur });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -272,7 +273,7 @@ async function activiteStats(req, res) {
       retention,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -330,7 +331,7 @@ async function activiteEvenements(req, res) {
       })),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -383,7 +384,7 @@ async function activiteDetail(req, res) {
       })),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -414,7 +415,7 @@ async function listerVoyageurs(req, res) {
     res.json({ nombre: resultat.rows.length, voyageurs: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -442,7 +443,7 @@ async function modifierStatutVoyageur(req, res) {
     res.json({ message: 'Statut mis à jour', voyageur: resultat.rows[0] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -479,7 +480,7 @@ async function listerFrais(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -575,7 +576,7 @@ async function modifierGrilleFrais(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -627,7 +628,7 @@ async function creerDerogationFrais(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -650,7 +651,7 @@ async function supprimerDerogationFrais(req, res) {
     res.json({ message: "Dérogation retirée — l'agence revient sur la grille globale" });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -674,7 +675,7 @@ async function listerAgences(req, res) {
     res.json({ nombre: resultat.rows.length, agences: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -906,7 +907,7 @@ async function listerTrajetsAdmin(req, res) {
     res.json({ trajets: resultat });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -998,7 +999,7 @@ async function resumeTrajetsAdmin(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1077,7 +1078,7 @@ async function resumeFinances(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1118,7 +1119,7 @@ async function serieFinances(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1153,7 +1154,7 @@ async function transactionsFinances(req, res) {
     res.json({ transactions: resultat.rows });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1227,7 +1228,7 @@ async function detailFinances(req, res) {
     res.json({ lignes });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1271,7 +1272,7 @@ async function derniereTransaction(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1321,7 +1322,7 @@ async function resumeJournal(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1428,7 +1429,7 @@ async function tachesATraiter(req, res) {
     res.json({ urgent, important, enAttente });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1471,7 +1472,7 @@ async function resumePoints(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1509,7 +1510,7 @@ async function pointsParVoyageur(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1544,7 +1545,7 @@ async function usagesPoints(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1582,7 +1583,7 @@ async function moderationListe(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1620,7 +1621,7 @@ async function moderationTraiter(req, res) {
     res.json({ message: `Commentaire ${action}`, id, statut: nouveauStatut });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1663,7 +1664,7 @@ async function listerLogs(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1708,7 +1709,7 @@ async function agenceTrajets(req, res) {
       })),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1730,7 +1731,7 @@ async function mesNotificationsAdmin(req, res) {
       notifications: r.rows
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -1743,7 +1744,7 @@ async function marquerNotificationsLuesAdmin(req, res) {
     );
     res.json({ message: 'Notifications lues' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

@@ -9,6 +9,7 @@ const { soldeDisponible, debiterSolde } = require('../services/portefeuilleServi
 const { lireParametreEntier } = require('../services/parametreService');
 const { normaliserTelephone } = require('../utils/telephone');
 const { genererIdentifiant } = require('../utils/identifiant');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // VOIR LE PLAN DU BUS POUR UN TRAJET (route publique)
@@ -105,7 +106,7 @@ async function planTrajet(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -277,7 +278,7 @@ async function verrouillerSiege(req, res) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Ce siège vient d\'être pris par un autre voyageur' });
     }
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -334,7 +335,7 @@ async function prolongerVerrou(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -675,7 +676,7 @@ async function payer(req, res) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Ce siège vient d\'être pris par un autre voyageur' });
     }
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -953,7 +954,7 @@ async function venteGuichet(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -1088,10 +1089,25 @@ async function scannerBillet(req, res) {
       });
     }
 
-    await pool.query(
-      `UPDATE billets SET qr_scanne = true, qr_scanne_le = NOW() WHERE id = $1`,
+    // Mise a jour CONDITIONNELLE : si deux chauffeurs scannent le meme
+    // billet a la meme seconde, ou si le voyageur l'annule pendant le
+    // scan, une seule operation gagne. Sans la condition, les deux scans
+    // repondaient « valide ».
+    const marque = await pool.query(
+      `UPDATE billets SET qr_scanne = true, qr_scanne_le = NOW()
+        WHERE id = $1 AND qr_scanne = false AND statut = 'confirme'
+        RETURNING id`,
       [b.id]
     );
+    if (marque.rows.length === 0) {
+      return res.status(409).json({
+        valide: false,
+        message: 'Billet REFUSÉ',
+        raison: 'Ce billet vient d\'être scanné ou annulé',
+        passager: `${b.prenom} ${b.nom}`,
+        siege: b.siege_numero
+      });
+    }
 
     res.json({
       valide: true,
@@ -1102,7 +1118,7 @@ async function scannerBillet(req, res) {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

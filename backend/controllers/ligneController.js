@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { erreurServeur } = require('../utils/erreurServeur');
 
 // ═══════════════════════════════════════════════════
 // CRÉER UNE LIGNE
@@ -116,7 +117,7 @@ async function creerLigne(req, res) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   } finally {
     client.release();
   }
@@ -172,7 +173,7 @@ async function listerLignes(req, res) {
     res.json({ lignes: lignesCompletes });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 
@@ -209,7 +210,7 @@ async function supprimerLigne(req, res) {
     res.json({ message: 'Ligne supprimée' });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    erreurServeur(res, err);
   }
 }
 

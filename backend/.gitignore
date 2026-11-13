@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+# Fichiers déposés par les utilisateurs (pièces jointes, documents,
+# photos) : données personnelles, jamais dans le dépôt.
+uploads/
